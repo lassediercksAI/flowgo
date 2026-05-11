@@ -286,6 +286,41 @@ func Serialize(g Graph) string {
 		if multi || m.Path != "/" {
 			fmt.Fprintf(&b, "map %s\n", m.Path)
 		}
+		// Belt-and-suspenders against poisoning the on-disk file:
+		// an empty id round-trips as `text  "label" 0 0`, which the
+		// parser rejects, locking out every subsequent updateFile()
+		// call. Synthesize unique ids per map at emit time without
+		// mutating the caller's graph.
+		used := make(map[string]struct{}, len(m.Boxes)+len(m.Texts)+len(m.Lines)+len(m.Strokes))
+		for _, x := range m.Boxes {
+			if x.ID != "" {
+				used[x.ID] = struct{}{}
+			}
+		}
+		for _, x := range m.Texts {
+			if x.ID != "" {
+				used[x.ID] = struct{}{}
+			}
+		}
+		for _, x := range m.Lines {
+			if x.ID != "" {
+				used[x.ID] = struct{}{}
+			}
+		}
+		for _, x := range m.Strokes {
+			if x.ID != "" {
+				used[x.ID] = struct{}{}
+			}
+		}
+		fallbackID := func(prefix string) string {
+			for n := 1; ; n++ {
+				id := fmt.Sprintf("%s%d", prefix, n)
+				if _, taken := used[id]; !taken {
+					used[id] = struct{}{}
+					return id
+				}
+			}
+		}
 		for _, box := range m.Boxes {
 			emitSides := box.Sides == 3 || box.Sides == 5 || box.Sides == 6
 			emitPalette := box.Palette >= 2 && box.Palette <= 9
@@ -338,7 +373,11 @@ func Serialize(g Graph) string {
 		for _, t := range m.Texts {
 			emitTPalette := t.Palette >= 2 && t.Palette <= 9
 			emitTFont := t.Font >= 2 && t.Font <= 9
-			fmt.Fprintf(&b, "text %s %s %g %g", t.ID, quote(t.Label), t.X, t.Y)
+			id := t.ID
+			if id == "" {
+				id = fallbackID("t")
+			}
+			fmt.Fprintf(&b, "text %s %s %g %g", id, quote(t.Label), t.X, t.Y)
 			if emitTPalette || emitTFont {
 				palette := t.Palette
 				if !emitTPalette {
@@ -355,7 +394,11 @@ func Serialize(g Graph) string {
 			b.WriteString("\n")
 		}
 		for _, l := range m.Lines {
-			fmt.Fprintf(&b, "line %s %g %g %g %g\n", l.ID, l.X1, l.Y1, l.X2, l.Y2)
+			id := l.ID
+			if id == "" {
+				id = fallbackID("l")
+			}
+			fmt.Fprintf(&b, "line %s %g %g %g %g\n", id, l.X1, l.Y1, l.X2, l.Y2)
 		}
 		if (len(m.Boxes) > 0 || len(m.Edges) > 0 || len(m.Texts) > 0 || len(m.Lines) > 0) && len(m.Strokes) > 0 {
 			b.WriteString("\n")
@@ -364,7 +407,11 @@ func Serialize(g Graph) string {
 			if len(s.Points) < 2 {
 				continue
 			}
-			fmt.Fprintf(&b, "stroke %s", s.ID)
+			id := s.ID
+			if id == "" {
+				id = fallbackID("s")
+			}
+			fmt.Fprintf(&b, "stroke %s", id)
 			for _, p := range s.Points {
 				if len(p) < 2 {
 					continue

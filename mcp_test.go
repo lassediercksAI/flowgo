@@ -241,3 +241,136 @@ func mcpFirstText(v any) string {
 	}
 	return ""
 }
+
+// TestActSetState_BackfillsMissingTextID is the direct regression for the
+// "locked map.flowgo" bug: a set_state payload with an id-less text would
+// serialize as `text  "label" 0 0`, which the parser then rejects on every
+// subsequent updateFile() call. The action must synthesise a fresh id so
+// the post-state file always re-parses.
+func TestActSetState_BackfillsMissingTextID(t *testing.T) {
+	g := freshGraph()
+	_, err := actSetState(g, map[string]any{
+		"graph": map[string]any{
+			"maps": []map[string]any{{
+				"path": "/",
+				"texts": []map[string]any{
+					{"label": "hello", "x": 0, "y": 0},
+				},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("actSetState: %v", err)
+	}
+	if len(g.Maps) != 1 || len(g.Maps[0].Texts) != 1 {
+		t.Fatalf("unexpected graph shape: %+v", g)
+	}
+	if g.Maps[0].Texts[0].ID == "" {
+		t.Fatalf("text id was not backfilled: %+v", g.Maps[0].Texts[0])
+	}
+	if _, err := parse(serialize(*g)); err != nil {
+		t.Fatalf("post-setState graph not re-parseable: %v\n--- serialised ---\n%s", err, serialize(*g))
+	}
+}
+
+// TestActSetState_BackfillsLineAndStrokeIDs covers the other two record
+// types that travel through the serializer's id slot; without backfill
+// they would poison the file the same way an empty-id text does.
+func TestActSetState_BackfillsLineAndStrokeIDs(t *testing.T) {
+	g := freshGraph()
+	_, err := actSetState(g, map[string]any{
+		"graph": map[string]any{
+			"maps": []map[string]any{{
+				"path": "/",
+				"lines": []map[string]any{
+					{"x1": 0, "y1": 0, "x2": 10, "y2": 10},
+				},
+				"strokes": []map[string]any{
+					{"points": [][]float64{{0, 0}, {10, 10}}},
+				},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("actSetState: %v", err)
+	}
+	if id := g.Maps[0].Lines[0].ID; id == "" {
+		t.Fatalf("line id not backfilled: %+v", g.Maps[0].Lines[0])
+	}
+	if id := g.Maps[0].Strokes[0].ID; id == "" {
+		t.Fatalf("stroke id not backfilled: %+v", g.Maps[0].Strokes[0])
+	}
+	if _, err := parse(serialize(*g)); err != nil {
+		t.Fatalf("post-setState graph not re-parseable: %v", err)
+	}
+}
+
+// TestActSetState_RejectsInvalidGraph asserts that validation runs after
+// backfill and that the in-memory state is left untouched on rejection.
+// Without this guarantee, a malformed set_state would still overwrite
+// the workspace and undo recoverable state.
+func TestActSetState_RejectsInvalidGraph(t *testing.T) {
+	g := freshGraph()
+	// Pre-seed something that must survive the rejection.
+	g.Maps[0].Boxes = append(g.Maps[0].Boxes, graph.Box{ID: "b_pre", Label: "kept", X: 1, Y: 2})
+
+	_, err := actSetState(g, map[string]any{
+		"graph": map[string]any{
+			"maps": []map[string]any{{
+				"path": "/",
+				"boxes": []map[string]any{
+					{"id": "b1", "label": "a", "x": 0, "y": 0},
+				},
+				"edges": []map[string]any{
+					{"from": "b1", "to": "ghost"},
+				},
+			}},
+		},
+	})
+	if err == nil {
+		t.Fatalf("expected validation error for unknown edge endpoint")
+	}
+	if !strings.Contains(err.Error(), "graph rejected") {
+		t.Fatalf("error missing 'graph rejected' prefix: %v", err)
+	}
+	if len(g.Maps[0].Boxes) != 1 || g.Maps[0].Boxes[0].ID != "b_pre" {
+		t.Fatalf("graph mutated despite rejection: %+v", g.Maps[0].Boxes)
+	}
+}
+
+// TestSerialize_SynthesisesFallbackIDs is belt-and-suspenders coverage
+// independent of actSetState: even if a future code path constructs an
+// in-memory record with an empty ID, Serialize must still emit a
+// re-parseable file and must not mutate the caller's graph.
+func TestSerialize_SynthesisesFallbackIDs(t *testing.T) {
+	g := Graph{Maps: []NamedMap{{
+		Path:    "/",
+		Texts:   []graph.Text{{Label: "hi", X: 0, Y: 0}},
+		Lines:   []graph.Line{{X1: 0, Y1: 0, X2: 10, Y2: 10}},
+		Strokes: []graph.Stroke{{Points: [][]float64{{0, 0}, {10, 10}}}},
+	}}}
+	out := serialize(g)
+	for _, bad := range []string{"text  ", "line  ", "stroke  "} {
+		if strings.Contains(out, bad) {
+			t.Fatalf("serialize emitted empty-id %q line:\n%s", bad, out)
+		}
+	}
+	round, err := parse(out)
+	if err != nil {
+		t.Fatalf("serialize output not re-parseable: %v\n%s", err, out)
+	}
+	if len(round.Maps[0].Texts) != 1 || round.Maps[0].Texts[0].ID == "" {
+		t.Fatalf("round-tripped text missing id: %+v", round.Maps[0].Texts)
+	}
+	if len(round.Maps[0].Lines) != 1 || round.Maps[0].Lines[0].ID == "" {
+		t.Fatalf("round-tripped line missing id: %+v", round.Maps[0].Lines)
+	}
+	if len(round.Maps[0].Strokes) != 1 || round.Maps[0].Strokes[0].ID == "" {
+		t.Fatalf("round-tripped stroke missing id: %+v", round.Maps[0].Strokes)
+	}
+	// Caller's graph must not have been mutated — the synthesis happens
+	// at emit time without writing back into the in-memory record.
+	if g.Maps[0].Texts[0].ID != "" || g.Maps[0].Lines[0].ID != "" || g.Maps[0].Strokes[0].ID != "" {
+		t.Fatalf("Serialize mutated caller's graph: %+v", g.Maps[0])
+	}
+}

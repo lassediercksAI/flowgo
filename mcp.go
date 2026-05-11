@@ -253,6 +253,36 @@ func actSetState(g *Graph, args map[string]any) (any, error) {
 	if err := json.Unmarshal(b, &newG); err != nil {
 		return nil, fmt.Errorf("invalid graph: %v", err)
 	}
+	// Backfill missing ids before validation. Without this, an MCP
+	// client that sends `{"texts":[{"label":"x","x":0,"y":0}]}` would
+	// poison the on-disk file: Serialize emits an empty-id text line
+	// that parse() can't read, and every subsequent updateFile call
+	// fails at the parse step before reaching its mutation.
+	for i := range newG.Maps {
+		m := &newG.Maps[i]
+		for j := range m.Texts {
+			if m.Texts[j].ID == "" {
+				m.Texts[j].ID = nextID(m, "t")
+			}
+		}
+		for j := range m.Lines {
+			if m.Lines[j].ID == "" {
+				m.Lines[j].ID = nextID(m, "l")
+			}
+		}
+		for j := range m.Strokes {
+			if m.Strokes[j].ID == "" {
+				m.Strokes[j].ID = nextID(m, "s")
+			}
+		}
+	}
+	if errs := validateGraph(newG); len(errs) > 0 {
+		msgs := make([]string, len(errs))
+		for i, e := range errs {
+			msgs[i] = e.Error()
+		}
+		return nil, fmt.Errorf("graph rejected: %s", strings.Join(msgs, "; "))
+	}
 	*g = newG
 	return mcpToolText("ok"), nil
 }
