@@ -128,9 +128,13 @@ func main() {
 	})
 	http.HandleFunc("/mcp", handleMCP)
 
-	ln, err := net.Listen("tcp", bindHost+":54041")
+	// Walk forward from the canonical port so a second flowgo (or any
+	// process holding 54041) doesn't fail to start. Range is bounded to
+	// keep collisions visible in URLs rather than scattering across
+	// ephemeral space.
+	ln, err := listenFirstFree(bindHost, 54041, 54099)
 	if err != nil {
-		die("listen on :54041: %v (is another flowgo already running?)", err)
+		die("listen on %s:54041-54099: %v", bindHost, err)
 	}
 	addr := ln.Addr().(*net.TCPAddr)
 	url := fmt.Sprintf("http://%s:%d", bindHost, addr.Port)
@@ -143,6 +147,22 @@ func main() {
 	if err := http.Serve(ln, nil); err != nil {
 		die("serve: %v", err)
 	}
+}
+
+// listenFirstFree tries each port in [start, end] on host and returns the
+// first listener that binds successfully. The window is small on purpose:
+// "next free port" should still produce a predictable URL, not vanish into
+// the ephemeral range.
+func listenFirstFree(host string, start, end int) (net.Listener, error) {
+	var lastErr error
+	for port := start; port <= end; port++ {
+		ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", host, port))
+		if err == nil {
+			return ln, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
 }
 
 func handleState(w http.ResponseWriter, r *http.Request) {
