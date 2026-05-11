@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.22](https://github.com/lassediercks/flowgo/compare/v0.0.21...v0.0.22) (2026-05-11)
+
+
+### Bug Fixes
+
+* prevent set_state from poisoning the on-disk graph ([41d3a3c](https://github.com/lassediercks/flowgo/commit/41d3a3ce5d4b6f6981ddbcfca64f1dd74e673bc4))
+* walk forward to the next free port when 54041 is busy ([d8eebc1](https://github.com/lassediercks/flowgo/commit/d8eebc1ab18a5aa8b604f74a660413007fc03eaa))
+
 ## [0.0.21](https://github.com/lassediercks/flowgo/compare/v0.0.20...v0.0.21) (2026-05-04)
 
 
