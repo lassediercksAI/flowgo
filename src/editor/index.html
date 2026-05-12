@@ -154,7 +154,43 @@
     background: transparent;
     pointer-events: none;
   }
-  #canvas .box, #canvas .text-item { pointer-events: auto; }
+  #canvas .box, #canvas .text-item, #canvas #alignToolbar { pointer-events: auto; }
+
+  /* Floating mini-toolbar shown above the bounding box of the
+     current selection when 2+ boxes / texts are selected. Lives
+     inside #canvas so the viewport translate (pan) applies for
+     free; positioning is in canvas-data coords. The translate
+     centers it horizontally on `left` and lifts it just above
+     `top` (the selection bbox top). */
+  #alignToolbar {
+    position: absolute; z-index: 8;
+    display: none; align-items: center; gap: 2px;
+    transform: translate(-50%, calc(-100% - 10px));
+    background: #fff; border: 1px solid #ccc; border-radius: 6px;
+    padding: 3px; box-shadow: 0 2px 6px rgba(0,0,0,.15);
+    user-select: none;
+  }
+  #alignToolbar button {
+    width: 28px; height: 28px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: transparent; border: 0; padding: 0;
+    color: #333; cursor: pointer; border-radius: 4px;
+  }
+  /* Override the global `svg { position: absolute; inset: 0; ... }`
+     rule below — that's intended for the full-canvas overlay
+     layers, not for inline icon glyphs sitting inside a button. */
+  #alignToolbar button svg {
+    position: static; inset: auto; z-index: auto;
+    width: 16px; height: 16px;
+  }
+  #alignToolbar button:hover { background: #eef4ff; color: #07f; }
+  /* Hide while a drag is in flight so the toolbar doesn't hover
+     stale above its old location while the user moves things. The
+     mouse path adds `.dragging` to each moved element; touch sets
+     `body.dragging`. Snaps back into place on drop via the
+     applyClasses → updateSelectionToolbar trigger. */
+  body.dragging #alignToolbar,
+  #canvas:has(.dragging) #alignToolbar { display: none !important; }
   .box {
     position: absolute; min-width: 80px; padding: 0.55em 0.85em;
     background: #fff; border: 2px solid #333; border-radius: 6px;
@@ -560,6 +596,7 @@
       <tr><td><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>C</kbd> / <kbd>X</kbd> / <kbd>V</kbd></td><td>Copy / cut / paste the current selection (each paste offsets +20px)</td></tr>
       <tr><td><kbd>Shift</kbd>-drag on empty canvas</td><td>Add to the existing selection instead of replacing</td></tr>
       <tr><td>Click on empty canvas</td><td>Clear the selection</td></tr>
+      <tr><td>2+ boxes / texts selected</td><td>Floating toolbar above the selection: two buttons align items on a horizontal or vertical centre line — if the result would overlap, items are spread along the line with a 20px gap</td></tr>
     </table>
 
     <h3>Submaps</h3>

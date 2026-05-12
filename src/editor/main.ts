@@ -64,6 +64,7 @@ import {
   attachTextHandlers,
   wireAttach,
 } from "./attach.ts";
+import { attachAlignToolbar, wireAlign } from "./align.ts";
 
 // ---------------------------------------------------------------
 // Module-level state. Every feature module reaches these through its
@@ -237,6 +238,15 @@ wireClone({
   findLineById,
   mintId: uid,
 });
+
+wireAlign({
+  canvas,
+  currentMap: () => state,
+  selected,
+  scheduleSave: () => scheduleSave(),
+  renderAll: () => renderAll(),
+});
+attachAlignToolbar();
 
 wireClipboard({
   selected,

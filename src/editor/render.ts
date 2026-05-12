@@ -17,6 +17,7 @@ import {
 import { hasSubmapContent } from "../graph/submap.ts";
 import { resolveFont, resolvePalette } from "../graph/palette.ts";
 import { endpointAnchor } from "./anchors.ts";
+import { updateSelectionToolbar } from "./align.ts";
 
 interface BoxData {
   id: string;
@@ -299,6 +300,7 @@ export const applyClasses = (): void => {
   for (const el of w.strokeLayer.querySelectorAll<SVGGElement>(".stroke-group")) {
     el.classList.toggle("selected", w.selected.has(el.dataset["id"] ?? ""));
   }
+  updateSelectionToolbar();
 };
 
 export const renderEdges = (): void => {
