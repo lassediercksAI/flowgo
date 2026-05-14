@@ -123,6 +123,15 @@ export const copySelection = (): boolean => {
   }
   if (!boxes.length && !texts.length && !lines.length) return false;
   buffer = { boxes, texts, lines, edges, pasteOffset: 0 };
+  // Mirror box/text labels to the OS clipboard so external editors can
+  // paste plain text. Internal paste still reads `buffer`, so structure
+  // (edges, shapes, positions) round-trips losslessly inside flowgo.
+  const labels = [...boxes, ...texts]
+    .sort((a, b) => a.y - b.y || a.x - b.x)
+    .map((item) => item.label);
+  if (labels.length && typeof navigator !== "undefined" && navigator.clipboard) {
+    navigator.clipboard.writeText(labels.join("\n")).catch(() => {});
+  }
   return true;
 };
 
