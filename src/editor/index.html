@@ -347,6 +347,27 @@
 
   .stroke-group .stroke-hit { pointer-events: stroke; cursor: pointer; }
   .stroke-line { fill: none; stroke: #333; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+  /* Palette colours mirror the `.box.palette-N` border hues so a stroke
+     drawn with the active brush palette reads as the same colour as
+     anything else stamped with that palette. Keep in sync with the
+     PENCIL_BODY map in brush.ts. */
+  /* Palette 2 is the "inverted" slot (white-on-black for boxes/text).
+     A pure white stroke would vanish on the white canvas, so we paint
+     a black halo via drop-shadow — the doubled filter widens it enough
+     to read at the same weight as the unhaloed colour strokes. */
+  .stroke-group.palette-2 .stroke-line {
+    stroke: #fff;
+    filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);
+  }
+  .stroke-group.palette-3 .stroke-line { stroke: #b91c1c; }
+  .stroke-group.palette-4 .stroke-line { stroke: #c2410c; }
+  .stroke-group.palette-5 .stroke-line { stroke: #a16207; }
+  .stroke-group.palette-6 .stroke-line { stroke: #15803d; }
+  .stroke-group.palette-7 .stroke-line { stroke: #1d4ed8; }
+  .stroke-group.palette-8 .stroke-line { stroke: #6d28d9; }
+  .stroke-group.palette-9 .stroke-line { stroke: #374151; }
+  /* `.selected` wins regardless of palette so users keep an unambiguous
+     selection cue. */
   .stroke-group.selected .stroke-line { stroke: #07f; }
 
   body.brush-mode,
@@ -357,11 +378,19 @@
     cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'><path d='M3 21l3-1 9-9-2-2-9 9-1 3z' fill='%23333' stroke='%23000' stroke-width='1'/><path d='M14 9l4-4-2-2-4 4z' fill='%23a60' stroke='%23000' stroke-width='1'/></svg>") 2 22, crosshair;
   }
   body.brush-mode .handle { display: none; }
+  /* The hit-children selectors are load-bearing: each group's `.*-hit`
+     child sets `pointer-events: stroke` to keep thin lines clickable,
+     which would otherwise re-enable interaction even when the group is
+     opted out. Listing them explicitly disarms selection on every
+     overlay during paint/line modes. */
   body.brush-mode #canvas .box,
   body.brush-mode #canvas .text-item,
   body.brush-mode .line-group,
+  body.brush-mode .line-group .line-hit,
   body.brush-mode .stroke-group,
-  body.brush-mode .edge-group { pointer-events: none; }
+  body.brush-mode .stroke-group .stroke-hit,
+  body.brush-mode .edge-group,
+  body.brush-mode .edge-group .edge-hit { pointer-events: none; }
 
   body.line-mode,
   body.line-mode #bg-layer,
@@ -372,8 +401,11 @@
   body.line-mode #canvas .box,
   body.line-mode #canvas .text-item,
   body.line-mode .line-group,
+  body.line-mode .line-group .line-hit,
   body.line-mode .stroke-group,
-  body.line-mode .edge-group { pointer-events: none; }
+  body.line-mode .stroke-group .stroke-hit,
+  body.line-mode .edge-group,
+  body.line-mode .edge-group .edge-hit { pointer-events: none; }
 
   .line-group .line-hit { pointer-events: stroke; cursor: grab; }
   .line-group.dragging .line-hit { cursor: grabbing; }
@@ -570,6 +602,7 @@
       <tr><td><kbd>T</kbd></td><td>Spawn a text label at the cursor (auto-edits)</td></tr>
       <tr><td><kbd>L</kbd></td><td>Enter line-draw mode: click start, click end · <kbd>L</kbd> or <kbd>Escape</kbd> to exit</td></tr>
       <tr><td><kbd>B</kbd> / <kbd>V</kbd></td><td>Enter brush mode (drag to paint freehand) / leave brush mode</td></tr>
+      <tr><td><kbd>1</kbd>–<kbd>9</kbd> in brush mode</td><td>Set the next stroke's colour (cursor pencil tints to match)</td></tr>
       <tr><td>Click a text / line</td><td>Select it</td></tr>
       <tr><td>Double-click a text</td><td>Edit its label</td></tr>
       <tr><td>Drag a text / line body</td><td>Move it (with any other selected items)</td></tr>

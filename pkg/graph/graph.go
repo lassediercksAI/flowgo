@@ -63,8 +63,9 @@ type Line struct {
 
 // Stroke is a freehand polyline (brush mode).
 type Stroke struct {
-	ID     string      `json:"id"`
-	Points [][]float64 `json:"points"`
+	ID      string      `json:"id"`
+	Points  [][]float64 `json:"points"`
+	Palette int         `json:"palette,omitempty"`
 }
 
 // NamedMap is one canvas at a given path. Submap paths are slash-
@@ -243,8 +244,24 @@ func Parse(s string) (Graph, error) {
 			if len(toks) < 4 {
 				return g, fmt.Errorf("line %d: stroke needs id and at least two points", lineNo)
 			}
-			pts := make([][]float64, 0, len(toks)-2)
-			for _, pair := range toks[2:] {
+			// Optional palette token (a non-comma token after the id):
+			// `stroke <id> [palette] x,y x,y ...`. Points always carry a
+			// comma so the two forms are unambiguous.
+			pointStart := 2
+			palette := 0
+			if !strings.ContainsRune(toks[2], ',') {
+				p, err := strconv.Atoi(toks[2])
+				if err != nil {
+					return g, fmt.Errorf("line %d: bad stroke palette: %v", lineNo, err)
+				}
+				palette = p
+				pointStart = 3
+				if len(toks) < 5 {
+					return g, fmt.Errorf("line %d: stroke needs at least two points", lineNo)
+				}
+			}
+			pts := make([][]float64, 0, len(toks)-pointStart)
+			for _, pair := range toks[pointStart:] {
 				parts := strings.SplitN(pair, ",", 2)
 				if len(parts) != 2 {
 					return g, fmt.Errorf("line %d: bad stroke point %q", lineNo, pair)
@@ -259,7 +276,7 @@ func Parse(s string) (Graph, error) {
 				}
 				pts = append(pts, []float64{px, py})
 			}
-			g.Maps[cur].Strokes = append(g.Maps[cur].Strokes, Stroke{ID: toks[1], Points: pts})
+			g.Maps[cur].Strokes = append(g.Maps[cur].Strokes, Stroke{ID: toks[1], Points: pts, Palette: palette})
 		default:
 			return g, fmt.Errorf("line %d: unknown directive %q", lineNo, toks[0])
 		}
@@ -412,6 +429,9 @@ func Serialize(g Graph) string {
 				id = fallbackID("s")
 			}
 			fmt.Fprintf(&b, "stroke %s", id)
+			if s.Palette >= 2 && s.Palette <= 9 {
+				fmt.Fprintf(&b, " %d", s.Palette)
+			}
 			for _, p := range s.Points {
 				if len(p) < 2 {
 					continue

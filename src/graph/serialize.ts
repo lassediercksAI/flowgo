@@ -44,6 +44,7 @@ export interface LineData {
 export interface StrokeData {
   readonly id: string;
   readonly points: ReadonlyArray<readonly [number, number]>;
+  readonly palette?: number | undefined;
 }
 
 export interface ConcreteMap extends MapLike {
@@ -152,7 +153,8 @@ export const serializeGraph = (g: ConcreteGraph): string => {
       const pairs = s.points
         .map((p) => `${flowgoNum(p[0])},${flowgoNum(p[1])}`)
         .join(" ");
-      out += `stroke ${s.id} ${pairs}\n`;
+      const pal = isPaletteOrFont(s.palette) ? ` ${s.palette}` : "";
+      out += `stroke ${s.id}${pal} ${pairs}\n`;
     }
   });
 

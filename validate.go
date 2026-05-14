@@ -165,6 +165,9 @@ func validateMap(m NamedMap) []error {
 				errs = append(errs, fmt.Errorf("map %q: stroke %q point[%d] has %d coords (need 2)", m.Path, s.ID, j, len(p)))
 			}
 		}
+		if !validPalette(s.Palette) {
+			errs = append(errs, fmt.Errorf("map %q: stroke %q has invalid palette %d", m.Path, s.ID, s.Palette))
+		}
 	}
 
 	return errs

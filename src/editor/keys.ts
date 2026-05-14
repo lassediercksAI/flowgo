@@ -14,6 +14,7 @@ import { undo, redo } from "./persistence.ts";
 import {
   isBrushMode,
   setBrushMode,
+  setBrushPalette,
   startStroke as _startStroke,
 } from "./brush.ts";
 import {
@@ -317,8 +318,17 @@ export const attachKeyboardListener = (): void => {
     // shifted variant so non-US layouts where Shift+digit produces a
     // glyph still work.
     if (!mod && !e.altKey && !e.shiftKey && /^[1-9]$/.test(e.key)) {
-      if (w.selected.size === 0) return;
       const palette = parseInt(e.key, 10);
+      // In brush mode the digit colours the *next* stroke instead of
+      // recolouring the current selection — there is no selection on
+      // the empty-canvas-painting workflow, and the cursor reflects
+      // the chosen palette so the user can see the active colour.
+      if (isBrushMode()) {
+        e.preventDefault();
+        setBrushPalette(palette);
+        return;
+      }
+      if (w.selected.size === 0) return;
       if (applyPalette(palette)) {
         e.preventDefault();
         w.scheduleSave();

@@ -148,6 +148,47 @@ describe("serializeGraph", () => {
     expect(out).toBe("stroke s1 1,2 3,4 5,6\n");
   });
 
+  it("emits stroke palette as a token between id and first point", () => {
+    // Disambiguation hinges on the palette token having no comma —
+    // a regression that emitted `stroke s1 3,0 1,2 3,4` would parse as
+    // four points and silently drop the colour. Asserting the literal
+    // wire form pins that the token stays comma-free.
+    const out = serializeGraph({
+      maps: [
+        {
+          path: "/",
+          strokes: [
+            { id: "s1", points: [[0, 0], [1, 1]], palette: 3 },
+            { id: "s2", points: [[0, 0], [1, 1]], palette: 7 },
+          ],
+        },
+      ],
+    });
+    expect(out).toBe("stroke s1 3 0,0 1,1\nstroke s2 7 0,0 1,1\n");
+  });
+
+  it("omits the palette token for default / out-of-range strokes", () => {
+    // Mirrors the Go serializer: default palette (1 or 0 or undefined)
+    // round-trips as the legacy `stroke <id> x,y …` form so files
+    // written before colour support stay byte-equivalent.
+    const out = serializeGraph({
+      maps: [
+        {
+          path: "/",
+          strokes: [
+            { id: "a", points: [[0, 0], [1, 1]] },
+            { id: "b", points: [[0, 0], [1, 1]], palette: 0 },
+            { id: "c", points: [[0, 0], [1, 1]], palette: 1 },
+            { id: "d", points: [[0, 0], [1, 1]], palette: 99 },
+          ],
+        },
+      ],
+    });
+    expect(out).toBe(
+      "stroke a 0,0 1,1\nstroke b 0,0 1,1\nstroke c 0,0 1,1\nstroke d 0,0 1,1\n",
+    );
+  });
+
   it("drops a stroke with fewer than 2 points", () => {
     const out = serializeGraph({
       maps: [

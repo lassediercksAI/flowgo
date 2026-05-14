@@ -105,6 +105,9 @@ func mapsEquivalent(a, b NamedMap) bool {
 		if a.Strokes[i].ID != b.Strokes[i].ID {
 			return false
 		}
+		if a.Strokes[i].Palette != b.Strokes[i].Palette {
+			return false
+		}
 		if len(a.Strokes[i].Points) != len(b.Strokes[i].Points) {
 			return false
 		}

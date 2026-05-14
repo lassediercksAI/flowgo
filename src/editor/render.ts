@@ -58,6 +58,7 @@ interface EdgeData {
 interface StrokeData {
   id: string;
   points: Array<readonly [number, number]>;
+  palette?: number;
 }
 
 interface CurrentMap {
@@ -182,9 +183,12 @@ export const renderStrokes = (): void => {
     if (!s.points || s.points.length < 2) continue;
     const d = strokePathD(s.points);
     const g = document.createElementNS(SVG_NS, "g");
+    const pal = resolvePalette(s.palette);
     g.setAttribute(
       "class",
-      "stroke-group" + (w.selected.has(s.id) ? " selected" : ""),
+      "stroke-group"
+        + (pal !== 1 ? " palette-" + pal : "")
+        + (w.selected.has(s.id) ? " selected" : ""),
     );
     g.dataset["id"] = s.id;
 
