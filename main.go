@@ -139,9 +139,9 @@ func main() {
 	addr := ln.Addr().(*net.TCPAddr)
 	url := fmt.Sprintf("http://%s:%d", bindHost, addr.Port)
 	fmt.Printf("flowgo editing %s\n  GUI: %s\n  MCP: %s/mcp\n", filePath, url, url)
-	if bindHost == "127.0.0.1" {
+	if bindHost == "127.0.0.1" && os.Getenv("FLOWGO_NO_OPEN") == "" {
 		openBrowser(url)
-	} else {
+	} else if bindHost != "127.0.0.1" {
 		fmt.Printf("  (bound to all interfaces — substitute 0.0.0.0 with the host's IP / localhost when you connect)\n")
 	}
 	if err := http.Serve(ln, nil); err != nil {

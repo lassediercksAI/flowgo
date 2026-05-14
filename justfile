@@ -5,8 +5,9 @@
 #               or any *.go file. No external watcher binary required;
 #               the Go side is polled with stat + a 500ms sleep.
 #
-#               Heads-up: every Go restart re-opens the editor in a new
-#               browser tab. Close stragglers as you go.
+#               The first run opens the editor in your browser; subsequent
+#               restarts set FLOWGO_NO_OPEN=1 so they reuse the existing tab
+#               (just hit reload, or rely on the server reconnect).
 #
 # Requires: pnpm, go.
 
@@ -56,11 +57,17 @@ _dev-run file:
     trap cleanup EXIT
     trap shutdown INT TERM
 
+    started=0
     start_go() {
         [[ -n "${GO_PID}" ]] && kill "$GO_PID" 2>/dev/null || true
         wait "$GO_PID" 2>/dev/null || true
         echo "── restarting flowgo ──────────────────────────────────"
-        go run . "{{file}}" &
+        if (( started )); then
+            FLOWGO_NO_OPEN=1 go run . "{{file}}" &
+        else
+            go run . "{{file}}" &
+            started=1
+        fi
         GO_PID=$!
         touch "$marker"
     }
