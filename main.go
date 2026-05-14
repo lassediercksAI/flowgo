@@ -144,6 +144,7 @@ func main() {
 	} else if bindHost != "127.0.0.1" {
 		fmt.Printf("  (bound to all interfaces — substitute 0.0.0.0 with the host's IP / localhost when you connect)\n")
 	}
+	maybeNotifyNewVersion()
 	if err := http.Serve(ln, nil); err != nil {
 		die("serve: %v", err)
 	}
