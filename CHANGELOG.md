@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.0.23](https://github.com/lassediercks/flowgo/compare/v0.0.22...v0.0.23) (2026-05-14)
+
+
+### Features
+
+* **editor:** align toolbar for multi-selection with auto-spread ([e75eb99](https://github.com/lassediercks/flowgo/commit/e75eb9998e11311c49a4113bb531464d9496d411))
+* **editor:** colour brush strokes via 1-9 in brush mode ([3906a9b](https://github.com/lassediercks/flowgo/commit/3906a9b636f89fdb49ba6036ddba6359c550f954))
+* **editor:** mirror copied box/text labels to system clipboard ([5406cb9](https://github.com/lassediercks/flowgo/commit/5406cb9f7455c41f08d4995fb2956078514afcf0))
+
+
+### Bug Fixes
+
+* rebuild dist/index.html ([2b53b28](https://github.com/lassediercks/flowgo/commit/2b53b28e1d774b1475bc8aa956c40275c9098b0f))
+
 ## [0.0.22](https://github.com/lassediercks/flowgo/compare/v0.0.21...v0.0.22) (2026-05-11)
 
 
