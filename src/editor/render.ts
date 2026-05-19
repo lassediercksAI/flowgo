@@ -46,6 +46,7 @@ interface LineData {
   y1: number;
   x2: number;
   y2: number;
+  palette?: number;
 }
 
 interface EdgeData {
@@ -53,6 +54,7 @@ interface EdgeData {
   to: string;
   fromHandle?: string;
   toHandle?: string;
+  palette?: number;
 }
 
 interface StrokeData {
@@ -229,9 +231,12 @@ export const renderLines = (): void => {
   const map = w.currentMap();
   for (const l of map.lines) {
     const g = document.createElementNS(SVG_NS, "g");
+    const lPal = resolvePalette(l.palette);
     g.setAttribute(
       "class",
-      "line-group" + (w.selected.has(l.id) ? " selected" : ""),
+      "line-group"
+        + (lPal !== 1 ? " palette-" + lPal : "")
+        + (w.selected.has(l.id) ? " selected" : ""),
     );
     g.dataset["id"] = l.id;
 
@@ -327,9 +332,12 @@ export const renderEdges = (): void => {
     const [bx, by] = endpointAnchor(b, eb, e.toHandle, acx, acy);
 
     const g = document.createElementNS(SVG_NS, "g");
+    const ePal = resolvePalette(e.palette);
     g.setAttribute(
       "class",
-      "edge-group" + (e === sel ? " selected" : ""),
+      "edge-group"
+        + (ePal !== 1 ? " palette-" + ePal : "")
+        + (e === sel ? " selected" : ""),
     );
 
     const hit = document.createElementNS(SVG_NS, "line");

@@ -98,6 +98,84 @@ func TestStrokePaletteRoundTrip(t *testing.T) {
 	}
 }
 
+// Edges accept an optional trailing palette token after the two
+// endpoints. Round-tripping through parse(serialize(g)) preserves the
+// palette for every legal value, including 0 (no token emitted).
+func TestEdgePaletteRoundTrip(t *testing.T) {
+	for _, p := range []int{0, 2, 5, 9} {
+		in := Graph{Maps: []NamedMap{{
+			Path:  "/",
+			Boxes: []Box{{ID: "a", Label: "a"}, {ID: "b", Label: "b"}},
+			Edges: []Edge{{From: "a", To: "b", Palette: p}},
+		}}}
+		out, err := parse(serialize(in))
+		if err != nil {
+			t.Fatalf("palette %d re-parse: %v", p, err)
+		}
+		if got := out.Maps[0].Edges[0].Palette; got != p {
+			t.Fatalf("palette %d: round-tripped as %d", p, got)
+		}
+	}
+}
+
+// Edge palette stays a trailing token so older files (without it) keep
+// parsing. With handles the form becomes `edge a:tl b:br 5`.
+func TestSerializeEdgePalette(t *testing.T) {
+	g := Graph{Maps: []NamedMap{{
+		Path:  "/",
+		Boxes: []Box{{ID: "a", Label: "a"}, {ID: "b", Label: "b"}},
+		Edges: []Edge{
+			{From: "a", To: "b"},
+			{From: "a", To: "b", Palette: 5},
+			{From: "a", To: "b", FromHandle: "tl", ToHandle: "br", Palette: 7},
+		},
+	}}}
+	out := serialize(g)
+	for _, want := range []string{
+		"edge a b\n",
+		"edge a b 5\n",
+		"edge a:tl b:br 7\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+// Standalone lines also accept an optional palette as the 7th token,
+// after the four coords.
+func TestLinePaletteRoundTrip(t *testing.T) {
+	for _, p := range []int{0, 2, 4, 9} {
+		in := Graph{Maps: []NamedMap{{
+			Path:  "/",
+			Lines: []Line{{ID: "l1", X1: 0, Y1: 0, X2: 10, Y2: 10, Palette: p}},
+		}}}
+		out, err := parse(serialize(in))
+		if err != nil {
+			t.Fatalf("palette %d re-parse: %v", p, err)
+		}
+		if got := out.Maps[0].Lines[0].Palette; got != p {
+			t.Fatalf("palette %d: round-tripped as %d", p, got)
+		}
+	}
+}
+
+func TestSerializeLinePalette(t *testing.T) {
+	g := Graph{Maps: []NamedMap{{
+		Path: "/",
+		Lines: []Line{
+			{ID: "l1", X1: 0, Y1: 0, X2: 1, Y2: 1},
+			{ID: "l2", X1: 0, Y1: 0, X2: 1, Y2: 1, Palette: 4},
+		},
+	}}}
+	out := serialize(g)
+	for _, want := range []string{"line l1 0 0 1 1\n", "line l2 0 0 1 1 4\n"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in:\n%s", want, out)
+		}
+	}
+}
+
 // Palette 1 is the "no class applied" sentinel for box/text and is
 // rejected by validPalette there. Strokes share the rule so the data
 // model stays uniform — only 0 or 2..9 are allowed.

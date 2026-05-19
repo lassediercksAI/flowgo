@@ -410,6 +410,20 @@
   .line-group .line-hit { pointer-events: stroke; cursor: grab; }
   .line-group.dragging .line-hit { cursor: grabbing; }
   .line-line { stroke: #555; stroke-width: 2; }
+  /* Palette colours match the stroke/box palette so a recoloured line
+     reads as the same hue as any other element stamped with that palette.
+     Palette 2 uses a black halo because pure white would vanish. */
+  .line-group.palette-2 .line-line {
+    stroke: #fff;
+    filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);
+  }
+  .line-group.palette-3 .line-line { stroke: #b91c1c; }
+  .line-group.palette-4 .line-line { stroke: #c2410c; }
+  .line-group.palette-5 .line-line { stroke: #a16207; }
+  .line-group.palette-6 .line-line { stroke: #15803d; }
+  .line-group.palette-7 .line-line { stroke: #1d4ed8; }
+  .line-group.palette-8 .line-line { stroke: #6d28d9; }
+  .line-group.palette-9 .line-line { stroke: #374151; }
   .line-group.selected .line-line { stroke: #07f; stroke-width: 3; }
   .line-handle {
     fill: #07f; stroke: #fff; stroke-width: 2;
@@ -469,6 +483,17 @@
   .edge-group { pointer-events: none; }
   .edge-hit { pointer-events: stroke; cursor: pointer; }
   .edge-line { stroke: #333; stroke-width: 2; }
+  .edge-group.palette-2 .edge-line {
+    stroke: #fff;
+    filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);
+  }
+  .edge-group.palette-3 .edge-line { stroke: #b91c1c; }
+  .edge-group.palette-4 .edge-line { stroke: #c2410c; }
+  .edge-group.palette-5 .edge-line { stroke: #a16207; }
+  .edge-group.palette-6 .edge-line { stroke: #15803d; }
+  .edge-group.palette-7 .edge-line { stroke: #1d4ed8; }
+  .edge-group.palette-8 .edge-line { stroke: #6d28d9; }
+  .edge-group.palette-9 .edge-line { stroke: #374151; }
   .edge-group.selected .edge-line { stroke: #07f; stroke-width: 3; }
   .selection-band {
     position: absolute; z-index: 6; pointer-events: none;
@@ -589,10 +614,10 @@
       <tr><td><kbd>Escape</kbd> while editing</td><td>Cancel the edit</td></tr>
       <tr><td>Drag a box body</td><td>Move it (and any other selected boxes together)</td></tr>
       <tr><td><kbd>⌥</kbd>-drag (Alt-drag)</td><td>Duplicate the selection and drag the copies</td></tr>
-      <tr><td><kbd>+</kbd> / <kbd>-</kbd> with boxes selected</td><td>Cycle shape: triangle → rectangle → pentagon → hexagon</td></tr>
-      <tr><td><kbd>Shift</kbd> + <kbd>+</kbd> / <kbd>-</kbd> with shaped boxes selected</td><td>Rotate the shape (label stays upright) by ±45°</td></tr>
+      <tr><td><kbd>+</kbd> / <kbd>-</kbd> with anything selected</td><td>Step palette colour by ±1 (wraps <kbd>1</kbd>↔<kbd>9</kbd>) — works on boxes, texts, lines, strokes, and the selected edge</td></tr>
+      <tr><td><kbd>Shift</kbd> + <kbd>+</kbd> / <kbd>-</kbd> with boxes or texts selected</td><td>Step font size by ±1 (wraps <kbd>1</kbd>↔<kbd>9</kbd>)</td></tr>
       <tr><td><kbd>A</kbd> with one box selected</td><td>Toggle anchor — the map centers on this box on load (one anchor per map)</td></tr>
-      <tr><td><kbd>1</kbd>–<kbd>9</kbd> with boxes or texts selected</td><td>Recolor: <kbd>1</kbd> default · <kbd>2</kbd> inverted (text: bold black) · <kbd>3</kbd>–<kbd>9</kbd> red, orange, yellow, green, blue, purple, gray</td></tr>
+      <tr><td><kbd>1</kbd>–<kbd>9</kbd> with anything selected</td><td>Recolor boxes, texts, lines, strokes, and the selected edge: <kbd>1</kbd> default · <kbd>2</kbd> inverted (text: bold black) · <kbd>3</kbd>–<kbd>9</kbd> red, orange, yellow, green, blue, purple, gray</td></tr>
       <tr><td><kbd>Shift</kbd> + <kbd>1</kbd>–<kbd>9</kbd> with boxes or texts selected</td><td>Font size: <kbd>1</kbd> default (14px) → <kbd>9</kbd> largest (56px)</td></tr>
       <tr><td><kbd>Delete</kbd> / <kbd>Backspace</kbd></td><td>Remove all selected boxes (and their submap subtrees)</td></tr>
     </table>

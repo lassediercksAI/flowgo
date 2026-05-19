@@ -40,6 +40,7 @@ type Edge struct {
 	FromHandle string `json:"fromHandle,omitempty"`
 	To         string `json:"to"`
 	ToHandle   string `json:"toHandle,omitempty"`
+	Palette    int    `json:"palette,omitempty"`
 }
 
 // Text is a free-floating annotation.
@@ -54,11 +55,12 @@ type Text struct {
 
 // Line is a static two-point segment.
 type Line struct {
-	ID string  `json:"id"`
-	X1 float64 `json:"x1"`
-	Y1 float64 `json:"y1"`
-	X2 float64 `json:"x2"`
-	Y2 float64 `json:"y2"`
+	ID      string  `json:"id"`
+	X1      float64 `json:"x1"`
+	Y1      float64 `json:"y1"`
+	X2      float64 `json:"x2"`
+	Y2      float64 `json:"y2"`
+	Palette int     `json:"palette,omitempty"`
 }
 
 // Stroke is a freehand polyline (brush mode).
@@ -176,7 +178,17 @@ func Parse(s string) (Graph, error) {
 			}
 			fromID, fromH := splitEndpoint(toks[1])
 			toID, toH := splitEndpoint(toks[2])
-			g.Maps[cur].Edges = append(g.Maps[cur].Edges, Edge{From: fromID, FromHandle: fromH, To: toID, ToHandle: toH})
+			edge := Edge{From: fromID, FromHandle: fromH, To: toID, ToHandle: toH}
+			if len(toks) >= 4 {
+				palette, err := strconv.Atoi(toks[3])
+				if err != nil {
+					return g, fmt.Errorf("line %d: bad edge palette: %v", lineNo, err)
+				}
+				if palette >= 2 && palette <= 9 {
+					edge.Palette = palette
+				}
+			}
+			g.Maps[cur].Edges = append(g.Maps[cur].Edges, edge)
 		case "text":
 			if len(toks) < 5 {
 				return g, fmt.Errorf("line %d: text needs id label x y", lineNo)
@@ -221,7 +233,17 @@ func Parse(s string) (Graph, error) {
 				}
 				coords[i] = v
 			}
-			g.Maps[cur].Lines = append(g.Maps[cur].Lines, Line{ID: toks[1], X1: coords[0], Y1: coords[1], X2: coords[2], Y2: coords[3]})
+			ln := Line{ID: toks[1], X1: coords[0], Y1: coords[1], X2: coords[2], Y2: coords[3]}
+			if len(toks) >= 7 {
+				palette, err := strconv.Atoi(toks[6])
+				if err != nil {
+					return g, fmt.Errorf("line %d: bad line palette: %v", lineNo, err)
+				}
+				if palette >= 2 && palette <= 9 {
+					ln.Palette = palette
+				}
+			}
+			g.Maps[cur].Lines = append(g.Maps[cur].Lines, ln)
 		case "anchor":
 			if len(toks) < 2 {
 				return g, fmt.Errorf("line %d: anchor needs id", lineNo)
@@ -382,7 +404,11 @@ func Serialize(g Graph) string {
 			b.WriteString("\n")
 		}
 		for _, e := range m.Edges {
-			fmt.Fprintf(&b, "edge %s %s\n", joinEndpoint(e.From, e.FromHandle), joinEndpoint(e.To, e.ToHandle))
+			fmt.Fprintf(&b, "edge %s %s", joinEndpoint(e.From, e.FromHandle), joinEndpoint(e.To, e.ToHandle))
+			if e.Palette >= 2 && e.Palette <= 9 {
+				fmt.Fprintf(&b, " %d", e.Palette)
+			}
+			b.WriteString("\n")
 		}
 		if (len(m.Boxes) > 0 || len(m.Edges) > 0) && len(m.Texts) > 0 {
 			b.WriteString("\n")
@@ -415,7 +441,11 @@ func Serialize(g Graph) string {
 			if id == "" {
 				id = fallbackID("l")
 			}
-			fmt.Fprintf(&b, "line %s %g %g %g %g\n", id, l.X1, l.Y1, l.X2, l.Y2)
+			fmt.Fprintf(&b, "line %s %g %g %g %g", id, l.X1, l.Y1, l.X2, l.Y2)
+			if l.Palette >= 2 && l.Palette <= 9 {
+				fmt.Fprintf(&b, " %d", l.Palette)
+			}
+			b.WriteString("\n")
 		}
 		if (len(m.Boxes) > 0 || len(m.Edges) > 0 || len(m.Texts) > 0 || len(m.Lines) > 0) && len(m.Strokes) > 0 {
 			b.WriteString("\n")

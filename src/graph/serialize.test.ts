@@ -136,6 +136,37 @@ describe("serializeGraph", () => {
     expect(out).toBe("edge a b\nedge a:tl b:br\n");
   });
 
+  it("emits edge palette as an optional trailing token", () => {
+    const out = serializeGraph({
+      maps: [
+        {
+          path: "/",
+          edges: [
+            { from: "a", to: "b" },
+            { from: "a", to: "b", palette: 5 },
+            { from: "a", to: "b", fromHandle: "tl", toHandle: "br", palette: 7 },
+          ],
+        },
+      ],
+    });
+    expect(out).toBe("edge a b\nedge a b 5\nedge a:tl b:br 7\n");
+  });
+
+  it("emits line palette as an optional trailing token", () => {
+    const out = serializeGraph({
+      maps: [
+        {
+          path: "/",
+          lines: [
+            { id: "l1", x1: 0, y1: 0, x2: 10, y2: 10 },
+            { id: "l2", x1: 0, y1: 0, x2: 10, y2: 10, palette: 4 },
+          ],
+        },
+      ],
+    });
+    expect(out).toBe("line l1 0 0 10 10\nline l2 0 0 10 10 4\n");
+  });
+
   it("emits stroke points as comma pairs", () => {
     const out = serializeGraph({
       maps: [

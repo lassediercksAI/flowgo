@@ -22,6 +22,7 @@ export interface EdgeData {
   readonly to: string;
   readonly fromHandle?: string | undefined;
   readonly toHandle?: string | undefined;
+  readonly palette?: number | undefined;
 }
 
 export interface TextData {
@@ -39,6 +40,7 @@ export interface LineData {
   readonly y1: number;
   readonly x2: number;
   readonly y2: number;
+  readonly palette?: number | undefined;
 }
 
 export interface StrokeData {
@@ -125,7 +127,9 @@ export const serializeGraph = (g: ConcreteGraph): string => {
     for (const e of m.edges ?? []) {
       const f = e.fromHandle ? `${e.from}:${e.fromHandle}` : e.from;
       const t = e.toHandle ? `${e.to}:${e.toHandle}` : e.to;
-      out += `edge ${f} ${t}\n`;
+      let line = `edge ${f} ${t}`;
+      if (isPaletteOrFont(e.palette)) line += " " + e.palette;
+      out += line + "\n";
     }
 
     const beforeTexts =
@@ -143,7 +147,9 @@ export const serializeGraph = (g: ConcreteGraph): string => {
     const beforeLines = beforeTexts || (m.texts?.length ?? 0) > 0;
     if (beforeLines && (m.lines?.length ?? 0)) out += "\n";
     for (const l of m.lines ?? []) {
-      out += `line ${l.id} ${flowgoNum(l.x1)} ${flowgoNum(l.y1)} ${flowgoNum(l.x2)} ${flowgoNum(l.y2)}\n`;
+      let line = `line ${l.id} ${flowgoNum(l.x1)} ${flowgoNum(l.y1)} ${flowgoNum(l.x2)} ${flowgoNum(l.y2)}`;
+      if (isPaletteOrFont(l.palette)) line += " " + l.palette;
+      out += line + "\n";
     }
 
     const beforeStrokes = beforeLines || (m.lines?.length ?? 0) > 0;

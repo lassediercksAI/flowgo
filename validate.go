@@ -114,6 +114,9 @@ func validateMap(m NamedMap) []error {
 		if e.ToHandle != "" && !validHandle(e.ToHandle) {
 			errs = append(errs, fmt.Errorf("map %q: edge[%d] toHandle %q is not one of t/r/b/l/tl/tr/bl/br", m.Path, i, e.ToHandle))
 		}
+		if !validPalette(e.Palette) {
+			errs = append(errs, fmt.Errorf("map %q: edge[%d] has invalid palette %d", m.Path, i, e.Palette))
+		}
 	}
 
 	itemIDs := make(map[string]string, len(m.Texts)+len(m.Lines)+len(m.Strokes))
@@ -148,6 +151,9 @@ func validateMap(m NamedMap) []error {
 			errs = append(errs, fmt.Errorf("map %q: line id %q collides with %s", m.Path, l.ID, other))
 		}
 		itemIDs[l.ID] = "line"
+		if !validPalette(l.Palette) {
+			errs = append(errs, fmt.Errorf("map %q: line %q has invalid palette %d", m.Path, l.ID, l.Palette))
+		}
 	}
 	for i, s := range m.Strokes {
 		if s.ID == "" {
