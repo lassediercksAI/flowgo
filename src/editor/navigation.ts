@@ -119,6 +119,17 @@ export const renderPath = (): void => {
   if (!el) return;
   el.innerHTML = "";
   const segs = currentPath === "/" ? [] : currentPath.split("/").filter(Boolean);
+  el.style.display = segs.length === 0 ? "none" : "";
+  // Hide the whole toolbar chrome at root unless snapshot mode is
+  // showing the download/reshare buttons inside it.
+  const toolbar = document.getElementById("toolbar");
+  const snapshot = document.body.classList.contains("snapshot-mode");
+  if (toolbar) toolbar.style.display = segs.length === 0 && !snapshot ? "none" : "";
+  if (segs.length === 0) {
+    const upBtn = document.getElementById("upBtn");
+    if (upBtn) upBtn.style.display = "none";
+    return;
+  }
   const root = document.createElement("span");
   root.className = "seg";
   root.textContent = "/";
