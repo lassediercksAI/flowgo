@@ -152,6 +152,26 @@ describe("serializeGraph", () => {
     expect(out).toBe("edge a b\nedge a b 5\nedge a:tl b:br 7\n");
   });
 
+  it("emits version directive as the first line when set", () => {
+    const out = serializeGraph({
+      version: "0.0.23",
+      maps: [
+        {
+          path: "/",
+          boxes: [{ id: "a", label: "hi", x: 0, y: 0 }],
+        },
+      ],
+    });
+    expect(out.startsWith("version 0.0.23\n")).toBe(true);
+  });
+
+  it("omits version directive when version is unset or empty", () => {
+    const out = serializeGraph({
+      maps: [{ path: "/", boxes: [{ id: "a", label: "hi", x: 0, y: 0 }] }],
+    });
+    expect(out.startsWith("version")).toBe(false);
+  });
+
   it("emits line palette as an optional trailing token", () => {
     const out = serializeGraph({
       maps: [

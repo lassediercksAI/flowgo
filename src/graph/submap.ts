@@ -13,6 +13,7 @@ export interface MapLike {
 }
 
 export interface GraphLike {
+  readonly version?: string;
   readonly maps?: ReadonlyArray<MapLike>;
 }
 

@@ -82,8 +82,15 @@ type NamedMap struct {
 }
 
 // Graph is the full document — every map keyed by its path.
+//
+// Version records the flowgo binary version that last wrote this graph.
+// It's stamped at save time and surfaced for tools that need to gate
+// behaviour on the writer's version. Empty Version means the file
+// pre-dates the directive (older flowgo) and should be treated as
+// "unknown".
 type Graph struct {
-	Maps []NamedMap `json:"maps"`
+	Version string     `json:"version,omitempty"`
+	Maps    []NamedMap `json:"maps"`
 }
 
 // Parse reads the .flowgo text format and returns the resulting Graph.
@@ -116,6 +123,14 @@ func Parse(s string) (Graph, error) {
 			continue
 		}
 		switch toks[0] {
+		case "version":
+			// `version <semver>` records the flowgo binary that last wrote
+			// this file. Last occurrence wins so a corrupted leading
+			// directive can be repaired by appending a corrected one.
+			if len(toks) < 2 {
+				return g, fmt.Errorf("line %d: version needs a value", lineNo)
+			}
+			g.Version = toks[1]
 		case "map":
 			if len(toks) < 2 {
 				return g, fmt.Errorf("line %d: map needs path", lineNo)
@@ -308,8 +323,15 @@ func Parse(s string) (Graph, error) {
 
 // Serialize emits the .flowgo text format. Empty maps are dropped —
 // they get re-created on demand if a consumer navigates back to them.
+//
+// When g.Version is non-empty, a `version <semver>` directive is
+// emitted as the first line so consumers (older flowgo binaries, tools)
+// can detect what wrote the file. Callers stamp the field at save time.
 func Serialize(g Graph) string {
 	var b strings.Builder
+	if g.Version != "" {
+		fmt.Fprintf(&b, "version %s\n", g.Version)
+	}
 	var nonEmpty []NamedMap
 	for _, m := range g.Maps {
 		if len(m.Boxes) == 0 && len(m.Edges) == 0 && len(m.Texts) == 0 && len(m.Lines) == 0 && len(m.Strokes) == 0 {

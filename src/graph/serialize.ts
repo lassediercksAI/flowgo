@@ -99,6 +99,7 @@ export const serializeGraph = (g: ConcreteGraph): string => {
   );
   const multi = maps.length > 1;
   let out = "";
+  if (g.version) out += `version ${g.version}\n`;
 
   maps.forEach((m, i) => {
     if (i > 0) out += "\n";

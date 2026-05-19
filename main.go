@@ -103,10 +103,13 @@ func main() {
 
 	createdFile := false
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		seed := serialize(Graph{Maps: []NamedMap{{
-			Path:  "/",
-			Boxes: []Box{{ID: "b1", Label: seedBoxLabel(filePath)}},
-		}}})
+		seed := serialize(Graph{
+			Version: resolveVersionString(),
+			Maps: []NamedMap{{
+				Path:  "/",
+				Boxes: []Box{{ID: "b1", Label: seedBoxLabel(filePath)}},
+			}},
+		})
 		if err := os.WriteFile(filePath, []byte(seed), 0644); err != nil {
 			die("create file: %v", err)
 		}
@@ -195,6 +198,7 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
+	g.Version = resolveVersionString()
 	if err := os.WriteFile(filePath, []byte(serialize(g)), 0644); err != nil {
 		http.Error(w, err.Error(), 500)
 		return

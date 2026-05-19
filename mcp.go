@@ -168,6 +168,7 @@ func updateFile(f func(g *Graph) error) (Graph, error) {
 	if err := f(&g); err != nil {
 		return Graph{}, err
 	}
+	g.Version = resolveVersionString()
 	if err := os.WriteFile(filePath, []byte(serialize(g)), 0644); err != nil {
 		return Graph{}, err
 	}
