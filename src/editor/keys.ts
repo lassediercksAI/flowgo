@@ -44,7 +44,6 @@ interface BoxLike {
   label: string;
   x: number;
   y: number;
-  sides?: number;
   palette?: number;
   font?: number;
   anchor?: boolean;

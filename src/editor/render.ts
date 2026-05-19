@@ -10,8 +10,6 @@
 
 import {
   HANDLE_CODES,
-  boxSides,
-  polygonPointsForSides,
   strokePathD,
 } from "../index.ts";
 import { hasSubmapContent } from "../graph/submap.ts";
@@ -24,10 +22,8 @@ interface BoxData {
   label: string;
   x: number;
   y: number;
-  sides?: number;
   palette?: number;
   font?: number;
-  rotation?: number;
   anchor?: boolean;
 }
 
@@ -119,31 +115,15 @@ export const renderAll = (): void => {
   const cur = w.currentPath();
   for (const b of map.boxes) {
     const el = document.createElement("div");
-    const sides = boxSides(b);
     const palette = resolvePalette(b.palette);
     const font = resolveFont(b.font);
     el.className = "box"
-      + (sides !== 4 ? " shaped sides-" + sides : "")
       + (hasSubmapContent(g, cur, b.id) ? " has-submap" : "")
       + (palette !== 1 ? " palette-" + palette : "")
       + (font !== 1 ? " font-" + font : "");
     el.dataset["id"] = b.id;
     el.style.left = b.x + "px";
     el.style.top = b.y + "px";
-    if (sides !== 4) {
-      const svg = document.createElementNS(SVG_NS, "svg");
-      svg.setAttribute("class", "shape-svg");
-      svg.setAttribute("viewBox", "0 0 100 100");
-      const poly = document.createElementNS(SVG_NS, "polygon");
-      poly.setAttribute("class", "shape-poly");
-      poly.setAttribute("points", polygonPointsForSides(sides));
-      poly.setAttribute("vector-effect", "non-scaling-stroke");
-      svg.appendChild(poly);
-      if (b.rotation) {
-        svg.style.transform = `rotate(${b.rotation}deg)`;
-      }
-      el.appendChild(svg);
-    }
     const label = document.createElement("span");
     label.className = "box-label";
     label.textContent = b.label;

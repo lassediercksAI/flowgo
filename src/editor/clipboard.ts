@@ -10,7 +10,6 @@ interface BoxLike {
   label: string;
   x: number;
   y: number;
-  sides?: number;
   palette?: number;
   font?: number;
 }
@@ -91,7 +90,6 @@ export const copySelection = (): boolean => {
     const b = map.boxes.find((x) => x.id === id);
     if (b) {
       const copy: BoxLike = { id: b.id, label: b.label, x: b.x, y: b.y };
-      if (b.sides) copy.sides = b.sides;
       if (b.palette) copy.palette = b.palette;
       if (b.font) copy.font = b.font;
       boxes.push(copy);
@@ -165,12 +163,7 @@ export const pasteSelection = (): void => {
   for (const b of buffer.boxes) {
     const newId = mintId("b");
     idMap.set(b.id, newId);
-    // Note: parity with pre-refactor behaviour — only `sides` carries
-    // through paste. palette/font are stored on the buffer but not
-    // copied on paste. Treat as a separate decision; don't silently
-    // change behaviour during this refactor.
     const copy: BoxLike = { id: newId, label: b.label, x: b.x + dx, y: b.y + dy };
-    if (b.sides) copy.sides = b.sides;
     map.boxes.push(copy);
     selected.add(newId);
   }

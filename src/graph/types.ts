@@ -10,5 +10,3 @@ export interface Box2D {
   readonly width: number;
   readonly height: number;
 }
-
-export type Sides = 3 | 4 | 5 | 6;

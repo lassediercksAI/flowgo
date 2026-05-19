@@ -109,7 +109,6 @@ func TestActAddBox_AcceptsValidStylingArgs(t *testing.T) {
 		"label":   "hi",
 		"x":       float64(10),
 		"y":       float64(20),
-		"sides":   float64(5),
 		"palette": float64(7),
 		"font":    float64(4),
 	})
@@ -117,21 +116,8 @@ func TestActAddBox_AcceptsValidStylingArgs(t *testing.T) {
 		t.Fatalf("actAddBox: %v", err)
 	}
 	b := g.Maps[0].Boxes[0]
-	if b.Sides != 5 || b.Palette != 7 || b.Font != 4 {
+	if b.Palette != 7 || b.Font != 4 {
 		t.Fatalf("styling round-trip failed: %+v", b)
-	}
-}
-
-func TestActAddBox_RejectsInvalidSides(t *testing.T) {
-	g := freshGraph()
-	_, err := actAddBox(g, map[string]any{
-		"label": "hi",
-		"x":     float64(0),
-		"y":     float64(0),
-		"sides": float64(7),
-	})
-	if err == nil {
-		t.Fatal("expected error for sides=7")
 	}
 }
 

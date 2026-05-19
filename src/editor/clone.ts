@@ -13,7 +13,6 @@ interface BoxLike {
   label: string;
   x: number;
   y: number;
-  sides?: number;
   palette?: number;
   font?: number;
 }
@@ -83,7 +82,6 @@ export const cloneSelection = (): Map<string, string> => {
       idMap.set(id, newId);
       cloneBoxIds.add(newId);
       const copy: BoxLike = { id: newId, label: b.label, x: b.x, y: b.y };
-      if (b.sides) copy.sides = b.sides;
       if (b.palette) copy.palette = b.palette;
       if (b.font) copy.font = b.font;
       map.boxes.push(copy);

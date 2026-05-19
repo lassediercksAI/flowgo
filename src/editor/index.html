@@ -215,8 +215,6 @@
   .box.dragging { cursor: grabbing; box-shadow: 0 4px 10px rgba(0,0,0,.2); }
   .box.has-submap { box-shadow: 4px 4px 0 0 #222; }
   .box.has-submap.dragging { box-shadow: 6px 6px 0 0 #222, 0 4px 10px rgba(0,0,0,.2); }
-  .box.shaped.has-submap { box-shadow: none; }
-  .box.shaped.has-submap > .shape-svg { filter: drop-shadow(4px 4px 0 #222); }
   .box.drop-target { border-color: #2a7; box-shadow: 0 0 0 3px rgba(34,170,119,.35); }
   .box[contenteditable="true"] { cursor: text; user-select: text; outline: none; background: #ffffe0; }
   /* iOS Safari auto-zooms any focused editable whose computed
@@ -225,27 +223,6 @@
      to edit a label. The .font-2..font-9 classes are already ≥16px
      so they win on specificity and stay at their chosen size. */
   .box[contenteditable="true"], .text-item[contenteditable="true"] { font-size: 16px; }
-
-  .box.shaped {
-    background: transparent; border: 0; border-radius: 0;
-    padding: 1.2em 1.6em; box-shadow: none;
-    isolation: isolate;
-    box-sizing: border-box;
-    aspect-ratio: 1 / 1;
-    display: flex; align-items: center; justify-content: center;
-  }
-  .box.shaped.sides-3 {
-    padding: 1.2em 1.2em 0.8em;
-    align-items: flex-end;
-  }
-  .box.shaped.dragging { box-shadow: none; }
-  .box.shaped > .shape-svg {
-    position: absolute; inset: 0; width: 100%; height: 100%;
-    pointer-events: none; overflow: visible; z-index: -1;
-  }
-  .box.shaped .shape-poly { fill: #fff; stroke: #333; stroke-width: 2; }
-  .box.shaped.drop-target .shape-poly { stroke: #2a7; stroke-width: 4; }
-  .box.shaped[contenteditable="true"] .shape-poly { fill: #ffffe0; }
 
   /* Palette: 1 = default (white/black). 2 = inverted. 3-9 = standard hues. */
   .box.palette-2 { background: #111; border-color: #fff; color: #fff; }
@@ -256,15 +233,6 @@
   .box.palette-7 { background: #bfdbfe; border-color: #1d4ed8; color: #1e3a8a; }
   .box.palette-8 { background: #ddd6fe; border-color: #6d28d9; color: #4c1d95; }
   .box.palette-9 { background: #e5e7eb; border-color: #374151; color: #111827; }
-  .box.shaped.palette-2 .shape-poly { fill: #111; stroke: #fff; }
-  .box.shaped.palette-3 .shape-poly { fill: #fecaca; stroke: #b91c1c; }
-  .box.shaped.palette-4 .shape-poly { fill: #fed7aa; stroke: #c2410c; }
-  .box.shaped.palette-5 .shape-poly { fill: #fef9c3; stroke: #a16207; }
-  .box.shaped.palette-6 .shape-poly { fill: #bbf7d0; stroke: #15803d; }
-  .box.shaped.palette-7 .shape-poly { fill: #bfdbfe; stroke: #1d4ed8; }
-  .box.shaped.palette-8 .shape-poly { fill: #ddd6fe; stroke: #6d28d9; }
-  .box.shaped.palette-9 .shape-poly { fill: #e5e7eb; stroke: #374151; }
-  .box.shaped[class*="palette-"] { background: transparent; }
 
   /* Selected highlights live below the palette block so the cascade
      wins against same-specificity .box.palette-N border/stroke rules
@@ -281,17 +249,6 @@
   }
   .box.has-submap.selected {
     box-shadow: 0 0 0 3px #fff, 4px 4px 0 0 #222;
-  }
-  .box.shaped.selected { outline: none; box-shadow: none; }
-  .box.shaped.selected .shape-poly {
-    stroke: #07f;
-    stroke-width: 4;
-  }
-  .box.shaped.selected > .shape-svg {
-    filter: drop-shadow(0 0 2px #fff) drop-shadow(0 0 5px #07f);
-  }
-  .box.shaped.has-submap.selected > .shape-svg {
-    filter: drop-shadow(4px 4px 0 #222) drop-shadow(0 0 2px #fff) drop-shadow(0 0 5px #07f);
   }
 
   /* Font-size scale: 1 = default (14px). 2-9 step monotonically larger. */

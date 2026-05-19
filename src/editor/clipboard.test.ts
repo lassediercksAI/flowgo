@@ -11,7 +11,6 @@ interface Box {
   label: string;
   x: number;
   y: number;
-  sides?: number;
   palette?: number;
   font?: number;
 }
@@ -228,7 +227,7 @@ describe("copy/paste round-trip preserves in-app structure", () => {
   it("paste uses the in-memory buffer (not the OS clipboard text)", () => {
     const s = makeState();
     s.boxes = [
-      { id: "b1", label: "first", x: 10, y: 20, sides: 6 },
+      { id: "b1", label: "first", x: 10, y: 20, palette: 5 },
       { id: "b2", label: "second", x: 40, y: 50 },
     ];
     s.edges = [{ from: "b1", to: "b2" }];
@@ -243,7 +242,7 @@ describe("copy/paste round-trip preserves in-app structure", () => {
     expect(s.boxes).toHaveLength(4);
     const pastedFirst = s.boxes[2];
     const pastedSecond = s.boxes[3];
-    expect(pastedFirst).toMatchObject({ label: "first", x: 30, y: 40, sides: 6 });
+    expect(pastedFirst).toMatchObject({ label: "first", x: 30, y: 40 });
     expect(pastedSecond).toMatchObject({ label: "second", x: 60, y: 70 });
     expect(pastedFirst?.id).not.toBe("b1");
     expect(pastedSecond?.id).not.toBe("b2");

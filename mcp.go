@@ -299,14 +299,6 @@ func actAddBox(g *Graph, args map[string]any) (any, error) {
 	m := ensureMapAt(g, path)
 	id := nextID(m, "b")
 	box := Box{ID: id, Label: label, X: x, Y: y}
-	if v, ok := args["sides"]; ok {
-		s := intFromAny(v)
-		if s == 3 || s == 5 || s == 6 {
-			box.Sides = s
-		} else if s != 0 && s != 4 {
-			return nil, fmt.Errorf("sides must be 3, 4, 5, or 6")
-		}
-	}
 	if v, ok := args["palette"]; ok {
 		p := intFromAny(v)
 		if p >= 2 && p <= 9 {
@@ -336,7 +328,6 @@ func actUpdateBox(g *Graph, args map[string]any) (any, error) {
 	_, hasLabel := args["label"]
 	_, hasX := args["x"]
 	_, hasY := args["y"]
-	_, hasSides := args["sides"]
 	_, hasPalette := args["palette"]
 	_, hasFont := args["font"]
 	m := ensureMapAt(g, path)
@@ -354,17 +345,6 @@ func actUpdateBox(g *Graph, args map[string]any) (any, error) {
 		}
 		if hasY {
 			m.Boxes[i].Y = numArg(args, "y", m.Boxes[i].Y)
-		}
-		if hasSides {
-			s := intFromAny(args["sides"])
-			switch s {
-			case 3, 5, 6:
-				m.Boxes[i].Sides = s
-			case 0, 4:
-				m.Boxes[i].Sides = 0
-			default:
-				return nil, fmt.Errorf("sides must be 3, 4, 5, or 6")
-			}
 		}
 		if hasPalette {
 			p := intFromAny(args["palette"])

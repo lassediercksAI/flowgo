@@ -10,10 +10,8 @@ export interface BoxData {
   readonly label: string;
   readonly x: number;
   readonly y: number;
-  readonly sides?: number | undefined;
   readonly palette?: number | undefined;
   readonly font?: number | undefined;
-  readonly rotation?: number | undefined;
   readonly anchor?: boolean | undefined;
 }
 
@@ -82,9 +80,6 @@ export const flowgoQuote = (s: string): string => {
 // browser-side .flowgo file round-trips through the Go parser.
 export const flowgoNum = (n: number): string => String(n);
 
-const isSidesValue = (n: number | undefined): n is 3 | 5 | 6 =>
-  n === 3 || n === 5 || n === 6;
-
 const isPaletteOrFont = (n: number | undefined): boolean =>
   typeof n === "number" && n >= 2 && n <= 9;
 
@@ -107,16 +102,13 @@ export const serializeGraph = (g: ConcreteGraph): string => {
 
     for (const b of m.boxes ?? []) {
       let line = `box ${b.id} ${flowgoQuote(b.label)} ${flowgoNum(b.x)} ${flowgoNum(b.y)}`;
-      const sidesTok = isSidesValue(b.sides) ? b.sides : 0;
       const paletteTok = isPaletteOrFont(b.palette) ? b.palette! : 0;
       const fontTok = isPaletteOrFont(b.font) ? b.font! : 0;
-      const rotTok = typeof b.rotation === "number" && b.rotation !== 0
-        ? ((b.rotation % 360) + 360) % 360
-        : 0;
-      if (sidesTok || paletteTok || fontTok || rotTok) line += " " + (sidesTok || 4);
-      if (paletteTok || fontTok || rotTok) line += " " + (paletteTok || 1);
-      if (fontTok || rotTok) line += " " + (fontTok || 1);
-      if (rotTok) line += " " + rotTok;
+      // "4" is a vestigial placeholder for the old sides slot, kept so
+      // old binaries can still parse files written by 0.0.24+.
+      if (paletteTok || fontTok) line += " 4";
+      if (paletteTok || fontTok) line += " " + (paletteTok || 1);
+      if (fontTok) line += " " + fontTok;
       out += line + "\n";
     }
 

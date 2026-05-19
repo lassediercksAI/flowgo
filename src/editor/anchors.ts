@@ -9,9 +9,7 @@
 import {
   handleAnchor as handleAnchorPure,
   nearestHandle as nearestHandlePure,
-  polygonAnchor as polygonAnchorPure,
   rectAnchor,
-  boxSides,
 } from "../index.ts";
 import type { HandleCode } from "../graph/handle.ts";
 import type { Box2D, Vec2 } from "../graph/types.ts";
@@ -19,7 +17,6 @@ import type { Box2D, Vec2 } from "../graph/types.ts";
 interface BoxLike {
   readonly x: number;
   readonly y: number;
-  readonly sides?: number;
 }
 
 const boxFor = (el: HTMLElement, b: BoxLike): Box2D => ({
@@ -41,17 +38,6 @@ export const nearestHandle = (
   fx: number,
   fy: number,
 ): HandleCode => nearestHandlePure(boxFor(el, b), [fx, fy]);
-
-export const polygonAnchor = (
-  b: BoxLike,
-  el: HTMLElement,
-  towardX: number,
-  towardY: number,
-): Vec2 => {
-  const box = boxFor(el, b);
-  const hit = polygonAnchorPure(box, boxSides(b), [towardX, towardY]);
-  return hit ?? [box.x + box.width / 2, box.y + box.height / 2];
-};
 
 // Decide which handle on a target box would receive a connection if
 // the link drag ended right now. Used by both the move handlers
@@ -81,19 +67,13 @@ export const pickTargetHandle = (
   return nearestHandle(targetBox, targetEl, fromX, fromY);
 };
 
-// Resolve an edge endpoint to a screen-space point. Triangles /
-// pentagons / hexagons ignore the stored handle code (their outline
-// has no fixed corners that match the rectangle handle codes) and
-// ray-cast onto the polygon edge instead; rectangles use the named
-// handle (or the nearest one if no handle was stored).
+// Resolve an edge endpoint to a screen-space point. All boxes are
+// rectangles now; use the named handle if stored, or fall back to the
+// nearest one.
 export const endpointAnchor = (
   b: BoxLike,
   el: HTMLElement,
   code: string | null | undefined,
   towardX: number,
   towardY: number,
-): Vec2 => {
-  if (boxSides(b) !== 4)
-    return polygonAnchor(b, el, towardX, towardY);
-  return rectAnchor(boxFor(el, b), code, [towardX, towardY]);
-};
+): Vec2 => rectAnchor(boxFor(el, b), code, [towardX, towardY]);

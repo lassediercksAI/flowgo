@@ -85,37 +85,29 @@ describe("serializeGraph", () => {
     expect(out).toBe("map /b1\nbox x kept 0 0\n");
   });
 
-  it("emits sides/palette/font as positional tokens with default placeholders", () => {
+  it("emits palette/font as positional tokens with a vestigial sides placeholder", () => {
+    // The "4" between coords and palette is a vestigial sides slot
+    // kept so old binaries can still parse files written by 0.0.24+.
     expect(
       serializeGraph({
         maps: [
           {
             path: "/",
             boxes: [
-              { id: "a", label: "rect", x: 0, y: 0 },
-              { id: "b", label: "tri", x: 0, y: 0, sides: 3 },
-              { id: "c", label: "rect-coloured", x: 0, y: 0, palette: 5 },
-              {
-                id: "d",
-                label: "tri-coloured-big",
-                x: 0,
-                y: 0,
-                sides: 3,
-                palette: 5,
-                font: 7,
-              },
-              { id: "e", label: "rect-big", x: 0, y: 0, font: 6 },
+              { id: "a", label: "plain", x: 0, y: 0 },
+              { id: "b", label: "coloured", x: 0, y: 0, palette: 5 },
+              { id: "c", label: "big", x: 0, y: 0, font: 6 },
+              { id: "d", label: "coloured-big", x: 0, y: 0, palette: 5, font: 7 },
             ],
           },
         ],
       }),
     ).toBe(
       [
-        "box a rect 0 0",
-        "box b tri 0 0 3",
-        "box c rect-coloured 0 0 4 5",
-        "box d tri-coloured-big 0 0 3 5 7",
-        "box e rect-big 0 0 4 1 6",
+        "box a plain 0 0",
+        "box b coloured 0 0 4 5",
+        "box c big 0 0 4 1 6",
+        "box d coloured-big 0 0 4 5 7",
         "",
       ].join("\n"),
     );

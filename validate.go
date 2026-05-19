@@ -78,9 +78,6 @@ func validateMap(m NamedMap) []error {
 			errs = append(errs, fmt.Errorf("map %q: duplicate box id %q", m.Path, b.ID))
 		}
 		boxIDs[b.ID] = struct{}{}
-		if !validSides(b.Sides) {
-			errs = append(errs, fmt.Errorf("map %q: box %q has invalid sides %d (allowed: 0, 3, 5, 6)", m.Path, b.ID, b.Sides))
-		}
 		if !validPalette(b.Palette) {
 			errs = append(errs, fmt.Errorf("map %q: box %q has invalid palette %d (allowed: 0, 2..9)", m.Path, b.ID, b.Palette))
 		}
@@ -203,7 +200,6 @@ func isValidMapPath(p string) bool {
 	return true
 }
 
-func validSides(n int) bool   { return n == 0 || n == 3 || n == 5 || n == 6 }
 func validPalette(n int) bool { return n == 0 || (n >= 2 && n <= 9) }
 func validFont(n int) bool    { return n == 0 || (n >= 2 && n <= 9) }
 

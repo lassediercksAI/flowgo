@@ -18,15 +18,18 @@ import (
 // Box is a node on a map. JSON tags are part of the public contract:
 // they're consumed by the editor and any other process that exchanges
 // graphs as JSON.
+//
+// The `.flowgo` text format keeps a vestigial "sides" slot between
+// the y coordinate and the palette token (always emitted as 4) so old
+// box directives like `box b1 hi 0 0 3 5` still parse positionally —
+// the polygon feature is gone, but the wire layout is preserved.
 type Box struct {
-	ID       string  `json:"id"`
-	Label    string  `json:"label"`
-	X        float64 `json:"x"`
-	Y        float64 `json:"y"`
-	Sides    int     `json:"sides,omitempty"`
-	Palette  int     `json:"palette,omitempty"`
-	Font     int     `json:"font,omitempty"`
-	Rotation int     `json:"rotation,omitempty"`
+	ID      string  `json:"id"`
+	Label   string  `json:"label"`
+	X       float64 `json:"x"`
+	Y       float64 `json:"y"`
+	Palette int     `json:"palette,omitempty"`
+	Font    int     `json:"font,omitempty"`
 	// Anchor marks this box as the map-level recenter target. At most
 	// one box per map carries Anchor=true; the parser/serializer enforce
 	// the invariant. Persisted in the .flowgo text format as a separate
@@ -149,13 +152,12 @@ func Parse(s string) (Graph, error) {
 				return g, fmt.Errorf("line %d: bad y: %v", lineNo, err)
 			}
 			box := Box{ID: toks[1], Label: toks[2], X: x, Y: y}
+			// toks[5] is the vestigial "sides" slot. We still validate
+			// it's numeric (so corrupted files fail loudly) but discard
+			// the value — polygons aren't a feature anymore.
 			if len(toks) >= 6 {
-				sides, err := strconv.Atoi(toks[5])
-				if err != nil {
+				if _, err := strconv.Atoi(toks[5]); err != nil {
 					return g, fmt.Errorf("line %d: bad sides: %v", lineNo, err)
-				}
-				if sides == 3 || sides == 5 || sides == 6 {
-					box.Sides = sides
 				}
 			}
 			if len(toks) >= 7 {
@@ -176,14 +178,11 @@ func Parse(s string) (Graph, error) {
 					box.Font = font
 				}
 			}
+			// toks[8] is the vestigial "rotation" slot from polygon
+			// support. Validate-and-discard for the same reason as sides.
 			if len(toks) >= 9 {
-				rot, err := strconv.Atoi(toks[8])
-				if err != nil {
+				if _, err := strconv.Atoi(toks[8]); err != nil {
 					return g, fmt.Errorf("line %d: bad rotation: %v", lineNo, err)
-				}
-				rot = ((rot % 360) + 360) % 360
-				if rot != 0 {
-					box.Rotation = rot
 				}
 			}
 			g.Maps[cur].Boxes = append(g.Maps[cur].Boxes, box)
@@ -383,34 +382,24 @@ func Serialize(g Graph) string {
 			}
 		}
 		for _, box := range m.Boxes {
-			emitSides := box.Sides == 3 || box.Sides == 5 || box.Sides == 6
 			emitPalette := box.Palette >= 2 && box.Palette <= 9
 			emitFont := box.Font >= 2 && box.Font <= 9
-			emitRotation := box.Rotation != 0
 			fmt.Fprintf(&b, "box %s %s %g %g", box.ID, quote(box.Label), box.X, box.Y)
-			if emitSides || emitPalette || emitFont || emitRotation {
-				sides := box.Sides
-				if !emitSides {
-					sides = 4
-				}
-				fmt.Fprintf(&b, " %d", sides)
+			// The "4" placeholder fills the vestigial sides slot when
+			// palette/font follow, so old files like `box b1 hi 0 0 4 5`
+			// round-trip positionally.
+			if emitPalette || emitFont {
+				fmt.Fprintf(&b, " 4")
 			}
-			if emitPalette || emitFont || emitRotation {
+			if emitPalette || emitFont {
 				palette := box.Palette
 				if !emitPalette {
 					palette = 1
 				}
 				fmt.Fprintf(&b, " %d", palette)
 			}
-			if emitFont || emitRotation {
-				font := box.Font
-				if !emitFont {
-					font = 1
-				}
-				fmt.Fprintf(&b, " %d", font)
-			}
-			if emitRotation {
-				fmt.Fprintf(&b, " %d", box.Rotation)
+			if emitFont {
+				fmt.Fprintf(&b, " %d", box.Font)
 			}
 			b.WriteString("\n")
 		}
