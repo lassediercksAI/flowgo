@@ -179,6 +179,63 @@ describe("serializeGraph", () => {
     expect(out).toBe("line l1 0 0 10 10\nline l2 0 0 10 10 4\n");
   });
 
+  it("emits `linestyle <id> <style>` directive after the line block", () => {
+    // Styled lines emit a follow-up directive (mirrors the `anchor`
+    // pattern) so older flowgo binaries that don't know styles still
+    // parse the geometry cleanly. Default style (1 or unset) is silent.
+    const out = serializeGraph({
+      maps: [
+        {
+          path: "/",
+          lines: [
+            { id: "a", x1: 0, y1: 0, x2: 10, y2: 10 },
+            { id: "b", x1: 0, y1: 0, x2: 10, y2: 10, style: 2 },
+            { id: "c", x1: 0, y1: 0, x2: 10, y2: 10, style: 3 },
+            { id: "d", x1: 0, y1: 0, x2: 10, y2: 10, style: 1 },
+          ],
+        },
+      ],
+    });
+    expect(out).toBe(
+      [
+        "line a 0 0 10 10",
+        "line b 0 0 10 10",
+        "line c 0 0 10 10",
+        "line d 0 0 10 10",
+        "linestyle b 2",
+        "linestyle c 3",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("emits line mid control points after the palette slot", () => {
+    // When mids are present without a real palette we emit the "1"
+    // sentinel so the coordinates land in stable positional slots;
+    // the parser ignores palette=1. Multiple mids extend the line as
+    // an even-length sequence after the palette token.
+    const out = serializeGraph({
+      maps: [
+        {
+          path: "/",
+          lines: [
+            { id: "l1", x1: 0, y1: 0, x2: 10, y2: 10, mids: [[5, 8]] },
+            { id: "l2", x1: 0, y1: 0, x2: 10, y2: 10, palette: 4, mids: [[5, 8]] },
+            { id: "l3", x1: 0, y1: 0, x2: 10, y2: 10, mids: [[3, 4], [6, 7]] },
+          ],
+        },
+      ],
+    });
+    expect(out).toBe(
+      [
+        "line l1 0 0 10 10 1 5 8",
+        "line l2 0 0 10 10 4 5 8",
+        "line l3 0 0 10 10 1 3 4 6 7",
+        "",
+      ].join("\n"),
+    );
+  });
+
   it("emits stroke points as comma pairs", () => {
     const out = serializeGraph({
       maps: [

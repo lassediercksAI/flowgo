@@ -29,6 +29,9 @@ interface LineLike {
   y1: number;
   x2: number;
   y2: number;
+  palette?: number;
+  mids?: Array<[number, number]>;
+  style?: number;
 }
 
 interface EdgeLike {
@@ -106,7 +109,11 @@ export const copySelection = (): boolean => {
     }
     const l = findLineById(id);
     if (l) {
-      lines.push({ id: l.id, x1: l.x1, y1: l.y1, x2: l.x2, y2: l.y2 });
+      const copy: LineLike = { id: l.id, x1: l.x1, y1: l.y1, x2: l.x2, y2: l.y2 };
+      if (l.palette) copy.palette = l.palette;
+      if (l.style) copy.style = l.style;
+      if (l.mids?.length) copy.mids = l.mids.map(([x, y]) => [x, y]);
+      lines.push(copy);
     }
   }
   for (const e of map.edges) {
@@ -179,11 +186,15 @@ export const pasteSelection = (): void => {
   for (const l of buffer.lines) {
     const newId = mintId("l");
     idMap.set(l.id, newId);
-    map.lines.push({
+    const pasted: LineLike = {
       id: newId,
       x1: l.x1 + dx, y1: l.y1 + dy,
       x2: l.x2 + dx, y2: l.y2 + dy,
-    });
+    };
+    if (l.palette) pasted.palette = l.palette;
+    if (l.style) pasted.style = l.style;
+    if (l.mids?.length) pasted.mids = l.mids.map(([x, y]) => [x + dx, y + dy]);
+    map.lines.push(pasted);
     selected.add(newId);
   }
   for (const ed of buffer.edges) {

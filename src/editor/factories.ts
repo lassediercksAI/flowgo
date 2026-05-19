@@ -37,6 +37,7 @@ interface LineLike {
   y1: number;
   x2: number;
   y2: number;
+  mids?: Array<[number, number]>;
 }
 
 interface CurrentMap {

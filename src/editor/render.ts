@@ -43,7 +43,64 @@ interface LineData {
   x2: number;
   y2: number;
   palette?: number;
+  mids?: Array<[number, number]>;
+  style?: number;
 }
+
+// Path d for a line. The line runs through endpoints + every mid;
+// `style` decides how each pair of consecutive points is drawn.
+//   style 1 (default): straight segments — sharp polyline.
+//   style 2:           smooth quadratic-bezier chain (controls = mids).
+//   style 3:           right-angle elbows, H-first or V-first per
+//                      segment based on which leg is longer (longer
+//                      axis first reads as less of a stub).
+const linePathD = (l: LineData): string => {
+  const mids = l.mids ?? [];
+  const points: Array<[number, number]> = [
+    [l.x1, l.y1],
+    ...mids,
+    [l.x2, l.y2],
+  ];
+  const style = l.style ?? 1;
+
+  if (style === 2 && mids.length > 0) {
+    // Chained quadratic bezier where each consecutive pair of control
+    // points (Ci, Ci+1) joins at their midpoint, so every mid pulls
+    // the curve toward it.
+    let d = `M ${l.x1} ${l.y1}`;
+    for (let i = 0; i < mids.length - 1; i++) {
+      const [cx, cy] = mids[i]!;
+      const [nx, ny] = mids[i + 1]!;
+      d += ` Q ${cx} ${cy} ${(cx + nx) / 2} ${(cy + ny) / 2}`;
+    }
+    const last = mids[mids.length - 1]!;
+    d += ` Q ${last[0]} ${last[1]} ${l.x2} ${l.y2}`;
+    return d;
+  }
+
+  if (style === 3) {
+    let d = `M ${points[0]![0]} ${points[0]![1]}`;
+    for (let i = 0; i < points.length - 1; i++) {
+      const [ax, ay] = points[i]!;
+      const [bx, by] = points[i + 1]!;
+      // Auto-pick: emit the longer leg first so the corner sits in
+      // the "natural" position relative to the segment's aspect.
+      if (Math.abs(bx - ax) >= Math.abs(by - ay)) {
+        d += ` L ${bx} ${ay} L ${bx} ${by}`;
+      } else {
+        d += ` L ${ax} ${by} L ${bx} ${by}`;
+      }
+    }
+    return d;
+  }
+
+  // style 1 (or anything unrecognised): straight polyline.
+  let d = `M ${points[0]![0]} ${points[0]![1]}`;
+  for (let i = 1; i < points.length; i++) {
+    d += ` L ${points[i]![0]} ${points[i]![1]}`;
+  }
+  return d;
+};
 
 interface EdgeData {
   from: string;
@@ -85,10 +142,11 @@ interface RenderBindings {
   readonly attachTextHandlers: (el: HTMLElement, t: TextData) => void;
   readonly attachLineHandlers: (
     g: SVGGElement,
-    line: SVGLineElement,
-    hit: SVGLineElement,
+    line: SVGPathElement,
+    hit: SVGPathElement,
     h1: SVGCircleElement,
     h2: SVGCircleElement,
+    midHandles: SVGCircleElement[],
     l: LineData,
   ) => void;
   readonly isBrushMode: () => boolean;
@@ -220,22 +278,20 @@ export const renderLines = (): void => {
     );
     g.dataset["id"] = l.id;
 
-    const hit = document.createElementNS(SVG_NS, "line");
+    const d = linePathD(l);
+
+    const hit = document.createElementNS(SVG_NS, "path");
     hit.setAttribute("class", "line-hit");
-    hit.setAttribute("x1", String(l.x1));
-    hit.setAttribute("y1", String(l.y1));
-    hit.setAttribute("x2", String(l.x2));
-    hit.setAttribute("y2", String(l.y2));
+    hit.setAttribute("d", d);
+    hit.setAttribute("fill", "none");
     hit.setAttribute("stroke", "transparent");
     hit.setAttribute("stroke-width", "12");
     g.appendChild(hit);
 
-    const line = document.createElementNS(SVG_NS, "line");
+    const line = document.createElementNS(SVG_NS, "path");
     line.setAttribute("class", "line-line");
-    line.setAttribute("x1", String(l.x1));
-    line.setAttribute("y1", String(l.y1));
-    line.setAttribute("x2", String(l.x2));
-    line.setAttribute("y2", String(l.y2));
+    line.setAttribute("d", d);
+    line.setAttribute("fill", "none");
     g.appendChild(line);
 
     const h1 = document.createElementNS(SVG_NS, "circle");
@@ -254,7 +310,21 @@ export const renderLines = (): void => {
     h2.dataset["endpoint"] = "2";
     g.appendChild(h2);
 
-    w.attachLineHandlers(g, line, hit, h1, h2, l);
+    const midHandles: SVGCircleElement[] = [];
+    for (let i = 0; i < (l.mids?.length ?? 0); i++) {
+      const [mx, my] = l.mids![i]!;
+      const mh = document.createElementNS(SVG_NS, "circle");
+      mh.setAttribute("class", "line-handle line-handle-mid");
+      mh.setAttribute("cx", String(mx));
+      mh.setAttribute("cy", String(my));
+      mh.setAttribute("r", "6");
+      mh.dataset["endpoint"] = "m";
+      mh.dataset["midIndex"] = String(i);
+      g.appendChild(mh);
+      midHandles.push(mh);
+    }
+
+    w.attachLineHandlers(g, line, hit, h1, h2, midHandles, l);
     w.lineLayer.appendChild(g);
   }
 };

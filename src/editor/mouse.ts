@@ -17,7 +17,7 @@ import {
   updateProximity,
 } from "./render.ts";
 import { extendStroke, finishStroke, isPainting, isBrushMode, startStroke } from "./brush.ts";
-import { commitLineOnRelease, isLineMode, placeLinePoint, updateLinePreview } from "./line.ts";
+import { cancelPendingLine, commitLineOnRelease, isLineMode, placeLinePoint, updateLinePreview } from "./line.ts";
 import { startEdit } from "./edit.ts";
 import { nearestHandle, pickTargetHandle } from "./anchors.ts";
 import { addOrReplaceEdge as addOrReplaceEdgePure } from "../graph/edge.ts";
@@ -31,7 +31,15 @@ interface BoxLike {
 }
 
 interface TextLike { id: string; x: number; y: number }
-interface LineLike { id: string; x1: number; y1: number; x2: number; y2: number }
+interface LineLike {
+  id: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  mids?: Array<[number, number]>;
+  style?: number;
+}
 interface EdgeLike {
   from: string;
   to: string;
@@ -281,10 +289,16 @@ const onMouseUp = (e: MouseEvent): void => {
         }
       }
       for (const l of map.lines) {
-        const lx1 = Math.min(l.x1, l.x2);
-        const ly1 = Math.min(l.y1, l.y2);
-        const lx2 = Math.max(l.x1, l.x2);
-        const ly2 = Math.max(l.y1, l.y2);
+        const xs = [l.x1, l.x2];
+        const ys = [l.y1, l.y2];
+        for (const [mx, my] of l.mids ?? []) {
+          xs.push(mx);
+          ys.push(my);
+        }
+        const lx1 = Math.min(...xs);
+        const ly1 = Math.min(...ys);
+        const lx2 = Math.max(...xs);
+        const ly2 = Math.max(...ys);
         if (lx1 < x2 && lx2 > x1 && ly1 < y2 && ly2 > y1) {
           w.selected.add(l.id);
         }
@@ -401,8 +415,86 @@ const onBgMouseDown = (e: MouseEvent): void => {
   w.setBand({ startX: e.clientX, startY: e.clientY, el: bandEl });
 };
 
+// Distance from point P to segment AB (used for line-mode dblclick
+// hit-testing). Returns squared distance + the segment parameter t
+// clamped to [0, 1] so callers can compute the projection.
+const distPointSeg = (
+  px: number, py: number,
+  ax: number, ay: number,
+  bx: number, by: number,
+): { d2: number; t: number } => {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+  const qx = ax + t * dx;
+  const qy = ay + t * dy;
+  const ex = px - qx;
+  const ey = py - qy;
+  return { d2: ex * ex + ey * ey, t };
+};
+
+// Threshold for "the dblclick landed on a line" in data-px. Picked to
+// match the visible hit-stroke width (12px) plus a small slack for
+// inaccurate clicks.
+const LINE_HIT_PX = 14;
+
+// In line mode, dblclick on/near an existing line inserts a mid there
+// (instead of starting a new line). Returns true if a line was hit.
+const tryInsertMidNearPoint = (
+  map: CurrentMap,
+  cx: number,
+  cy: number,
+): LineLike | null => {
+  let bestLine: LineLike | null = null;
+  let bestSeg = 0;
+  let bestT = 0;
+  let bestD2 = LINE_HIT_PX * LINE_HIT_PX;
+  for (const l of map.lines) {
+    const points: Array<[number, number]> = [
+      [l.x1, l.y1],
+      ...(l.mids ?? []),
+      [l.x2, l.y2],
+    ];
+    for (let i = 0; i < points.length - 1; i++) {
+      const [ax, ay] = points[i]!;
+      const [bx, by] = points[i + 1]!;
+      const { d2, t } = distPointSeg(cx, cy, ax, ay, bx, by);
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        bestSeg = i;
+        bestT = t;
+        bestLine = l;
+      }
+    }
+  }
+  if (!bestLine) return null;
+  // Insert the new mid at the click coords (matching the body-dblclick
+  // behaviour) into the slot whose segment was closest. bestT is kept
+  // around in case a caller wants to snap to the projection instead.
+  void bestT;
+  if (!bestLine.mids) bestLine.mids = [];
+  bestLine.mids.splice(bestSeg, 0, [cx, cy]);
+  return bestLine;
+};
+
 const onBgDblClick = (e: MouseEvent): void => {
-  if (isBrushMode() || isLineMode()) return;
+  const w = must();
+  if (isBrushMode()) return;
+  if (isLineMode()) {
+    // In line mode a dblclick on/near a line adds a control point to
+    // that line. Falls back to no-op when the click misses every line
+    // — line mode shouldn't spawn boxes.
+    const cx = toDataX(e.clientX);
+    const cy = toDataY(e.clientY);
+    const hit = tryInsertMidNearPoint(w.currentMap(), cx, cy);
+    if (hit) {
+      cancelPendingLine();
+      w.scheduleSave();
+      renderAll();
+    }
+    return;
+  }
   const dx = toDataX(e.clientX);
   const dy = toDataY(e.clientY);
   createBoxAt(dx, dy, { x: dx, y: dy });

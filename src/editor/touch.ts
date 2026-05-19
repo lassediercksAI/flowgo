@@ -65,7 +65,15 @@ interface EdgeLike {
 
 interface BoxLike { id: string; label: string; x: number; y: number }
 interface TextLike { id: string; label: string; x: number; y: number }
-interface LineLike { id: string; x1: number; y1: number; x2: number; y2: number }
+interface LineLike {
+  id: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  mids?: Array<[number, number]>;
+  style?: number;
+}
 interface CurrentMap {
   boxes: BoxLike[];
   edges: EdgeLike[];
@@ -184,7 +192,7 @@ type TouchTarget =
   | {
       kind: "line-endpoint";
       lineId: string;
-      endpoint: 1 | 2;
+      endpoint: 1 | 2 | { mid: number };
     }
   | { kind: "line"; id: string }
   | { kind: "stroke"; id: string }
@@ -242,13 +250,16 @@ const classifyTarget = (
     if (
       lineId &&
       selected.has(lineId) &&
-      (endpointStr === "1" || endpointStr === "2")
+      (endpointStr === "1" || endpointStr === "2" || endpointStr === "m")
     ) {
-      return {
-        kind: "line-endpoint",
-        lineId,
-        endpoint: endpointStr === "1" ? 1 : 2,
-      };
+      let endpoint: 1 | 2 | { mid: number };
+      if (endpointStr === "1") endpoint = 1;
+      else if (endpointStr === "2") endpoint = 2;
+      else {
+        const idx = parseInt(lineHandle.dataset["midIndex"] ?? "0", 10);
+        endpoint = { mid: Number.isFinite(idx) ? idx : 0 };
+      }
+      return { kind: "line-endpoint", lineId, endpoint };
     }
   }
   const lineGroup = target.closest<SVGGElement>(".line-group");
@@ -485,13 +496,18 @@ const onTouchStart = (e: TouchEvent): void => {
     );
     const l = w.currentMap().lines.find((x) => x.id === lineId);
     if (!g || !l) return;
-    const lineEl = g.querySelector<SVGLineElement>(".line-line");
-    const hitEl = g.querySelector<SVGLineElement>(".line-hit");
+    const lineEl = g.querySelector<SVGPathElement>(".line-line");
+    const hitEl = g.querySelector<SVGPathElement>(".line-hit");
     const h1 = g.querySelector<SVGCircleElement>(
       '.line-handle[data-endpoint="1"]',
     );
     const h2 = g.querySelector<SVGCircleElement>(
       '.line-handle[data-endpoint="2"]',
+    );
+    const midHandles = Array.from(
+      g.querySelectorAll<SVGCircleElement>(
+        '.line-handle[data-endpoint="m"]',
+      ),
     );
     if (!lineEl || !hitEl || !h1 || !h2) return;
     e.preventDefault();
@@ -510,6 +526,7 @@ const onTouchStart = (e: TouchEvent): void => {
           hit: hitEl,
           h1,
           h2,
+          midHandles,
         }),
       ],
       primaryId: lineId,

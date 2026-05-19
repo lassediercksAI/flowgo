@@ -46,6 +46,7 @@ export const recenter = (currentMap: {
   readonly lines?: ReadonlyArray<{
     readonly x1: number; readonly y1: number;
     readonly x2: number; readonly y2: number;
+    readonly mids?: ReadonlyArray<readonly [number, number]>;
   }>;
 }): void => {
   const boxes = currentMap.boxes ?? [];
@@ -71,6 +72,7 @@ export const recenter = (currentMap: {
   for (const l of currentMap.lines ?? []) {
     points.push([l.x1, l.y1]);
     points.push([l.x2, l.y2]);
+    for (const [mx, my] of l.mids ?? []) points.push([mx, my]);
   }
   if (points.length === 0) {
     viewport.x = 0;

@@ -61,6 +61,7 @@ interface TextLike {
 interface LineLike {
   id: string;
   palette?: number;
+  style?: number;
 }
 
 interface StrokeLike {
@@ -255,6 +256,32 @@ const applyFont = (font: number): boolean => {
   return changed;
 };
 
+// Line style on selected lines: 1 = straight (default, cleared from
+// the data), 2 = curves, 3 = orthogonal elbows. Reuses the same
+// Shift+digit key surface as font size — a mixed selection of boxes
+// and lines applies font to the boxes and style to the lines from a
+// single keypress.
+const applyLineStyle = (style: number): boolean => {
+  const w = must();
+  if (w.selected.size === 0) return false;
+  const map = w.currentMap();
+  let changed = false;
+  for (const id of w.selected) {
+    const line = map.lines.find((x) => x.id === id);
+    if (!line) continue;
+    if (style === 1) {
+      if (line.style) {
+        delete line.style;
+        changed = true;
+      }
+    } else if (line.style !== style) {
+      line.style = style;
+      changed = true;
+    }
+  }
+  return changed;
+};
+
 export const attachKeyboardListener = (): void => {
   document.addEventListener("keydown", (e) => {
     const w = must();
@@ -363,8 +390,12 @@ export const attachKeyboardListener = (): void => {
     }
     if (!mod && !e.altKey && e.shiftKey && /^Digit[1-9]$/.test(e.code)) {
       if (w.selected.size === 0) return;
-      const font = parseInt(e.code.slice(5), 10);
-      if (applyFont(font)) {
+      const n = parseInt(e.code.slice(5), 10);
+      // Apply both: font on boxes/texts, style on lines. A mixed
+      // selection gets both effects from the same key.
+      const fontChanged = applyFont(n);
+      const styleChanged = applyLineStyle(n);
+      if (fontChanged || styleChanged) {
         e.preventDefault();
         w.scheduleSave();
         renderAll();

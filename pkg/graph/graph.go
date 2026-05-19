@@ -56,14 +56,20 @@ type Text struct {
 	Font    int     `json:"font,omitempty"`
 }
 
-// Line is a static two-point segment.
+// Line is a static segment that runs through its endpoints and any
+// intermediate Mid control points. Style governs how each pair of
+// consecutive points is drawn: 1 (or 0/unset) renders straight
+// segments (sharp polyline), 2 renders a smooth quadratic-bezier
+// chain, 3 renders right-angle elbows (orthogonal).
 type Line struct {
-	ID      string  `json:"id"`
-	X1      float64 `json:"x1"`
-	Y1      float64 `json:"y1"`
-	X2      float64 `json:"x2"`
-	Y2      float64 `json:"y2"`
-	Palette int     `json:"palette,omitempty"`
+	ID      string      `json:"id"`
+	X1      float64     `json:"x1"`
+	Y1      float64     `json:"y1"`
+	X2      float64     `json:"x2"`
+	Y2      float64     `json:"y2"`
+	Palette int         `json:"palette,omitempty"`
+	Style   int         `json:"style,omitempty"`
+	Mids    [][]float64 `json:"mids,omitempty"`
 }
 
 // Stroke is a freehand polyline (brush mode).
@@ -257,7 +263,51 @@ func Parse(s string) (Graph, error) {
 					ln.Palette = palette
 				}
 			}
+			// Optional mid control points after the palette slot. Palette
+			// is position-required when mids are present; value 1 is the
+			// no-palette sentinel (already ignored by the check above).
+			// Mids are emitted in (x, y) pairs.
+			if len(toks) > 7 {
+				if (len(toks)-7)%2 != 0 {
+					return g, fmt.Errorf("line %d: line mids need pairs of coords", lineNo)
+				}
+				for i := 7; i < len(toks); i += 2 {
+					mx, err := strconv.ParseFloat(toks[i], 64)
+					if err != nil {
+						return g, fmt.Errorf("line %d: bad line mid x: %v", lineNo, err)
+					}
+					my, err := strconv.ParseFloat(toks[i+1], 64)
+					if err != nil {
+						return g, fmt.Errorf("line %d: bad line mid y: %v", lineNo, err)
+					}
+					ln.Mids = append(ln.Mids, []float64{mx, my})
+				}
+			}
 			g.Maps[cur].Lines = append(g.Maps[cur].Lines, ln)
+		case "linestyle":
+			if len(toks) < 3 {
+				return g, fmt.Errorf("line %d: linestyle needs id and style", lineNo)
+			}
+			styleVal, err := strconv.Atoi(toks[2])
+			if err != nil {
+				return g, fmt.Errorf("line %d: bad linestyle: %v", lineNo, err)
+			}
+			if styleVal < 2 || styleVal > 9 {
+				// 0 and 1 mean default (straight); ignore so the field
+				// stays at the zero value rather than carrying garbage.
+				break
+			}
+			found := false
+			for i := range g.Maps[cur].Lines {
+				if g.Maps[cur].Lines[i].ID == toks[1] {
+					g.Maps[cur].Lines[i].Style = styleVal
+					found = true
+					break
+				}
+			}
+			if !found {
+				return g, fmt.Errorf("line %d: linestyle refers to unknown line %q", lineNo, toks[1])
+			}
 		case "anchor":
 			if len(toks) < 2 {
 				return g, fmt.Errorf("line %d: anchor needs id", lineNo)
@@ -453,10 +503,28 @@ func Serialize(g Graph) string {
 				id = fallbackID("l")
 			}
 			fmt.Fprintf(&b, "line %s %g %g %g %g", id, l.X1, l.Y1, l.X2, l.Y2)
-			if l.Palette >= 2 && l.Palette <= 9 {
-				fmt.Fprintf(&b, " %d", l.Palette)
+			hasPal := l.Palette >= 2 && l.Palette <= 9
+			if hasPal || len(l.Mids) > 0 {
+				palTok := 1
+				if hasPal {
+					palTok = l.Palette
+				}
+				fmt.Fprintf(&b, " %d", palTok)
+			}
+			for _, m := range l.Mids {
+				if len(m) < 2 {
+					continue
+				}
+				fmt.Fprintf(&b, " %g %g", m[0], m[1])
 			}
 			b.WriteString("\n")
+		}
+		// linestyle directives follow the line block so older flowgo
+		// binaries unaware of styles still parse the geometry cleanly.
+		for _, l := range m.Lines {
+			if l.Style >= 2 && l.Style <= 9 {
+				fmt.Fprintf(&b, "linestyle %s %d\n", l.ID, l.Style)
+			}
 		}
 		if (len(m.Boxes) > 0 || len(m.Edges) > 0 || len(m.Texts) > 0 || len(m.Lines) > 0) && len(m.Strokes) > 0 {
 			b.WriteString("\n")

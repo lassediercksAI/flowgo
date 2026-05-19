@@ -32,6 +32,9 @@ interface LineLike {
   y1: number;
   x2: number;
   y2: number;
+  palette?: number;
+  mids?: Array<[number, number]>;
+  style?: number;
 }
 
 interface EdgeLike {
@@ -101,7 +104,11 @@ export const cloneSelection = (): Map<string, string> => {
     if (l) {
       const newId = mintId("l");
       idMap.set(id, newId);
-      map.lines.push({ id: newId, x1: l.x1, y1: l.y1, x2: l.x2, y2: l.y2 });
+      const lc: LineLike = { id: newId, x1: l.x1, y1: l.y1, x2: l.x2, y2: l.y2 };
+      if (l.palette) lc.palette = l.palette;
+      if (l.style) lc.style = l.style;
+      if (l.mids?.length) lc.mids = l.mids.map(([x, y]) => [x, y]);
+      map.lines.push(lc);
     }
   }
 

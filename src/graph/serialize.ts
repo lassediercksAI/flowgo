@@ -39,6 +39,13 @@ export interface LineData {
   readonly x2: number;
   readonly y2: number;
   readonly palette?: number | undefined;
+  // Intermediate control points. The line always runs through every
+  // mid; the segment style between consecutive points is governed by
+  // `style`.
+  readonly mids?: ReadonlyArray<readonly [number, number]> | undefined;
+  // 1 (or unset) = straight polyline, 2 = smooth bezier chain,
+  // 3 = orthogonal elbows. 4-9 reserved.
+  readonly style?: number | undefined;
 }
 
 export interface StrokeData {
@@ -141,8 +148,25 @@ export const serializeGraph = (g: ConcreteGraph): string => {
     if (beforeLines && (m.lines?.length ?? 0)) out += "\n";
     for (const l of m.lines ?? []) {
       let line = `line ${l.id} ${flowgoNum(l.x1)} ${flowgoNum(l.y1)} ${flowgoNum(l.x2)} ${flowgoNum(l.y2)}`;
-      if (isPaletteOrFont(l.palette)) line += " " + l.palette;
+      const mids = l.mids ?? [];
+      if (isPaletteOrFont(l.palette) || mids.length > 0) {
+        // When mids are present without an explicit palette we emit
+        // the default sentinel "1" so the mid coordinates land in a
+        // stable positional slot. The parser ignores palette=1.
+        const palTok = isPaletteOrFont(l.palette) ? l.palette : 1;
+        line += " " + palTok;
+      }
+      for (const [mx, my] of mids) {
+        line += ` ${flowgoNum(mx)} ${flowgoNum(my)}`;
+      }
       out += line + "\n";
+    }
+    // linestyle directives follow the line block so older flowgo
+    // binaries unaware of styles still parse the geometry cleanly.
+    for (const l of m.lines ?? []) {
+      if (typeof l.style === "number" && l.style >= 2 && l.style <= 9) {
+        out += `linestyle ${l.id} ${l.style}\n`;
+      }
     }
 
     const beforeStrokes = beforeLines || (m.lines?.length ?? 0) > 0;

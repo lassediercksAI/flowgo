@@ -97,8 +97,23 @@ func mapsEquivalent(a, b NamedMap) bool {
 		}
 	}
 	for i := range a.Lines {
-		if a.Lines[i] != b.Lines[i] {
+		la, lb := a.Lines[i], b.Lines[i]
+		if la.ID != lb.ID || la.X1 != lb.X1 || la.Y1 != lb.Y1 ||
+			la.X2 != lb.X2 || la.Y2 != lb.Y2 || la.Palette != lb.Palette {
 			return false
+		}
+		if len(la.Mids) != len(lb.Mids) {
+			return false
+		}
+		for j := range la.Mids {
+			if len(la.Mids[j]) != len(lb.Mids[j]) {
+				return false
+			}
+			for k := range la.Mids[j] {
+				if la.Mids[j][k] != lb.Mids[j][k] {
+					return false
+				}
+			}
 		}
 	}
 	for i := range a.Strokes {

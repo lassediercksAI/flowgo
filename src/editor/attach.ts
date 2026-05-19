@@ -10,7 +10,9 @@ import { primaryMod } from "./platform.ts";
 import {
   applyClasses,
   renderEdges,
+  renderLines,
 } from "./render.ts";
+import { scheduleSave } from "./persistence.ts";
 import {
   makeBoxMover,
   makeLineEndpointMover,
@@ -31,7 +33,15 @@ interface BoxLike {
   y: number;
 }
 interface TextLike { id: string; label: string; x: number; y: number }
-interface LineLike { id: string; x1: number; y1: number; x2: number; y2: number }
+interface LineLike {
+  id: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  mids?: Array<[number, number]>;
+  style?: number;
+}
 interface StrokeLike { id: string; points: Array<[number, number]> }
 interface EdgeLike {
   from: string;
@@ -118,15 +128,20 @@ export const collectMovers = (): Mover[] => {
         `.line-group[data-id="${id}"]`,
       );
       if (g) {
-        const lineEl = g.querySelector<SVGLineElement>(".line-line")!;
-        const hitEl = g.querySelector<SVGLineElement>(".line-hit")!;
+        const lineEl = g.querySelector<SVGPathElement>(".line-line")!;
+        const hitEl = g.querySelector<SVGPathElement>(".line-hit")!;
         const h1 = g.querySelector<SVGCircleElement>(
           '.line-handle[data-endpoint="1"]',
         );
         const h2 = g.querySelector<SVGCircleElement>(
           '.line-handle[data-endpoint="2"]',
         );
-        movers.push(makeLineMover(l, g, lineEl, hitEl, h1, h2));
+        const midHandles = Array.from(
+          g.querySelectorAll<SVGCircleElement>(
+            '.line-handle[data-endpoint="m"]',
+          ),
+        );
+        movers.push(makeLineMover(l, g, lineEl, hitEl, h1, h2, midHandles));
       }
       continue;
     }
@@ -191,10 +206,11 @@ export const attachTextHandlers = (
 
 export const attachLineHandlers = (
   g: SVGGElement,
-  lineEl: SVGLineElement,
-  hitEl: SVGLineElement,
+  lineEl: SVGPathElement,
+  hitEl: SVGPathElement,
   h1: SVGCircleElement,
   h2: SVGCircleElement,
+  midHandles: SVGCircleElement[],
   l: LineLike,
 ): void => {
   hitEl.addEventListener("mousedown", (e) => {
@@ -224,16 +240,61 @@ export const attachLineHandlers = (
       active: false,
     });
   });
-  for (const [hEl, endpoint] of [
-    [h1, 1 as const],
-    [h2, 2 as const],
-  ] as const) {
+  // Double-click on the line body adds a control point at the click
+  // location. Each additional click adds another, building up a
+  // chained-quadratic curve. Double-clicking a midpoint handle removes
+  // that specific one (handled below) so the gesture is reversible.
+  hitEl.addEventListener("dblclick", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const w = must();
+    const cx = toDataX(e.clientX);
+    const cy = toDataY(e.clientY);
+    if (!l.mids) l.mids = [];
+    // Insert at the index closest to the click along the existing
+    // control-point sequence, so successive clicks build the curve in
+    // a sensible visual order rather than always appending to the end.
+    const points: Array<[number, number]> = [
+      [l.x1, l.y1],
+      ...l.mids,
+      [l.x2, l.y2],
+    ];
+    let bestSeg = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < points.length - 1; i++) {
+      const [ax, ay] = points[i]!;
+      const [bx, by] = points[i + 1]!;
+      const dx = bx - ax;
+      const dy = by - ay;
+      const len2 = dx * dx + dy * dy;
+      const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((cx - ax) * dx + (cy - ay) * dy) / len2));
+      const px = ax + t * dx;
+      const py = ay + t * dy;
+      const d2 = (cx - px) ** 2 + (cy - py) ** 2;
+      if (d2 < bestDist) {
+        bestDist = d2;
+        bestSeg = i;
+      }
+    }
+    l.mids.splice(bestSeg, 0, [cx, cy]);
+    w.selected.clear();
+    w.selected.add(l.id);
+    if (w.selectedEdge()) {
+      w.setSelectedEdge(null);
+      renderEdges();
+    }
+    scheduleSave();
+    // Full re-render so the new mid handle is wired up.
+    renderLines();
+    applyClasses();
+  });
+  // Endpoint drags.
+  for (const [hEl, endpoint] of [[h1, 1 as const], [h2, 2 as const]] as const) {
     hEl.addEventListener("mousedown", (e) => {
       const w = must();
       if (e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
-      // Endpoint drag — single endpoint, ignores multi-selection.
       w.selected.clear();
       w.selected.add(l.id);
       if (w.selectedEdge()) {
@@ -244,11 +305,7 @@ export const attachLineHandlers = (
       w.setDrag({
         movers: [
           makeLineEndpointMover(l, endpoint, {
-            g,
-            line: lineEl,
-            hit: hitEl,
-            h1,
-            h2,
+            g, line: lineEl, hit: hitEl, h1, h2, midHandles,
           }),
         ],
         primaryId: l.id,
@@ -256,6 +313,48 @@ export const attachLineHandlers = (
         downY: e.clientY,
         active: false,
       });
+    });
+  }
+  // Mid-handle drags + dblclick-to-remove. Each handle owns its index
+  // at attach time; insertions / deletions re-render so the closure's
+  // index is always valid for the lifetime of this handle.
+  for (let i = 0; i < midHandles.length; i++) {
+    const mh = midHandles[i]!;
+    const idx = i;
+    mh.addEventListener("mousedown", (e) => {
+      const w = must();
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      w.selected.clear();
+      w.selected.add(l.id);
+      if (w.selectedEdge()) {
+        w.setSelectedEdge(null);
+        renderEdges();
+      }
+      applyClasses();
+      w.setDrag({
+        movers: [
+          makeLineEndpointMover(l, { mid: idx }, {
+            g, line: lineEl, hit: hitEl, h1, h2, midHandles,
+          }),
+        ],
+        primaryId: l.id,
+        downX: e.clientX,
+        downY: e.clientY,
+        active: false,
+      });
+    });
+    mh.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (l.mids && idx < l.mids.length) {
+        l.mids.splice(idx, 1);
+        if (l.mids.length === 0) delete l.mids;
+      }
+      scheduleSave();
+      renderLines();
+      applyClasses();
     });
   }
 };
