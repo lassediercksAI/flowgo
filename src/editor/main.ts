@@ -65,6 +65,7 @@ import {
   wireAttach,
 } from "./attach.ts";
 import { attachAlignToolbar, wireAlign } from "./align.ts";
+import { attachModeBar } from "./modebar.ts";
 
 // ---------------------------------------------------------------
 // Module-level state. Every feature module reaches these through its
@@ -112,6 +113,7 @@ function uid(prefix) {
 
 const findTextById = (id) => state.texts.find((t) => t.id === id);
 const findLineById = (id) => state.lines.find((l) => l.id === id);
+const findStrokeById = (id) => (state.strokes || []).find((s) => s.id === id);
 
 const recenter = () => recenterPure(state);
 
@@ -176,10 +178,12 @@ attachNavigationListeners();
 wireAttach({
   canvas,
   lineLayer,
+  strokeLayer,
   ghostLine,
   currentMap: () => state,
   findTextById,
   findLineById,
+  findStrokeById,
   selected,
   selectedEdge: () => selectedEdge,
   setSelectedEdge: (e) => { selectedEdge = e; },
@@ -358,6 +362,10 @@ const applyTouchClass = () =>
   document.body.classList.toggle("touch-input", coarseMM.matches);
 coarseMM.addEventListener("change", applyTouchClass);
 applyTouchClass();
+
+// The bar itself is CSS-gated on `body.touch-input`, so attaching it
+// unconditionally is safe — fine-pointer devices never see it.
+attachModeBar();
 
 document.getElementById("upBtn").addEventListener("click", goUp);
 document.getElementById("downloadBtn").addEventListener("click", downloadFlowgo);

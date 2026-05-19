@@ -29,6 +29,15 @@
 // proximity highlighter (render.ts) is fed the touch position during
 // the drag so the same near-target glow appears.
 
+import { extendStroke, finishStroke, isBrushMode, isPainting, startStroke } from "./brush.ts";
+import {
+  cancelPendingLine,
+  commitLineOnRelease,
+  isDrawingLine,
+  isLineMode,
+  placeLinePoint,
+  updateLinePreview,
+} from "./line.ts";
 import { applyViewport, toDataX, toDataY, viewport } from "./viewport.ts";
 import {
   applyClasses,
@@ -45,7 +54,7 @@ import { addOrReplaceEdge as addOrReplaceEdgePure } from "../graph/edge.ts";
 import { findBoxAt } from "./mouse.ts";
 import { createBoxAt, deleteSelection } from "./factories.ts";
 import { classifyTap, movedBeyond, type TapRecord } from "./gestures.ts";
-import type { Mover } from "./movers.ts";
+import { makeLineEndpointMover, type Mover } from "./movers.ts";
 
 interface EdgeLike {
   from: string;
@@ -56,10 +65,12 @@ interface EdgeLike {
 
 interface BoxLike { id: string; label: string; x: number; y: number }
 interface TextLike { id: string; label: string; x: number; y: number }
+interface LineLike { id: string; x1: number; y1: number; x2: number; y2: number }
 interface CurrentMap {
   boxes: BoxLike[];
   edges: EdgeLike[];
   texts: TextLike[];
+  lines: LineLike[];
 }
 
 interface LinkState {
@@ -170,6 +181,13 @@ type TouchTarget =
       handleEl: HTMLElement;
       code: string;
     }
+  | {
+      kind: "line-endpoint";
+      lineId: string;
+      endpoint: 1 | 2;
+    }
+  | { kind: "line"; id: string }
+  | { kind: "stroke"; id: string }
   | { kind: "bg" }
   | null;
 
@@ -204,6 +222,45 @@ const classifyTarget = (
     const id = text.dataset["id"];
     if (id) return { kind: "text", el: text, id };
   }
+  // Lines and strokes are SVG children of #bg-svg. Each line/stroke
+  // group has its own .line-hit / .stroke-hit child (12px transparent
+  // hit area, generous enough for a finger). The mouse path attaches
+  // selection listeners directly to each group, but on touch we route
+  // through this central classifier so the touch landing on the hit
+  // area surfaces as a typed target before the bg fallback claims it
+  // for pan.
+  //
+  // Line endpoint handles take priority over the line body — same idea
+  // as box handles — but only when the parent line is already selected
+  // (otherwise the handle is display:none and tapping there means the
+  // user is reaching for the line body underneath).
+  const lineHandle = target.closest<SVGCircleElement>(".line-handle");
+  if (lineHandle) {
+    const lineGroupOfHandle = lineHandle.closest<SVGGElement>(".line-group");
+    const lineId = lineGroupOfHandle?.dataset?.["id"];
+    const endpointStr = lineHandle.dataset["endpoint"];
+    if (
+      lineId &&
+      selected.has(lineId) &&
+      (endpointStr === "1" || endpointStr === "2")
+    ) {
+      return {
+        kind: "line-endpoint",
+        lineId,
+        endpoint: endpointStr === "1" ? 1 : 2,
+      };
+    }
+  }
+  const lineGroup = target.closest<SVGGElement>(".line-group");
+  if (lineGroup) {
+    const id = lineGroup.dataset["id"];
+    if (id) return { kind: "line", id };
+  }
+  const strokeGroup = target.closest<SVGGElement>(".stroke-group");
+  if (strokeGroup) {
+    const id = strokeGroup.dataset["id"];
+    if (id) return { kind: "stroke", id };
+  }
   // Bg-layer, the bg-svg (which wraps strokes + lines), and the edges
   // SVG all behave as "background" for touch — pan ignores them. On
   // mouse those each have their own click-to-select; on touch you'd
@@ -223,6 +280,20 @@ const classifyTarget = (
 const abortGesture = (): void => {
   const w = must();
   clearLongPressTimer();
+  if (isPainting()) {
+    // Commit whatever we have so the in-progress stroke doesn't dangle
+    // when a second finger lands or iOS cancels the touch. Short
+    // strokes are discarded inside finishStroke().
+    finishStroke();
+    return;
+  }
+  if (isDrawingLine()) {
+    // Cancel a pending line endpoint rather than committing it at a
+    // surprise location when a second finger arrives or the touch
+    // sequence is cancelled.
+    cancelPendingLine();
+    return;
+  }
   if (w.pan()) {
     w.setPan(null);
     document.body.classList.remove("panning");
@@ -252,6 +323,26 @@ const onTouchStart = (e: TouchEvent): void => {
   if (e.touches.length !== 1) {
     // Second finger landed — hand off to the browser for pinch-zoom.
     abortGesture();
+    return;
+  }
+  // Brush mode: a single-finger press anywhere paints. CSS already
+  // sets pointer-events: none on boxes/texts/lines/strokes/edges
+  // while body.brush-mode is on, so the touch lands on #bg-layer
+  // either way — but we still need to short-circuit the pan branch
+  // below before it claims the gesture.
+  if (isBrushMode()) {
+    const t = e.touches[0]!;
+    e.preventDefault();
+    startStroke(t.clientX, t.clientY);
+    return;
+  }
+  // Line mode: tap-to-set-start / drag-to-preview / lift-to-commit.
+  // Mirrors the mouse path in mouse.ts. A still tap leaves `pending`
+  // set so the next tap can commit the endpoint (tap-tap workflow).
+  if (isLineMode()) {
+    const t = e.touches[0]!;
+    e.preventDefault();
+    placeLinePoint(t.clientX, t.clientY);
     return;
   }
   // Tap-out ends editing: if a box / text label is in inline-edit
@@ -381,9 +472,60 @@ const onTouchStart = (e: TouchEvent): void => {
     return;
   }
 
-  // Box or text body drag. Mirrors attachBoxHandlers / attachTextHandlers
-  // in src/editor/attach.ts, minus the keyboard modifiers (shift / alt)
-  // that touch can't express.
+  // Line endpoint drag — reshape a selected line by pulling one end.
+  // Mirrors the endpoint branch of attachLineHandlers (mouse path).
+  // The handle is display:none until the line is selected, so
+  // classifyTarget only returns this kind when the user can see what
+  // they're grabbing.
+  if (target.kind === "line-endpoint") {
+    const lineId = target.lineId;
+    const endpoint = target.endpoint;
+    const g = document.querySelector<SVGGElement>(
+      `.line-group[data-id="${lineId}"]`,
+    );
+    const l = w.currentMap().lines.find((x) => x.id === lineId);
+    if (!g || !l) return;
+    const lineEl = g.querySelector<SVGLineElement>(".line-line");
+    const hitEl = g.querySelector<SVGLineElement>(".line-hit");
+    const h1 = g.querySelector<SVGCircleElement>(
+      '.line-handle[data-endpoint="1"]',
+    );
+    const h2 = g.querySelector<SVGCircleElement>(
+      '.line-handle[data-endpoint="2"]',
+    );
+    if (!lineEl || !hitEl || !h1 || !h2) return;
+    e.preventDefault();
+    w.selected.clear();
+    w.selected.add(lineId);
+    if (w.selectedEdge()) {
+      w.setSelectedEdge(null);
+      renderEdges();
+    }
+    applyClasses();
+    w.setDrag({
+      movers: [
+        makeLineEndpointMover(l, endpoint, {
+          g,
+          line: lineEl,
+          hit: hitEl,
+          h1,
+          h2,
+        }),
+      ],
+      primaryId: lineId,
+      downX: t.clientX,
+      downY: t.clientY,
+      active: false,
+    });
+    return;
+  }
+
+  // Box / text / line / stroke body drag. Mirrors attachBoxHandlers /
+  // attachTextHandlers / attachLineHandlers in src/editor/attach.ts,
+  // minus the keyboard modifiers (shift / alt) that touch can't
+  // express. Lines and strokes come through collectMovers via
+  // makeLineMover / makeStrokeMover so they follow the finger and so a
+  // drop in the delete zone removes them via the shared path.
   e.preventDefault();
   if (!w.selected.has(target.id)) {
     w.selected.clear();
@@ -438,6 +580,17 @@ const onTouchMove = (e: TouchEvent): void => {
   }
   const t = e.touches[0];
   if (!t) return;
+
+  if (isPainting()) {
+    e.preventDefault();
+    extendStroke(t.clientX, t.clientY);
+    return;
+  }
+  if (isLineMode() && isDrawingLine()) {
+    e.preventDefault();
+    updateLinePreview(t.clientX, t.clientY);
+    return;
+  }
 
   const pan = w.pan();
   if (pan) {
@@ -513,6 +666,16 @@ const onTouchMove = (e: TouchEvent): void => {
 const onTouchEnd = (e: TouchEvent): void => {
   const w = must();
   clearLongPressTimer();
+
+  if (isPainting()) {
+    finishStroke();
+    return;
+  }
+  if (isLineMode() && isDrawingLine()) {
+    const t = e.changedTouches[0];
+    if (t) commitLineOnRelease(t.clientX, t.clientY);
+    return;
+  }
 
   const pan = w.pan();
   if (pan) {

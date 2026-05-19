@@ -15,6 +15,7 @@ import {
   makeBoxMover,
   makeLineEndpointMover,
   makeLineMover,
+  makeStrokeMover,
   makeTextMover,
   type Mover,
 } from "./movers.ts";
@@ -31,6 +32,7 @@ interface BoxLike {
 }
 interface TextLike { id: string; label: string; x: number; y: number }
 interface LineLike { id: string; x1: number; y1: number; x2: number; y2: number }
+interface StrokeLike { id: string; points: Array<[number, number]> }
 interface EdgeLike {
   from: string;
   to: string;
@@ -43,6 +45,7 @@ interface CurrentMap {
   edges: EdgeLike[];
   texts: TextLike[];
   lines: LineLike[];
+  strokes?: StrokeLike[];
 }
 
 interface DragState {
@@ -65,10 +68,12 @@ interface LinkState {
 interface AttachBindings {
   readonly canvas: HTMLElement;
   readonly lineLayer: SVGGElement;
+  readonly strokeLayer: SVGGElement;
   readonly ghostLine: SVGLineElement;
   readonly currentMap: () => CurrentMap;
   readonly findTextById: (id: string) => TextLike | undefined;
   readonly findLineById: (id: string) => LineLike | undefined;
+  readonly findStrokeById: (id: string) => StrokeLike | undefined;
   readonly selected: Set<string>;
   readonly selectedEdge: () => EdgeLike | null;
   readonly setSelectedEdge: (e: EdgeLike | null) => void;
@@ -122,6 +127,18 @@ export const collectMovers = (): Mover[] => {
           '.line-handle[data-endpoint="2"]',
         );
         movers.push(makeLineMover(l, g, lineEl, hitEl, h1, h2));
+      }
+      continue;
+    }
+    const s = w.findStrokeById(id);
+    if (s) {
+      const g = w.strokeLayer.querySelector<SVGGElement>(
+        `.stroke-group[data-id="${id}"]`,
+      );
+      if (g) {
+        const hitEl = g.querySelector<SVGPathElement>(".stroke-hit")!;
+        const lineEl = g.querySelector<SVGPathElement>(".stroke-line")!;
+        movers.push(makeStrokeMover(s, g, hitEl, lineEl));
       }
     }
   }

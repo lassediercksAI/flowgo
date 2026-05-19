@@ -434,6 +434,10 @@
     .h-bl { bottom: -28px; left: -28px; }
     .h-br { bottom: -28px; right: -28px; }
     .box.selected .handle { opacity: 1; }
+    /* Line endpoint handles: 6px radius is unhittable with a finger.
+       Modern Safari / Chrome / Firefox all let CSS override the SVG
+       `r` attribute, so we bump it to ~12px on coarse pointers. */
+    .line-handle { r: 12; stroke-width: 3; }
   }
 
   svg { position: absolute; inset: 0; pointer-events: none; width: 100%; height: 100%; z-index: 1; }
@@ -536,6 +540,41 @@
   }
   #helpClose:hover { color: #333; }
   .help { color: #666; font-size: 12px; margin-left: 8px; }
+
+  /* Touch-only mode switcher (cursor / brush / line). Vertical stack
+     pinned to the right edge so it sits opposite the breadcrumb /
+     download chrome on the top-left. Hidden by default; revealed only
+     when body.touch-input is set from a coarse pointer media match. */
+  #modeBar { display: none; }
+  body.touch-input #modeBar {
+    display: flex; flex-direction: column; gap: 4px;
+    position: absolute; z-index: 10;
+    top: 50%; transform: translateY(-50%);
+    right: calc(8px + env(safe-area-inset-right, 0px));
+    background: #fff; border: 1px solid #ccc; border-radius: 6px;
+    padding: 4px; box-shadow: 0 1px 3px rgba(0,0,0,.1);
+    user-select: none; -webkit-user-select: none;
+    touch-action: manipulation;
+  }
+  #modeBar button {
+    width: 36px; height: 36px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: transparent; border: 0; padding: 0;
+    color: #444; cursor: pointer; border-radius: 4px;
+    /* touch-action is not inherited — set on the button itself so iOS
+       Safari treats a tap as a fast-click without a 300ms delay. */
+    touch-action: manipulation;
+  }
+  /* Same override as #alignToolbar: keep inline icon SVGs from
+     inheriting the full-canvas overlay svg rule further down. */
+  #modeBar button svg {
+    position: static; inset: auto; z-index: auto;
+    width: 20px; height: 20px;
+  }
+  #modeBar button:hover { background: #f0f0f0; color: #222; }
+  #modeBar button.active {
+    background: #eef4ff; color: #07f;
+  }
 </style>
 </head>
 <body>

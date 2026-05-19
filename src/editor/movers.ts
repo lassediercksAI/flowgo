@@ -7,6 +7,7 @@
 // because all movers need it and nothing else in the editor cares.
 
 import type { HandleCode } from "../graph/handle.ts";
+import { strokePathD } from "../graph/stroke.ts";
 
 export const GRID = 20;
 export const snap = (v: number): number => Math.round(v / GRID) * GRID;
@@ -157,6 +158,45 @@ export const makeLineEndpointMover = (
       const h = endpoint === 1 ? refs.h1 : refs.h2;
       h.setAttribute("cx", String(nx));
       h.setAttribute("cy", String(ny));
+    },
+  };
+};
+
+export interface StrokeLike {
+  points: Array<[number, number]>;
+}
+
+// Strokes translate as a rigid body: capture the original points at
+// construction, then on each tick rewrite each point by (dx, dy) and
+// re-emit the SVG path d. Both the visible .stroke-line and the wider
+// transparent .stroke-hit share the same d so the hit area follows
+// the stroke during the drag.
+export const makeStrokeMover = (
+  s: StrokeLike,
+  gEl: SVGGElement,
+  hitEl: SVGPathElement,
+  lineEl: SVGPathElement,
+): Mover => {
+  const orig = s.points.map(([x, y]) => [x, y] as [number, number]);
+  return {
+    el: gEl,
+    apply(dx, dy, ev) {
+      let ddx = dx;
+      let ddy = dy;
+      if (ev?.shiftKey && orig.length > 0) {
+        // Snap the first point to the grid; the rest translate by the
+        // same offset so the stroke's shape is preserved.
+        const p0 = orig[0]!;
+        ddx = snap(p0[0] + dx) - p0[0];
+        ddy = snap(p0[1] + dy) - p0[1];
+      }
+      for (let i = 0; i < orig.length; i++) {
+        const o = orig[i]!;
+        s.points[i] = [o[0] + ddx, o[1] + ddy];
+      }
+      const d = strokePathD(s.points);
+      hitEl.setAttribute("d", d);
+      lineEl.setAttribute("d", d);
     },
   };
 };
