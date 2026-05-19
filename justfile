@@ -5,6 +5,9 @@
 #               or any *.go file. No external watcher binary required;
 #               the Go side is polled with stat + a 500ms sleep.
 #
+#               Binds 0.0.0.0 (--host) by default so other devices on the
+#               LAN / containers can reach the dev server.
+#
 #               The first run opens the editor in your browser; subsequent
 #               restarts set FLOWGO_NO_OPEN=1 so they reuse the existing tab
 #               (just hit reload, or rely on the server reconnect).
@@ -63,9 +66,9 @@ _dev-run file:
         wait "$GO_PID" 2>/dev/null || true
         echo "── restarting flowgo ──────────────────────────────────"
         if (( started )); then
-            FLOWGO_NO_OPEN=1 go run . "{{file}}" &
+            FLOWGO_NO_OPEN=1 go run . "{{file}}" --host &
         else
-            go run . "{{file}}" &
+            go run . "{{file}}" --host &
             started=1
         fi
         GO_PID=$!
