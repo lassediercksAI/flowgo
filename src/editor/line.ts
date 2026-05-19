@@ -99,14 +99,16 @@ export const cancelPendingLine = (): void => {
   removePreview();
 };
 
-export const placeLinePoint = (e: MouseEvent): void => {
-  e.preventDefault();
-  e.stopPropagation();
-  const rawX = round2(toDataX(e.clientX));
-  const rawY = round2(toDataY(e.clientY));
+export const placeLinePoint = (
+  clientX: number,
+  clientY: number,
+  shiftKey: boolean = false,
+): void => {
+  const rawX = round2(toDataX(clientX));
+  const rawY = round2(toDataY(clientY));
   if (!pending) {
     pending = { x: rawX, y: rawY };
-    pendingDownClient = { x: e.clientX, y: e.clientY };
+    pendingDownClient = { x: clientX, y: clientY };
     const el = ensurePreview();
     el.setAttribute("x1", String(rawX));
     el.setAttribute("y1", String(rawY));
@@ -115,7 +117,7 @@ export const placeLinePoint = (e: MouseEvent): void => {
     return;
   }
   const start = pending;
-  const end = e.shiftKey ? snapAngle(start, rawX, rawY) : { x: rawX, y: rawY };
+  const end = shiftKey ? snapAngle(start, rawX, rawY) : { x: rawX, y: rawY };
   pending = null;
   pendingDownClient = null;
   removePreview();
@@ -126,19 +128,23 @@ export const placeLinePoint = (e: MouseEvent): void => {
   createLineSegment(start.x, start.y, end.x, end.y);
 };
 
-// Called from the document-level mouseup. If the user dragged far
-// enough since the mousedown that set `pending`, commit the line at
-// the release point. Otherwise leave `pending` in place — they were
-// click-clicking, and the next click commits.
-export const commitLineOnRelease = (e: MouseEvent): void => {
+// Called from the document-level mouseup / touchend. If the user
+// dragged far enough since the down event that set `pending`, commit
+// the line at the release point. Otherwise leave `pending` in place —
+// they were click-clicking (or tap-tapping), and the next click commits.
+export const commitLineOnRelease = (
+  clientX: number,
+  clientY: number,
+  shiftKey: boolean = false,
+): void => {
   if (!pending || !pendingDownClient) return;
-  const dx = e.clientX - pendingDownClient.x;
-  const dy = e.clientY - pendingDownClient.y;
+  const dx = clientX - pendingDownClient.x;
+  const dy = clientY - pendingDownClient.y;
   if (Math.hypot(dx, dy) < 4) return;
-  const rawX = round2(toDataX(e.clientX));
-  const rawY = round2(toDataY(e.clientY));
+  const rawX = round2(toDataX(clientX));
+  const rawY = round2(toDataY(clientY));
   const start = pending;
-  const end = e.shiftKey ? snapAngle(start, rawX, rawY) : { x: rawX, y: rawY };
+  const end = shiftKey ? snapAngle(start, rawX, rawY) : { x: rawX, y: rawY };
   pending = null;
   pendingDownClient = null;
   removePreview();
@@ -146,11 +152,15 @@ export const commitLineOnRelease = (e: MouseEvent): void => {
   createLineSegment(start.x, start.y, end.x, end.y);
 };
 
-export const updateLinePreview = (e: MouseEvent): void => {
+export const updateLinePreview = (
+  clientX: number,
+  clientY: number,
+  shiftKey: boolean = false,
+): void => {
   if (!pending || !previewEl) return;
-  const rawX = round2(toDataX(e.clientX));
-  const rawY = round2(toDataY(e.clientY));
-  const p = e.shiftKey ? snapAngle(pending, rawX, rawY) : { x: rawX, y: rawY };
+  const rawX = round2(toDataX(clientX));
+  const rawY = round2(toDataY(clientY));
+  const p = shiftKey ? snapAngle(pending, rawX, rawY) : { x: rawX, y: rawY };
   previewEl.setAttribute("x2", String(p.x));
   previewEl.setAttribute("y2", String(p.y));
 };

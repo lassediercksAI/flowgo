@@ -131,11 +131,11 @@ const onMouseMove = (e: MouseEvent): void => {
   w.lastCursor.x = e.clientX;
   w.lastCursor.y = e.clientY;
   if (isPainting()) {
-    extendStroke(e);
+    extendStroke(e.clientX, e.clientY);
     return;
   }
   if (isLineMode()) {
-    updateLinePreview(e);
+    updateLinePreview(e.clientX, e.clientY, e.shiftKey);
     return;
   }
   const pan = w.pan();
@@ -220,7 +220,7 @@ const onMouseUp = (e: MouseEvent): void => {
     return;
   }
   if (isLineMode()) {
-    commitLineOnRelease(e);
+    commitLineOnRelease(e.clientX, e.clientY, e.shiftKey);
     return;
   }
   if (w.pan()) {
@@ -374,11 +374,15 @@ const onBgMouseDown = (e: MouseEvent): void => {
   const w = must();
   if (e.button !== 0) return;
   if (isBrushMode()) {
-    startStroke(e);
+    e.preventDefault();
+    e.stopPropagation();
+    startStroke(e.clientX, e.clientY);
     return;
   }
   if (isLineMode()) {
-    placeLinePoint(e);
+    e.preventDefault();
+    e.stopPropagation();
+    placeLinePoint(e.clientX, e.clientY, e.shiftKey);
     return;
   }
   if (!e.shiftKey) w.selected.clear();

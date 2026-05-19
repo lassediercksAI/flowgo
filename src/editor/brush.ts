@@ -118,11 +118,9 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
 const previewPoints = (pts: ReadonlyArray<readonly [number, number]>): string =>
   pts.map((p) => `${p[0]},${p[1]}`).join(" ");
 
-export const startStroke = (e: MouseEvent): void => {
-  e.preventDefault();
-  e.stopPropagation();
-  const x = round2(toDataX(e.clientX));
-  const y = round2(toDataY(e.clientY));
+export const startStroke = (clientX: number, clientY: number): void => {
+  const x = round2(toDataX(clientX));
+  const y = round2(toDataY(clientY));
   const id = must().mintId();
   const ns = "http://www.w3.org/2000/svg";
   const g = document.createElementNS(ns, "g");
@@ -137,10 +135,10 @@ export const startStroke = (e: MouseEvent): void => {
   active = { id, palette, points: [[x, y]], polyEl: poly };
 };
 
-export const extendStroke = (e: MouseEvent): void => {
+export const extendStroke = (clientX: number, clientY: number): void => {
   if (!active) return;
-  const x = round2(toDataX(e.clientX));
-  const y = round2(toDataY(e.clientY));
+  const x = round2(toDataX(clientX));
+  const y = round2(toDataY(clientY));
   const last = active.points[active.points.length - 1]!;
   if (Math.hypot(x - last[0], y - last[1]) < 2) return;
   active.points.push([x, y]);
