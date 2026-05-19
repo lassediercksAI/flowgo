@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.0](https://github.com/lassediercks/flowgo/compare/v0.0.23...v0.1.0) (2026-05-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove polygon (triangle/pentagon/hexagon) support
+
+### Features
+
+* **editor:** repurpose +/- for palette stepping; extend palette to edges, lines, and strokes ([d22f784](https://github.com/lassediercks/flowgo/commit/d22f784995d4f297fa7239653123fb85d77d0a58))
+* notify user when a newer flowgo release is available ([1949548](https://github.com/lassediercks/flowgo/commit/1949548ffac24e8fc65f14fe66fd928e2087bf6a))
+* remove polygon (triangle/pentagon/hexagon) support ([96f498d](https://github.com/lassediercks/flowgo/commit/96f498d9c634c14010ed25e0755a1c1c2f9bc33a))
+* stamp flowgo version into .flowgo files on save ([f4d1888](https://github.com/lassediercks/flowgo/commit/f4d1888e6b0c502859680e8687ac4e50096cdb6d))
+
 ## [0.0.23](https://github.com/lassediercks/flowgo/compare/v0.0.22...v0.0.23) (2026-05-14)
 
 
