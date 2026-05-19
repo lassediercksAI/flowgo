@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.1](https://github.com/lassediercks/flowgo/compare/v0.1.0...v0.1.1) (2026-05-19)
+
+
+### Features
+
+* **editor:** hide breadcrumb toolbar when at root map ([6df06ba](https://github.com/lassediercks/flowgo/commit/6df06baec443726d82ce7fcd66b005e76b9ad6e9))
+* **editor:** touch input — mode bar, drawing, selection, endpoint drag ([d888322](https://github.com/lassediercks/flowgo/commit/d888322541ff91c3eeb2cc1750b472d3d8c54efb))
+* **line:** control points + render styles ([5b0e675](https://github.com/lassediercks/flowgo/commit/5b0e675351b669b262719799102ffb6419d956b7))
+
+
+### Refactoring
+
+* **brush,line:** take coords instead of MouseEvent ([ed22bd1](https://github.com/lassediercks/flowgo/commit/ed22bd1043c2eba8e17bf86d18da0473d01ccb84))
+
 ## [0.1.0](https://github.com/lassediercks/flowgo/compare/v0.0.23...v0.1.0) (2026-05-19)
 
 
