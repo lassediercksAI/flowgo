@@ -1,22 +1,21 @@
+version 0.0.23
 map /
 box b1 Versioning 1016.7759604114208 291.48569022823733
-box b2 FlowGo 941 -267 5 7 6
+box b2 FlowGo 923 -278 4 7 8
 box b3 Mapping 906.5 32.5
-box b4 "Layering (CMD/CTRL + Click)" 591.5 193.5
+box b4 "Layering (CMD/CTRL + Click)" 540.5 186.5
 box b6 Abstraction 727 332.5
 box b7 Simple 1232 -213.5 4 6
-box b8 "Open Format" 1131.5 41.75
+box b8 "Open Format" 1203.5 24.75
 box b5 "Alpha Software" 608 -191
 box b9 "Ephemeral Env" 588.75 -28.75
 box b10 Collaboration 838.5 416.2428451141186
-box b11 Exaptation? 1479 -84.8785774429407 4 8
+box b11 Exaptation? 1381 -91.8785774429407 4 8
 box b12 "A new box" 1816.25 490.6214225570593
-box b13 "is it a hexagon?" 1536.25 679.6214225570593 6 1 1 180
-box b14 "shift & +/- rotates shapes" 1772 656 6 1 1 90
-box b15 "(1) numbers are attached to styles" 1516 943.3107112785297
-box b16 "(2) numbers are attached to styles" 1514 997 4 2
-box b17 "(3) numbers are attached to styles" 1516 1048 4 3
-box b18 "Shift+Number changes size" 1491 1103 4 2 5
+box b15 "(1) numbers are attached to styles" 1508 686.3107112785297
+box b16 "(2) numbers are attached to styles" 1506 740 4 2
+box b17 "(3) numbers are attached to styles" 1508 791 4 3
+box b18 "Shift+Number changes size" 1483 846 4 2 5
 anchor b2
 
 edge b1:t b2:br
@@ -33,12 +32,13 @@ edge b8:l b2:br
 edge b2:r b7:l
 
 text t2 Tips: 1473.25 395.6214225570593 1 9
-text t3 "* Double click to create boxes\n* Press T to create static text\n* Press L to create Lines\n* CMD/CTRL Click to enter a box\n* use + & - to alter shapes\n* shift should™ make things snap" 1491.25 490.6214225570593
+text t3 "* Double click to create boxes\n* Press T to create static text\n* Press L to create Lines\n* CMD/CTRL Click to enter a box\n* use + & - to step colour (shift for size)\n* shift should™ make things snap" 1491.25 490.6214225570593
 text t1 "like this" 1811.25 533.6214225570593
 text t4 "disclaimer & thougts" -73.75 524.6214225570593 1 5
 text t5 "is it vibecoded?\n- yes!\n\nis it useful?\n- absolutely!\n\nshould it be a foundational piece\nin any serious production pipeline?\n-absolutely not\n\nif its vibecoded, doesnt that mean I can re-build this?\n- absolutely, but maybe we can improve it together?\n\nis it ironic to vibe-code a tool with a proprietary LLM model that is\nonly good because of large scale theft and then open source the tool?\n- yeah" -61.75 573.6214225570593
 text t6 "I'd argue when an output is easy to judge (flowgo file, visual map) the amount of\nhuman judgement we can apply to the HOW of the output can decrease\ngiven basic ethics and security is in place" -299.2240395885792 1069.4856902282372 7 5
 text t7 "Do I hope to get any personal gain out of this in some shape or form?\n- yeah sure, bills gotta be paid" -227.22403958857922 953.4856902282372
+text t8 "Should we introduce zoom? not the video platform but the magnifying thing" -993 -1529
 
 line l1 1826.75 571.12 2210.75 595.12
 line l2 1469.5 387.81 2329.5 385.81
@@ -51,10 +51,10 @@ stroke s4 7 1092.5,-308 1115.5,-334 1149.5,-384 1169.5,-409 1191.5,-425 1200.5,-
 stroke s5 7 1134.5,-271 1183.5,-292 1283.5,-361 1307.5,-372
 stroke s6 7 1834.5,-110 1841.5,-95 1862.5,2 1872.5,33 1871.5,26 1874.5,10 1890.5,-54 1909.5,-105 1835.5,-116 1817.5,-116
 stroke s7 7 1888.5,62 1852.5,59 1833.5,61 1829.5,68 1828.5,94 1830.5,101 1835.5,106 1841.5,107 1854.5,100 1861.5,90 1867.5,74 1867.5,64 1865.5,63
-stroke s8 7 1959.5,117 1964.5,182
-stroke s9 7 1958.5,124 1995.5,125 2004.5,123
-stroke s10 7 2004.5,124 2009.5,143 2009.5,169 2013.5,189
-stroke s11 7 1958.5,189 2005.5,192
+stroke s8 1959.5,117 1964.5,182
+stroke s9 1958.5,124 1995.5,125 2004.5,123
+stroke s10 2004.5,124 2009.5,143 2009.5,169 2013.5,189
+stroke s11 1958.5,189 2005.5,192
 stroke s12 7 1914.5,213 1933.5,217 1956.5,218 1996.5,212 2020.5,212 2050.5,206 2057.5,207
 stroke s13 7 1915.5,216 1919.5,224 1937.5,244 1962.5,265 1985.5,291 1987.5,290
 stroke s14 7 2055.5,214 2042.5,231 1990.5,283 1987.5,288 1986.5,298
@@ -91,7 +91,7 @@ stroke s1 1554,329 1556,330 1558,329 1564,326 1576,313 1596,288 1618,259 1643,23
 stroke s2 1754,667 1745,666 1730,666 1717,670 1706,680 1699,692 1697,706 1701,720 1709,732 1718,739 1727,740 1737,733 1745,723 1750,710 1751,697 1746,686 1737,675 1727,670 1715,668
 
 map /b2
-box b1 "Exaptation GmbH" 1313.5 309 6
+box b1 "Exaptation GmbH" 1313.5 309
 box b2 "Lasse Diercks" 1318 112.5
 box b3 https://github.com/lassediercks/flowgo 1252 157
 box b4 https://exaptation.eu/ 1343 437.25
