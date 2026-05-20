@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.2](https://github.com/lassediercks/flowgo/compare/v0.1.1...v0.1.2) (2026-05-20)
+
+
+### Features
+
+* --host shows LAN IP, add `flowgo upgrade` subcommand ([28b8e85](https://github.com/lassediercks/flowgo/commit/28b8e85559271fc4a87e7fdf7ff4c31cc5921fbd))
+* **mcp:** full GUI parity + self-describing surface ([6612e0f](https://github.com/lassediercks/flowgo/commit/6612e0fc824a4ac23c742d0fb87d56b7e69d3cce))
+
+
+### Bug Fixes
+
+* **ci:** cap release-please search depth to skip pre-v-prefix releases ([e5f3053](https://github.com/lassediercks/flowgo/commit/e5f3053c8e40680650135ad44609ad2d7f639d9e))
+
 ## [0.1.1](https://github.com/lassediercks/flowgo/compare/v0.1.0...v0.1.1) (2026-05-19)
 
 
