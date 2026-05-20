@@ -21,6 +21,14 @@ jobs:
           token: ${{ secrets.RELEASE_PLEASE }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          # Cap the release scan well inside the v-prefixed era.
+          # Default (400) walks back into the pre-2026-05-01 releases
+          # tagged without the `v` prefix; one of those has a null
+          # GraphQL tag node and crashes with
+          #   Cannot read properties of null (reading 'tagCommit')
+          # Manifest mode only needs to see the latest release, so 5
+          # is more than enough headroom.
+          release-search-depth: 5
 
   build:
     needs: release-please
