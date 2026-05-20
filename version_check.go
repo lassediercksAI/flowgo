@@ -66,8 +66,13 @@ func notifyIfNewer(current, latest string) {
 	if !isNewer(latest, current) {
 		return
 	}
+	// Suggest `flowgo upgrade` first since that's the path that
+	// works for everyone (release binaries, go install, etc.).
+	// Homebrew users see a clear redirect from `flowgo upgrade` itself.
 	fmt.Fprintf(os.Stderr,
-		"  update available: flowgo %s (you have %s)\n    go install github.com/lassediercks/flowgo@latest\n",
+		"  update available: flowgo %s (you have %s)\n"+
+			"    run `flowgo upgrade` to update in place (or `brew upgrade flowgo` if installed via brew,\n"+
+			"    or `go install github.com/lassediercks/flowgo@latest` if installed via go)\n",
 		latest, current)
 }
 

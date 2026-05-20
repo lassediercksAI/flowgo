@@ -58,6 +58,9 @@ func main() {
 	case "serve":
 		runServe(os.Args[2:])
 		return
+	case "upgrade":
+		runUpgrade(os.Args[2:])
+		return
 	}
 	bindHost := "127.0.0.1"
 	useRandomName := false
@@ -140,17 +143,64 @@ func main() {
 		die("listen on %s:54041-54099: %v", bindHost, err)
 	}
 	addr := ln.Addr().(*net.TCPAddr)
-	url := fmt.Sprintf("http://%s:%d", bindHost, addr.Port)
+	displayHost := bindHost
+	// When binding to all interfaces, surface the host's real LAN IP
+	// in the printed URL — `0.0.0.0` isn't a thing the user can paste
+	// into another browser tab.
+	if bindHost == "0.0.0.0" {
+		if lan := pickLanIP(); lan != "" {
+			displayHost = lan
+		}
+	}
+	url := fmt.Sprintf("http://%s:%d", displayHost, addr.Port)
 	fmt.Printf("flowgo editing %s\n  GUI: %s\n  MCP: %s/mcp\n", filePath, url, url)
 	if bindHost == "127.0.0.1" && os.Getenv("FLOWGO_NO_OPEN") == "" {
 		openBrowser(url)
 	} else if bindHost != "127.0.0.1" {
-		fmt.Printf("  (bound to all interfaces — substitute 0.0.0.0 with the host's IP / localhost when you connect)\n")
+		fmt.Printf("  (also reachable on http://localhost:%d from this machine)\n", addr.Port)
 	}
 	maybeNotifyNewVersion()
 	if err := http.Serve(ln, nil); err != nil {
 		die("serve: %v", err)
 	}
+}
+
+// pickLanIP returns a usable IPv4 from this host's interfaces, preferring
+// RFC 1918 private ranges (10/8, 172.16/12, 192.168/16) over any other
+// non-loopback IPv4. Empty string when nothing usable is reachable —
+// callers should fall back to bindHost in that case.
+//
+// Pulled out of main so it can be unit-tested via a fake addr provider.
+func pickLanIP() string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return ""
+	}
+	return pickLanIPFromAddrs(addrs)
+}
+
+func pickLanIPFromAddrs(addrs []net.Addr) string {
+	var fallback string
+	for _, a := range addrs {
+		ipnet, ok := a.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		ip4 := ipnet.IP.To4()
+		if ip4 == nil {
+			continue
+		}
+		if ip4.IsLoopback() || ip4.IsLinkLocalUnicast() || ip4.IsUnspecified() {
+			continue
+		}
+		if ip4.IsPrivate() {
+			return ip4.String()
+		}
+		if fallback == "" {
+			fallback = ip4.String()
+		}
+	}
+	return fallback
 }
 
 // listenFirstFree tries each port in [start, end] on host and returns the
@@ -234,6 +284,7 @@ Usage:
   flowgo <name|new> --host         bind 0.0.0.0 (reach from outside this machine/container)
   flowgo serve [flags]             public mode: multi-workspace MCP + share-via-webhook
                                    (run 'flowgo serve --help' for flags)
+  flowgo upgrade                   download the latest release and replace this binary
   flowgo version                   print version info
   flowgo help                      show this message
 `)
