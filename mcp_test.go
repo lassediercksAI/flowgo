@@ -1,6 +1,10 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -358,5 +362,453 @@ func TestSerialize_SynthesisesFallbackIDs(t *testing.T) {
 	// at emit time without writing back into the in-memory record.
 	if g.Maps[0].Texts[0].ID != "" || g.Maps[0].Lines[0].ID != "" || g.Maps[0].Strokes[0].ID != "" {
 		t.Fatalf("Serialize mutated caller's graph: %+v", g.Maps[0])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// MCP ↔ GUI parity coverage. Each entity must have add / update / delete
+// reachable as a granular tool; set_state round-tripping is not a substitute.
+// These tests are the regression net for the parity audit captured in
+// .claude/skills/mcp-parity-qa/SKILL.md.
+// ---------------------------------------------------------------------------
+
+// TestParity_AllEntitiesHaveCRUD asserts the toolActions dispatch table
+// exposes add_<entity>, update_<entity>, and delete_<entity> for every
+// mutable entity type in pkg/graph. Re-flags missing tools loudly so a
+// future entity addition can't silently regress the MCP surface.
+func TestParity_AllEntitiesHaveCRUD(t *testing.T) {
+	for _, entity := range []string{"box", "edge", "text", "line", "stroke"} {
+		for _, verb := range []string{"add", "update", "delete"} {
+			name := verb + "_" + entity
+			if _, ok := toolActions[name]; !ok {
+				t.Errorf("toolActions missing %q — entity %q lost %s parity",
+					name, entity, verb)
+			}
+		}
+	}
+}
+
+// TestParity_SchemaMatchesStruct guards against the "sides" class of
+// schema lie: a property advertised in mcpTools() that the underlying
+// Go struct does not have. We enumerate the addTool schemas for each
+// entity's add_/update_ tools and verify every non-meta property maps
+// to a JSON-tagged field on the corresponding graph type.
+func TestParity_SchemaMatchesStruct(t *testing.T) {
+	// Meta args that are tool-mechanics, not entity fields.
+	meta := map[string]bool{
+		"path": true, "id": true,
+		"from": true, "to": true,
+		"workspace_id": true,
+	}
+	cases := []struct {
+		tools  []string
+		fields map[string]bool
+	}{
+		{
+			tools:  []string{"add_box", "update_box"},
+			fields: jsonFieldSet(graph.Box{}),
+		},
+		{
+			tools:  []string{"add_edge", "update_edge"},
+			fields: jsonFieldSet(graph.Edge{}),
+		},
+		{
+			tools:  []string{"add_text", "update_text"},
+			fields: jsonFieldSet(graph.Text{}),
+		},
+		{
+			tools:  []string{"add_line", "update_line"},
+			fields: jsonFieldSet(graph.Line{}),
+		},
+		{
+			tools:  []string{"add_stroke", "update_stroke"},
+			fields: jsonFieldSet(graph.Stroke{}),
+		},
+	}
+	tools := mcpTools()
+	byName := map[string]mcpToolDef{}
+	for _, td := range tools {
+		byName[td.Name] = td
+	}
+	for _, c := range cases {
+		for _, name := range c.tools {
+			td, ok := byName[name]
+			if !ok {
+				t.Errorf("%s missing from mcpTools()", name)
+				continue
+			}
+			props, _ := td.InputSchema["properties"].(map[string]any)
+			for prop := range props {
+				if meta[prop] {
+					continue
+				}
+				if !c.fields[prop] {
+					t.Errorf("%s advertises %q but the backing struct has no such json field — schema lie",
+						name, prop)
+				}
+			}
+		}
+	}
+}
+
+// jsonFieldSet returns the set of json:"name" tags on v's exported
+// fields, with the ",omitempty"/etc. suffix stripped. Used by the
+// schema-match test to compare advertised properties against the
+// authoritative struct.
+func jsonFieldSet(v any) map[string]bool {
+	out := map[string]bool{}
+	rt := reflect.TypeOf(v)
+	for i := 0; i < rt.NumField(); i++ {
+		tag := rt.Field(i).Tag.Get("json")
+		if tag == "" || tag == "-" {
+			continue
+		}
+		if comma := strings.Index(tag, ","); comma >= 0 {
+			tag = tag[:comma]
+		}
+		out[tag] = true
+	}
+	return out
+}
+
+// TestActAddBox_RejectsSidesArg is a focused regression for the
+// dropped-sides lie: the old schema advertised a 'sides' parameter the
+// action ignored. The fix removed sides from the schema; this test
+// pins that 'sides' is not in the advertised properties anymore.
+func TestActAddBox_NoSidesInSchema(t *testing.T) {
+	for _, td := range mcpTools() {
+		if td.Name != "add_box" && td.Name != "update_box" {
+			continue
+		}
+		props, _ := td.InputSchema["properties"].(map[string]any)
+		if _, has := props["sides"]; has {
+			t.Errorf("%s still advertises 'sides' — Box has no such field", td.Name)
+		}
+	}
+}
+
+// TestActAddBox_AcceptsAnchor covers the new anchor flag on add_box:
+// setting it must persist Anchor=true and clear any prior anchor on
+// the same map (per-map singleton, mirroring keys.ts toggleAnchor).
+func TestActAddBox_AcceptsAnchor(t *testing.T) {
+	g := freshGraph()
+	g.Maps[0].Boxes = append(g.Maps[0].Boxes, graph.Box{
+		ID: "b_old", Label: "old", X: 0, Y: 0, Anchor: true,
+	})
+	id, err := actAddBox(g, map[string]any{
+		"label":  "anchored",
+		"x":      float64(10),
+		"y":      float64(10),
+		"anchor": true,
+	})
+	if err != nil {
+		t.Fatalf("actAddBox: %v", err)
+	}
+	rawID := mcpFirstText(id)
+	var anchored []string
+	for _, b := range g.Maps[0].Boxes {
+		if b.Anchor {
+			anchored = append(anchored, b.ID)
+		}
+	}
+	if len(anchored) != 1 || anchored[0] != rawID {
+		t.Fatalf("anchor singleton broken: %v (expected only %s)", anchored, rawID)
+	}
+}
+
+func TestActUpdateBox_AnchorTrueSweepsOthers(t *testing.T) {
+	g := freshGraph()
+	g.Maps[0].Boxes = []graph.Box{
+		{ID: "b1", Label: "one", Anchor: true},
+		{ID: "b2", Label: "two"},
+	}
+	if _, err := actUpdateBox(g, map[string]any{"id": "b2", "anchor": true}); err != nil {
+		t.Fatalf("actUpdateBox: %v", err)
+	}
+	if g.Maps[0].Boxes[0].Anchor || !g.Maps[0].Boxes[1].Anchor {
+		t.Fatalf("anchor not transferred: %+v", g.Maps[0].Boxes)
+	}
+}
+
+func TestActUpdateBox_AnchorFalseClearsSelf(t *testing.T) {
+	g := freshGraph()
+	g.Maps[0].Boxes = []graph.Box{{ID: "b1", Label: "one", Anchor: true}}
+	if _, err := actUpdateBox(g, map[string]any{"id": "b1", "anchor": false}); err != nil {
+		t.Fatalf("actUpdateBox: %v", err)
+	}
+	if g.Maps[0].Boxes[0].Anchor {
+		t.Fatalf("anchor not cleared: %+v", g.Maps[0].Boxes[0])
+	}
+}
+
+func TestActUpdateText_MutatesAllFields(t *testing.T) {
+	g := freshGraph()
+	id, err := actAddText(g, map[string]any{
+		"label": "first", "x": float64(1), "y": float64(2),
+	})
+	if err != nil {
+		t.Fatalf("actAddText: %v", err)
+	}
+	rawID := mcpFirstText(id)
+	if _, err := actUpdateText(g, map[string]any{
+		"id":      rawID,
+		"label":   "second",
+		"x":       float64(10),
+		"y":       float64(20),
+		"palette": float64(3),
+		"font":    float64(4),
+	}); err != nil {
+		t.Fatalf("actUpdateText: %v", err)
+	}
+	got := g.Maps[0].Texts[0]
+	if got.Label != "second" || got.X != 10 || got.Y != 20 || got.Palette != 3 || got.Font != 4 {
+		t.Fatalf("update_text round-trip wrong: %+v", got)
+	}
+}
+
+func TestActDeleteText(t *testing.T) {
+	g := freshGraph()
+	id, err := actAddText(g, map[string]any{"label": "x", "x": float64(0), "y": float64(0)})
+	if err != nil {
+		t.Fatalf("actAddText: %v", err)
+	}
+	if _, err := actDeleteText(g, map[string]any{"id": mcpFirstText(id)}); err != nil {
+		t.Fatalf("actDeleteText: %v", err)
+	}
+	if len(g.Maps[0].Texts) != 0 {
+		t.Fatalf("text not deleted: %+v", g.Maps[0].Texts)
+	}
+	if _, err := actDeleteText(g, map[string]any{"id": "nonexistent"}); err == nil {
+		t.Fatalf("expected error deleting missing text")
+	}
+}
+
+func TestActUpdateLine_StyleAndMids(t *testing.T) {
+	g := freshGraph()
+	id, err := actAddLine(g, map[string]any{
+		"x1": float64(0), "y1": float64(0), "x2": float64(100), "y2": float64(100),
+	})
+	if err != nil {
+		t.Fatalf("actAddLine: %v", err)
+	}
+	rawID := mcpFirstText(id)
+	if _, err := actUpdateLine(g, map[string]any{
+		"id":      rawID,
+		"style":   float64(2),
+		"palette": float64(5),
+		"mids":    []any{[]any{float64(40), float64(60)}, []any{float64(60), float64(40)}},
+	}); err != nil {
+		t.Fatalf("actUpdateLine: %v", err)
+	}
+	got := g.Maps[0].Lines[0]
+	if got.Style != 2 || got.Palette != 5 || len(got.Mids) != 2 {
+		t.Fatalf("update_line round-trip wrong: %+v", got)
+	}
+	// Clearing mids: explicit null should empty the slice.
+	if _, err := actUpdateLine(g, map[string]any{"id": rawID, "mids": nil}); err != nil {
+		t.Fatalf("actUpdateLine(clear mids): %v", err)
+	}
+	if len(g.Maps[0].Lines[0].Mids) != 0 {
+		t.Fatalf("mids not cleared: %+v", g.Maps[0].Lines[0].Mids)
+	}
+}
+
+func TestActDeleteLine(t *testing.T) {
+	g := freshGraph()
+	id, err := actAddLine(g, map[string]any{
+		"x1": float64(0), "y1": float64(0), "x2": float64(1), "y2": float64(1),
+	})
+	if err != nil {
+		t.Fatalf("actAddLine: %v", err)
+	}
+	if _, err := actDeleteLine(g, map[string]any{"id": mcpFirstText(id)}); err != nil {
+		t.Fatalf("actDeleteLine: %v", err)
+	}
+	if len(g.Maps[0].Lines) != 0 {
+		t.Fatalf("line not deleted")
+	}
+}
+
+func TestActUpdateStroke_Palette(t *testing.T) {
+	g := freshGraph()
+	id, err := actAddStroke(g, map[string]any{
+		"points": []any{[]any{float64(0), float64(0)}, []any{float64(10), float64(10)}},
+	})
+	if err != nil {
+		t.Fatalf("actAddStroke: %v", err)
+	}
+	if _, err := actUpdateStroke(g, map[string]any{
+		"id":      mcpFirstText(id),
+		"palette": float64(7),
+	}); err != nil {
+		t.Fatalf("actUpdateStroke: %v", err)
+	}
+	if g.Maps[0].Strokes[0].Palette != 7 {
+		t.Fatalf("stroke palette not updated: %+v", g.Maps[0].Strokes[0])
+	}
+}
+
+func TestActDeleteStroke(t *testing.T) {
+	g := freshGraph()
+	id, err := actAddStroke(g, map[string]any{
+		"points": []any{[]any{float64(0), float64(0)}, []any{float64(5), float64(5)}},
+	})
+	if err != nil {
+		t.Fatalf("actAddStroke: %v", err)
+	}
+	if _, err := actDeleteStroke(g, map[string]any{"id": mcpFirstText(id)}); err != nil {
+		t.Fatalf("actDeleteStroke: %v", err)
+	}
+	if len(g.Maps[0].Strokes) != 0 {
+		t.Fatalf("stroke not deleted")
+	}
+}
+
+func TestActUpdateEdge_PaletteAndHandles(t *testing.T) {
+	g := freshGraph()
+	g.Maps[0].Boxes = []graph.Box{{ID: "a", Label: "A"}, {ID: "b", Label: "B"}}
+	if _, err := actAddEdge(g, map[string]any{"from": "a", "to": "b"}); err != nil {
+		t.Fatalf("actAddEdge: %v", err)
+	}
+	// Pass reversed direction to confirm the undirected match works.
+	if _, err := actUpdateEdge(g, map[string]any{
+		"from":       "b",
+		"to":         "a",
+		"palette":    float64(6),
+		"fromHandle": "t",
+		"toHandle":   "b",
+	}); err != nil {
+		t.Fatalf("actUpdateEdge: %v", err)
+	}
+	e := g.Maps[0].Edges[0]
+	// from/to in args were reversed relative to storage, so the handles
+	// should land on the correctly-mapped storage endpoints (a -> b in
+	// storage; "fromHandle"=t in args targets storage 'b' end).
+	if e.Palette != 6 || e.ToHandle != "t" || e.FromHandle != "b" {
+		t.Fatalf("update_edge mapping wrong: %+v", e)
+	}
+}
+
+func TestActAddEdge_PaletteAtCreate(t *testing.T) {
+	g := freshGraph()
+	g.Maps[0].Boxes = []graph.Box{{ID: "a", Label: "A"}, {ID: "b", Label: "B"}}
+	if _, err := actAddEdge(g, map[string]any{"from": "a", "to": "b", "palette": float64(4)}); err != nil {
+		t.Fatalf("actAddEdge: %v", err)
+	}
+	if g.Maps[0].Edges[0].Palette != 4 {
+		t.Fatalf("create-time palette dropped: %+v", g.Maps[0].Edges[0])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Discoverability: a competent MCP client should be able to bootstrap
+// understanding from the initialize response and one resource fetch.
+// These tests guard the highest-leverage agent-facing copy.
+// ---------------------------------------------------------------------------
+
+// TestInitialize_HasInstructions runs the initialize JSON-RPC method
+// through the same handler the network surfaces and asserts the
+// response carries a non-empty instructions string that touches the
+// concepts an agent needs to operate sensibly (paths, coordinates,
+// the 1..9 scales). Lossy keyword presence is intentional — the goal
+// is to prevent the field from regressing to empty or to a stub, not
+// to pin exact prose.
+func TestInitialize_HasInstructions(t *testing.T) {
+	rr := mcpCall(t, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`)
+	inst, _ := rr["result"].(map[string]any)["instructions"].(string)
+	if inst == "" {
+		t.Fatalf("initialize.result.instructions is empty — first thing most MCP clients show the model is missing")
+	}
+	for _, must := range []string{"path", "coordinate", "palette", "edge", "submap"} {
+		if !strings.Contains(strings.ToLower(inst), must) {
+			t.Errorf("instructions missing the word %q — agents won't learn this concept from the primer", must)
+		}
+	}
+	caps, _ := rr["result"].(map[string]any)["capabilities"].(map[string]any)
+	if _, ok := caps["resources"]; !ok {
+		t.Errorf("initialize.capabilities does not advertise resources — clients won't try resources/list")
+	}
+}
+
+func TestResourcesList_IncludesAbout(t *testing.T) {
+	rr := mcpCall(t, `{"jsonrpc":"2.0","id":1,"method":"resources/list","params":{}}`)
+	res, _ := rr["result"].(map[string]any)["resources"].([]any)
+	var found bool
+	for _, r := range res {
+		m, _ := r.(map[string]any)
+		if m["uri"] == "flowgo://about" {
+			found = true
+			if m["mimeType"] == "" || m["name"] == "" || m["description"] == "" {
+				t.Errorf("flowgo://about resource entry missing required metadata: %+v", m)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("resources/list did not include flowgo://about; got %v", res)
+	}
+}
+
+func TestResourcesRead_AboutReturnsRefDoc(t *testing.T) {
+	rr := mcpCall(t, `{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"flowgo://about"}}`)
+	contents, _ := rr["result"].(map[string]any)["contents"].([]any)
+	if len(contents) == 0 {
+		t.Fatalf("resources/read returned no contents")
+	}
+	first, _ := contents[0].(map[string]any)
+	text, _ := first["text"].(string)
+	// Spot-check that the doc covers the topics a tool-description
+	// can't carry: vestigial slots, handle codes, implicit submaps.
+	lower := strings.ToLower(text)
+	for _, must := range []string{"vestigial", "tl tr bl br", "implicitly", "linestyle"} {
+		if !strings.Contains(lower, must) {
+			t.Errorf("flowgo://about missing concept %q — the long-form doc is the only place this lives", must)
+		}
+	}
+}
+
+func TestResourcesRead_UnknownURIError(t *testing.T) {
+	rr := mcpCall(t, `{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"flowgo://does-not-exist"}}`)
+	if _, hasErr := rr["error"]; !hasErr {
+		t.Fatalf("expected JSON-RPC error for unknown resource uri, got %v", rr)
+	}
+}
+
+// mcpCall runs a single JSON-RPC request through handleMCP and returns
+// the parsed response. Shares the same HTTP plumbing as a real client
+// so the test catches transport-level regressions (wrong Content-Type,
+// missing field, schema drift) on top of action-level correctness.
+func mcpCall(t *testing.T, body string) map[string]any {
+	t.Helper()
+	req := httptest.NewRequest("POST", "/mcp", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handleMCP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("handleMCP returned status %d, body %s", w.Code, w.Body.String())
+	}
+	var out map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatalf("response not valid JSON: %v\nbody: %s", err, w.Body.String())
+	}
+	return out
+}
+
+// TestStyleProp_Range covers the shared 1..9 styling validator: values
+// 2..9 pass through verbatim, 0/1 collapse to 0 (the default-omitted
+// storage value), everything else errors.
+func TestStyleProp_Range(t *testing.T) {
+	for v, want := range map[int]int{0: 0, 1: 0, 2: 2, 5: 5, 9: 9} {
+		got, err := styleProp(float64(v), "palette")
+		if err != nil {
+			t.Errorf("styleProp(%d): unexpected error %v", v, err)
+		}
+		if got != want {
+			t.Errorf("styleProp(%d) = %d, want %d", v, got, want)
+		}
+	}
+	for _, bad := range []int{-1, 10, 99} {
+		if _, err := styleProp(float64(bad), "palette"); err == nil {
+			t.Errorf("styleProp(%d): expected error", bad)
+		}
 	}
 }
