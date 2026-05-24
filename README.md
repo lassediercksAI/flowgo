@@ -19,7 +19,17 @@ The path of least resistance, in order:
 
 **1. In your browser, no install:** [flowgo-map.com](https://flowgo-map.com)
 
-**2. On your machine, one command:**
+**2. On macOS / Linux via Homebrew:**
+
+```
+brew install lassediercks/flowgo/flowgo
+flowgo new
+```
+
+The tap lives at [lassediercks/homebrew-flowgo](https://github.com/lassediercks/homebrew-flowgo)
+and tracks the latest release. `brew upgrade flowgo` pulls new versions.
+
+**3. On your machine, one command:**
 
 ```
 go install github.com/lassediercks/flowgo@latest
