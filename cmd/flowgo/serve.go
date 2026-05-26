@@ -7,27 +7,19 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/lassediercks/flowgo/pkg/flowgo"
 )
 
-// serveMode flips dispatchTool / mcpTools / route registration into multi-
-// tenant workspace + snapshot-share territory. When false, flowgo is the
-// single-file editor it's always been.
-var serveMode bool
-
-type ServeConfig struct {
+type serveConfig struct {
 	BindAddr      string
 	WebhookURL    string
 	WebhookSecret string
 	WorkspaceTTL  time.Duration
 }
 
-var (
-	serveCfg   *ServeConfig
-	workspaces *WorkspaceManager
-)
-
 func runServe(args []string) {
-	cfg := &ServeConfig{
+	cfg := &serveConfig{
 		BindAddr:     "127.0.0.1:8080",
 		WorkspaceTTL: time.Hour,
 	}
@@ -85,26 +77,26 @@ func runServe(args []string) {
 		}
 	}
 
-	// Allow secret via env so it doesn't appear in process listings.
 	if cfg.WebhookSecret == "" {
 		cfg.WebhookSecret = os.Getenv("FLOWGO_WEBHOOK_SECRET")
 	}
 
-	// share is the only feature that strictly requires the webhook. Allow
-	// running without it for local testing; agents calling share will get a
-	// clear error if it's not configured.
-	serveCfg = cfg
-	serveMode = true
-	workspaces = newWorkspaceManager(cfg.WorkspaceTTL)
+	flowgo.Configure(flowgo.Config{
+		ServeMode:          true,
+		Workspaces:         flowgo.NewWorkspaceManager(cfg.WorkspaceTTL),
+		ShareWebhookURL:    cfg.WebhookURL,
+		ShareWebhookSecret: cfg.WebhookSecret,
+		Version:            resolveVersionString,
+	})
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/mcp", handleMCP)
+	mux.HandleFunc("/mcp", flowgo.MCPHandler)
 	mux.HandleFunc("/m/", func(w http.ResponseWriter, r *http.Request) {
-		// Editor HTML for shared snapshots. The website is expected to
-		// reverse-proxy /m/* here. The HTML detects snapshot mode from the
-		// pathname and bootstraps from /api/snapshot/<id>.
+		// Editor HTML for shared snapshots. The website reverse-proxies
+		// /m/* here. The HTML detects snapshot mode from the pathname
+		// and bootstraps from /api/snapshot/<id>.
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte(indexHTML))
+		w.Write([]byte(flowgo.IndexHTML))
 	})
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -117,7 +109,7 @@ func runServe(args []string) {
 	}
 	addr := ln.Addr().(*net.TCPAddr)
 	fmt.Printf("flowgo serve\n")
-	fmt.Printf("  bind:        %s (port %d)\n", cfg.BindAddr, addr.Port)
+	fmt.Printf("  bind:          %s (port %d)\n", cfg.BindAddr, addr.Port)
 	fmt.Printf("  workspace ttl: %s\n", cfg.WorkspaceTTL)
 	if cfg.WebhookURL != "" {
 		fmt.Printf("  share webhook: %s\n", cfg.WebhookURL)
@@ -155,7 +147,6 @@ Flags:
                                   (default 1h)
 
 The website reverse-proxies /api/mcp* and /m/* to this binary on loopback;
-flowgo never serves the public surface directly. See
-docs/website-integration-memo.md.
+flowgo never serves the public surface directly.
 `)
 }

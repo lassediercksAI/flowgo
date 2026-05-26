@@ -1,20 +1,14 @@
-package main
+package graph
 
 import (
 	"fmt"
 	"strings"
-
-	"github.com/lassediercks/flowgo/pkg/graph"
 )
 
-// MaxLabelLen mirrors the JS-side cap. Single source of truth for the
-// editor + validator + MCP lives in pkg/graph.
-const MaxLabelLen = graph.MaxLabelLen
-
-// validateGraph runs semantic checks the .flowgo parser doesn't perform.
+// Validate runs semantic checks the .flowgo parser doesn't perform.
 // Returns every violation it finds rather than stopping at the first one,
 // so a single CI run surfaces all problems at once.
-func validateGraph(g Graph) []error {
+func Validate(g Graph) []error {
 	var errs []error
 
 	if len(g.Maps) == 0 {

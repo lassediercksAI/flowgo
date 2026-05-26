@@ -66,9 +66,9 @@ _dev-run file:
         wait "$GO_PID" 2>/dev/null || true
         echo "── restarting flowgo ──────────────────────────────────"
         if (( started )); then
-            FLOWGO_NO_OPEN=1 go run . "{{file}}" --host &
+            FLOWGO_NO_OPEN=1 go run ./cmd/flowgo "{{file}}" --host &
         else
-            go run . "{{file}}" --host &
+            go run ./cmd/flowgo "{{file}}" --host &
             started=1
         fi
         GO_PID=$!
@@ -81,18 +81,18 @@ _dev-run file:
         changed=0
         while IFS= read -r f; do
             if [[ "$f" -nt "$marker" ]]; then changed=1; break; fi
-        done < <(find . \( -name '*.go' -o -path './dist/index.html' \) -not -path './node_modules/*' 2>/dev/null)
+        done < <(find . \( -name '*.go' -o -path './pkg/flowgo/dist/index.html' \) -not -path './node_modules/*' 2>/dev/null)
         (( changed )) && start_go
     done
 
-# One-shot frontend build (writes dist/index.html that main.go embeds).
+# One-shot frontend build (writes pkg/flowgo/dist/index.html that the library embeds).
 build-frontend:
     pnpm install --silent
     pnpm exec vite build
 
 # Build the Go binary with the freshly built frontend embedded.
 build: build-frontend
-    go build -o flowgo .
+    go build -o flowgo ./cmd/flowgo
 
 # Run both test suites.
 test:

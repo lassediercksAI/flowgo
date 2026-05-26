@@ -1,5 +1,12 @@
 .claude-container
-flowgo
+.claude
+
+# Compiled binary at repo root. Anchored with `/` so it doesn't also
+# ignore pkg/flowgo (the library package directory).
+/flowgo
+
+# Local-only planning docs (not for public repo).
+PLAN.md
 
 # MemPalace per-project files (issue #185)
 mempalace.yaml

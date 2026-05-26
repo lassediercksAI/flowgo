@@ -1,4 +1,4 @@
-package main
+package graph
 
 import (
 	"strings"
@@ -21,7 +21,7 @@ func TestParseStrokePalette(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			g, err := parse(tc.line)
+			g, err := Parse(tc.line)
 			if err != nil {
 				t.Fatalf("parse %q: %v", tc.line, err)
 			}
@@ -43,7 +43,7 @@ func TestParseStrokePalette(t *testing.T) {
 // than a silent fallback — otherwise typos in hand-edited files would
 // silently drop the first point.
 func TestParseStrokeBadPalette(t *testing.T) {
-	_, err := parse("stroke s1 abc 100,200 200,300")
+	_, err := Parse("stroke s1 abc 100,200 200,300")
 	if err == nil {
 		t.Fatal("expected parse error for non-numeric palette token")
 	}
@@ -63,7 +63,7 @@ func TestSerializeStrokePalette(t *testing.T) {
 			{ID: "c", Points: [][]float64{{0, 0}, {1, 1}}, Palette: 9},
 		},
 	}}}
-	out := serialize(g)
+	out := Serialize(g)
 	wantLines := []string{
 		"stroke a 0,0 1,1",
 		"stroke b 3 0,0 1,1",
@@ -76,7 +76,7 @@ func TestSerializeStrokePalette(t *testing.T) {
 	}
 }
 
-// Round-trip pins parse(serialize(parse(x))) == parse(x) for every
+// Round-trip pins Parse(Serialize(Parse(x))) == Parse(x) for every
 // palette index, including 0 (default — no token emitted).
 func TestStrokePaletteRoundTrip(t *testing.T) {
 	for _, p := range []int{0, 2, 3, 4, 5, 6, 7, 8, 9} {
@@ -88,7 +88,7 @@ func TestStrokePaletteRoundTrip(t *testing.T) {
 				Palette: p,
 			}},
 		}}}
-		out, err := parse(serialize(in))
+		out, err := Parse(Serialize(in))
 		if err != nil {
 			t.Fatalf("palette %d re-parse: %v", p, err)
 		}
@@ -99,7 +99,7 @@ func TestStrokePaletteRoundTrip(t *testing.T) {
 }
 
 // Edges accept an optional trailing palette token after the two
-// endpoints. Round-tripping through parse(serialize(g)) preserves the
+// endpoints. Round-tripping through Parse(Serialize(g)) preserves the
 // palette for every legal value, including 0 (no token emitted).
 func TestEdgePaletteRoundTrip(t *testing.T) {
 	for _, p := range []int{0, 2, 5, 9} {
@@ -108,7 +108,7 @@ func TestEdgePaletteRoundTrip(t *testing.T) {
 			Boxes: []Box{{ID: "a", Label: "a"}, {ID: "b", Label: "b"}},
 			Edges: []Edge{{From: "a", To: "b", Palette: p}},
 		}}}
-		out, err := parse(serialize(in))
+		out, err := Parse(Serialize(in))
 		if err != nil {
 			t.Fatalf("palette %d re-parse: %v", p, err)
 		}
@@ -130,7 +130,7 @@ func TestSerializeEdgePalette(t *testing.T) {
 			{From: "a", To: "b", FromHandle: "tl", ToHandle: "br", Palette: 7},
 		},
 	}}}
-	out := serialize(g)
+	out := Serialize(g)
 	for _, want := range []string{
 		"edge a b\n",
 		"edge a b 5\n",
@@ -150,7 +150,7 @@ func TestLinePaletteRoundTrip(t *testing.T) {
 			Path:  "/",
 			Lines: []Line{{ID: "l1", X1: 0, Y1: 0, X2: 10, Y2: 10, Palette: p}},
 		}}}
-		out, err := parse(serialize(in))
+		out, err := Parse(Serialize(in))
 		if err != nil {
 			t.Fatalf("palette %d re-parse: %v", p, err)
 		}
@@ -168,7 +168,7 @@ func TestSerializeLinePalette(t *testing.T) {
 			{ID: "l2", X1: 0, Y1: 0, X2: 1, Y2: 1, Palette: 4},
 		},
 	}}}
-	out := serialize(g)
+	out := Serialize(g)
 	for _, want := range []string{"line l1 0 0 1 1\n", "line l2 0 0 1 1 4\n"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in:\n%s", want, out)
@@ -176,7 +176,7 @@ func TestSerializeLinePalette(t *testing.T) {
 	}
 }
 
-// A line with control points round-trips through parse(serialize(g))
+// A line with control points round-trips through Parse(Serialize(g))
 // with Mids preserved — for the palette-less case (sentinel "1"
 // position-holder emitted), the palette-bearing case, and the
 // multi-point case.
@@ -199,7 +199,7 @@ func TestLineMidsRoundTrip(t *testing.T) {
 					Palette: tc.palette, Mids: tc.mids,
 				}},
 			}}}
-			out, err := parse(serialize(in))
+			out, err := Parse(Serialize(in))
 			if err != nil {
 				t.Fatalf("re-parse: %v", err)
 			}
@@ -229,7 +229,7 @@ func TestSerializeLineMids(t *testing.T) {
 			{ID: "c", X1: 0, Y1: 0, X2: 10, Y2: 10, Mids: [][]float64{{3, 4}, {6, 7}}},
 		},
 	}}}
-	out := serialize(g)
+	out := Serialize(g)
 	for _, want := range []string{
 		"line a 0 0 10 10 1 5 8\n",
 		"line b 0 0 10 10 4 5 8\n",
@@ -244,7 +244,7 @@ func TestSerializeLineMids(t *testing.T) {
 // Hand-edited files that emit an odd number of mid tokens should fail
 // loudly rather than silently dropping a coordinate.
 func TestParseLineMidsRequiresPairs(t *testing.T) {
-	_, err := parse("line l1 0 0 10 10 1 5")
+	_, err := Parse("line l1 0 0 10 10 1 5")
 	if err == nil {
 		t.Fatal("expected parse error for odd mid token count")
 	}
@@ -262,7 +262,7 @@ func TestLineStyleRoundTrip(t *testing.T) {
 			Path:  "/",
 			Lines: []Line{{ID: "l1", X1: 0, Y1: 0, X2: 10, Y2: 10, Style: s}},
 		}}}
-		out, err := parse(serialize(in))
+		out, err := Parse(Serialize(in))
 		if err != nil {
 			t.Fatalf("style %d re-parse: %v", s, err)
 		}
@@ -288,7 +288,7 @@ func TestSerializeLineStyle(t *testing.T) {
 			{ID: "c", X1: 0, Y1: 0, X2: 1, Y2: 1, Style: 3},
 		},
 	}}}
-	out := serialize(g)
+	out := Serialize(g)
 	for _, want := range []string{
 		"line a 0 0 1 1\n",
 		"line b 0 0 1 1\n",
@@ -309,7 +309,7 @@ func TestSerializeLineStyle(t *testing.T) {
 // linestyle for an unknown line id is a parse error rather than a
 // silent drop so hand-edited files surface the typo immediately.
 func TestParseLineStyleUnknownID(t *testing.T) {
-	_, err := parse("line l1 0 0 10 10\nlinestyle nope 2\n")
+	_, err := Parse("line l1 0 0 10 10\nlinestyle nope 2\n")
 	if err == nil {
 		t.Fatal("expected parse error for linestyle pointing at unknown line")
 	}
@@ -329,7 +329,7 @@ func TestValidateStrokePalette(t *testing.T) {
 			Path:    "/",
 			Strokes: []Stroke{{ID: "s1", Points: [][]float64{{0, 0}, {1, 1}}, Palette: p}},
 		}}}
-		if errs := validateGraph(g); len(errs) != 0 {
+		if errs := Validate(g); len(errs) != 0 {
 			t.Fatalf("palette %d rejected unexpectedly: %v", p, errs)
 		}
 	}
@@ -338,7 +338,7 @@ func TestValidateStrokePalette(t *testing.T) {
 			Path:    "/",
 			Strokes: []Stroke{{ID: "s1", Points: [][]float64{{0, 0}, {1, 1}}, Palette: p}},
 		}}}
-		errs := validateGraph(g)
+		errs := Validate(g)
 		var found bool
 		for _, e := range errs {
 			if strings.Contains(e.Error(), "palette") {

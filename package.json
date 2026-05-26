@@ -1,10 +1,25 @@
 {
-  "name": "flowgo-frontend",
-  "private": true,
-  "version": "0.0.0",
+  "name": "@flowgo/editor",
+  "version": "0.1.2",
+  "description": "TypeScript editor + .flowgo helpers for the flowgo mind-map tool. Built as a single self-contained index.html by the public flowgo binary; also consumable as ESM modules by downstream projects.",
   "type": "module",
   "packageManager": "pnpm@10.33.2",
-  "description": "TypeScript pure-function modules + Vitest suite for the flowgo editor. Phase 1 mirrors helpers from index.html so future phases can swap them in.",
+  "license": "AGPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lassediercks/flowgo.git"
+  },
+  "files": [
+    "src",
+    "vite.config.ts",
+    "tsconfig.json"
+  ],
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./editor": "./src/editor/main.ts",
+    "./editor/*": "./src/editor/*"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
