@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.3](https://github.com/lassediercks/flowgo/compare/v0.1.2...v0.1.3) (2026-05-26)
+
+
+### Features
+
+* **editor:** route mutations through mutations.ts wrapper ([55b67ba](https://github.com/lassediercks/flowgo/commit/55b67baa9f340e02c5bef176a067df4ba921b6de))
+
+
+### Refactoring
+
+* extract pkg/flowgo library + cmd/flowgo binary ([f048a04](https://github.com/lassediercks/flowgo/commit/f048a040c2cd853231098dd4abd6cd7ae2822d55))
+
 ## [0.1.2](https://github.com/lassediercks/flowgo/compare/v0.1.1...v0.1.2) (2026-05-20)
 
 
