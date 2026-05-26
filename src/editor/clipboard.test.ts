@@ -5,6 +5,7 @@ import {
   pasteSelection,
   wireClipboard,
 } from "./clipboard.ts";
+import { wireMutations } from "./mutations.ts";
 
 interface Box {
   id: string;
@@ -54,6 +55,7 @@ const makeState = (): State => ({
 
 const wire = (s: State): void => {
   let n = 0;
+  wireMutations({ scheduleSave: () => {} });
   wireClipboard({
     selected: s.selected,
     currentMap: () => ({
@@ -65,7 +67,6 @@ const wire = (s: State): void => {
     findTextById: (id) => s.texts.find((t) => t.id === id),
     findLineById: (id) => s.lines.find((l) => l.id === id),
     mintId: (p) => `${p}_new${++n}`,
-    scheduleSave: () => {},
     renderAll: () => {},
     deleteSelection: () => {
       s.boxes = s.boxes.filter((b) => !s.selected.has(b.id));

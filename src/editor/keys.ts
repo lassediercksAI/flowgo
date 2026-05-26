@@ -10,6 +10,11 @@
 
 import { isHelpOpen, setHelpOpen } from "./help.ts";
 import { isEditing, startEdit, startTextEdit } from "./edit.ts";
+import {
+  mutatedBox,
+  mutatedCurrentMap,
+  mutatedEdge,
+} from "./mutations.ts";
 import { undo, redo } from "./persistence.ts";
 import {
   isBrushMode,
@@ -97,7 +102,6 @@ interface KeysBindings {
   readonly setDropTargetHandle: (h: string | null) => void;
   readonly clearProximity: () => void;
   readonly lastCursor: { x: number; y: number };
-  readonly scheduleSave: () => void;
   readonly setStatus: (s: string) => void;
 }
 
@@ -215,7 +219,7 @@ const toggleAnchor = (): void => {
     if (b.anchor) delete b.anchor;
   }
   if (turningOn) target.anchor = true;
-  w.scheduleSave();
+  mutatedBox();
   renderAll();
   w.setStatus(turningOn ? "anchored " + id : "anchor cleared");
 };
@@ -383,7 +387,7 @@ export const attachKeyboardListener = (): void => {
       if (!hasAnySelection()) return;
       if (applyPalette(palette)) {
         e.preventDefault();
-        w.scheduleSave();
+        mutatedCurrentMap();
         renderAll();
       }
       return;
@@ -397,7 +401,7 @@ export const attachKeyboardListener = (): void => {
       const styleChanged = applyLineStyle(n);
       if (fontChanged || styleChanged) {
         e.preventDefault();
-        w.scheduleSave();
+        mutatedCurrentMap();
         renderAll();
       }
       return;
@@ -417,7 +421,7 @@ export const attachKeyboardListener = (): void => {
       const dir = e.key === "_" || e.key === "-" ? -1 : 1;
       if (stepFont(dir as 1 | -1)) {
         e.preventDefault();
-        w.scheduleSave();
+        mutatedCurrentMap();
         renderAll();
       }
       return;
@@ -429,7 +433,7 @@ export const attachKeyboardListener = (): void => {
       const dir = e.key === "-" ? -1 : 1;
       if (stepPalette(dir as 1 | -1)) {
         e.preventDefault();
-        w.scheduleSave();
+        mutatedCurrentMap();
         renderAll();
       }
       return;
@@ -503,7 +507,7 @@ export const attachKeyboardListener = (): void => {
         const idx = map.edges.indexOf(sel);
         if (idx >= 0) map.edges.splice(idx, 1);
         w.setSelectedEdge(null);
-        w.scheduleSave();
+        mutatedEdge();
         renderEdges();
         w.setStatus("edge removed");
         return;

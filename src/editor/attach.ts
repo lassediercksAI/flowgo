@@ -12,7 +12,7 @@ import {
   renderEdges,
   renderLines,
 } from "./render.ts";
-import { scheduleSave } from "./persistence.ts";
+import { mutatedLine } from "./mutations.ts";
 import {
   makeBoxMover,
   makeLineEndpointMover,
@@ -283,7 +283,7 @@ export const attachLineHandlers = (
       w.setSelectedEdge(null);
       renderEdges();
     }
-    scheduleSave();
+    mutatedLine();
     // Full re-render so the new mid handle is wired up.
     renderLines();
     applyClasses();
@@ -352,7 +352,7 @@ export const attachLineHandlers = (
         l.mids.splice(idx, 1);
         if (l.mids.length === 0) delete l.mids;
       }
-      scheduleSave();
+      mutatedLine();
       renderLines();
       applyClasses();
     });

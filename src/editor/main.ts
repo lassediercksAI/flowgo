@@ -41,6 +41,7 @@ import {
   scheduleSave,
   wirePersistence,
 } from "./persistence.ts";
+import { mutatedCurrentMap, wireMutations } from "./mutations.ts";
 import {
   cloneSelection as cloneSelectionPure,
   wireClone,
@@ -127,7 +128,7 @@ function cloneSelection() {
   const idMap = cloneSelectionPure();
   renderAll();
   applyClasses();
-  scheduleSave();
+  mutatedCurrentMap();
   return idMap;
 }
 
@@ -205,7 +206,6 @@ wireFactories({
   selectedEdge: () => selectedEdge,
   clearSelectedEdge: () => { selectedEdge = null; },
   mintId: uid,
-  scheduleSave: () => scheduleSave(),
   setStatus,
 });
 
@@ -218,7 +218,6 @@ wireEdit({
   setGraph: (g) => { graph = g; },
   ensureMap,
   selected,
-  scheduleSave: () => scheduleSave(),
   renderAll: () => renderAll(),
   setStatus,
 });
@@ -235,6 +234,11 @@ wirePersistence({
   clearSelectedEdge: () => { selectedEdge = null; },
 });
 
+// Every mutation funnels through mutations.ts. The default wiring
+// just calls scheduleSave; downstream consumers can swap it without
+// touching the 26 call sites.
+wireMutations({ scheduleSave: () => scheduleSave() });
+
 wireClone({
   currentMap: () => state,
   selected,
@@ -247,7 +251,6 @@ wireAlign({
   canvas,
   currentMap: () => state,
   selected,
-  scheduleSave: () => scheduleSave(),
   renderAll: () => renderAll(),
 });
 attachAlignToolbar();
@@ -258,7 +261,6 @@ wireClipboard({
   findTextById,
   findLineById,
   mintId: uid,
-  scheduleSave: () => scheduleSave(),
   renderAll: () => renderAll(),
   deleteSelection: () => deleteSelection(),
   setStatus,
@@ -269,7 +271,6 @@ wireBrush({
   mintId: () => uid("s"),
   strokeLayer: () => strokeLayer,
   currentMap: () => state,
-  scheduleSave: () => scheduleSave(),
   afterCommit: () => renderStrokes(),
   setStatus,
 });
@@ -300,7 +301,6 @@ wireMouse({
   setDropTargetId: (id) => { dropTargetId = id; },
   dropTargetHandle: () => dropTargetHandle,
   setDropTargetHandle: (h) => { dropTargetHandle = h; },
-  scheduleSave: () => scheduleSave(),
   setStatus,
 });
 attachMouseListeners();
@@ -324,7 +324,6 @@ wireTouch({
   setDropTargetHandle: (h) => { dropTargetHandle = h; },
   selectedEdge: () => selectedEdge,
   setSelectedEdge: (e) => { selectedEdge = e; },
-  scheduleSave: () => scheduleSave(),
 });
 attachTouchListeners();
 
@@ -342,7 +341,6 @@ wireKeys({
   setDropTargetHandle: (h) => { dropTargetHandle = h; },
   clearProximity: () => clearProximity(),
   lastCursor,
-  scheduleSave: () => scheduleSave(),
   setStatus,
 });
 attachKeyboardListener();

@@ -53,6 +53,7 @@ import { handleAnchor, nearestHandle, pickTargetHandle } from "./anchors.ts";
 import { addOrReplaceEdge as addOrReplaceEdgePure } from "../graph/edge.ts";
 import { findBoxAt } from "./mouse.ts";
 import { createBoxAt, deleteSelection } from "./factories.ts";
+import { mutatedCurrentMap, mutatedEdge } from "./mutations.ts";
 import { classifyTap, movedBeyond, type TapRecord } from "./gestures.ts";
 import { makeLineEndpointMover, type Mover } from "./movers.ts";
 
@@ -125,7 +126,6 @@ interface TouchBindings {
   readonly setDropTargetHandle: (h: string | null) => void;
   readonly selectedEdge: () => EdgeLike | null;
   readonly setSelectedEdge: (e: EdgeLike | null) => void;
-  readonly scheduleSave: () => void;
 }
 
 // Double-tap window — taps on the same target within this many ms
@@ -762,7 +762,7 @@ const onTouchEnd = (e: TouchEvent): void => {
       lastTap = null;
       return;
     }
-    w.scheduleSave();
+    mutatedCurrentMap();
     lastTap = null;
     return;
   }
@@ -856,7 +856,7 @@ const finalizeLink = (link: LinkState, t: Touch | null): void => {
     if (link.fromHandle) newEdge.fromHandle = link.fromHandle;
     if (toCode) newEdge.toHandle = toCode;
     map.edges = addOrReplaceEdgePure(map.edges, newEdge);
-    w.scheduleSave();
+    mutatedEdge();
     renderEdges();
   } else {
     const newId = w.mintId();
@@ -883,7 +883,7 @@ const finalizeLink = (link: LinkState, t: Touch | null): void => {
       applyClasses();
       startEdit(newEl, newBox, { cancelDeletes: true });
     }
-    w.scheduleSave();
+    mutatedCurrentMap();
   }
   w.setLink(null);
   if (w.dropTargetId() || w.dropTargetHandle()) {

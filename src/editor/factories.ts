@@ -15,6 +15,12 @@
 // the removed boxes).
 
 import { startEdit, startTextEdit } from "./edit.ts";
+import {
+  mutatedBox,
+  mutatedDoc,
+  mutatedLine,
+  mutatedText,
+} from "./mutations.ts";
 import { applyClasses, renderAll, renderEdges } from "./render.ts";
 
 interface BoxLike {
@@ -60,7 +66,6 @@ interface FactoryBindings {
   readonly selectedEdge: () => unknown;
   readonly clearSelectedEdge: () => void;
   readonly mintId: (prefix?: string) => string;
-  readonly scheduleSave: () => void;
   readonly setStatus: (s: string) => void;
 }
 
@@ -91,7 +96,7 @@ export const createBoxAt = (
     el.style.left = b.x + "px";
     el.style.top = b.y + "px";
   }
-  w.scheduleSave();
+  mutatedBox();
   if (el) {
     w.selected.clear();
     w.selected.add(id);
@@ -125,7 +130,7 @@ export const createTextAt = (cx: number, cy: number): void => {
     applyClasses();
     startTextEdit(el, t);
   }
-  w.scheduleSave();
+  mutatedText();
 };
 
 export const createLineSegment = (
@@ -145,7 +150,7 @@ export const createLineSegment = (
     renderEdges();
   }
   renderAll();
-  w.scheduleSave();
+  mutatedLine();
 };
 
 export const deleteSelection = (): void => {
@@ -175,6 +180,6 @@ export const deleteSelection = (): void => {
   w.setGraph(g);
   w.setCurrentMap(w.ensureMap(cur));
   sel.clear();
-  w.scheduleSave();
+  mutatedDoc();
   renderAll();
 };

@@ -13,6 +13,8 @@
 // updateSelectionToolbar() is fired from applyClasses() in render.ts
 // so selection changes immediately reposition / hide the toolbar.
 
+import { mutatedCurrentMap } from "./mutations.ts";
+
 interface BoxLike { id: string; x: number; y: number; }
 interface TextLike { id: string; x: number; y: number; }
 
@@ -25,7 +27,6 @@ interface AlignBindings {
   readonly canvas: HTMLElement;
   readonly currentMap: () => CurrentMap;
   readonly selected: Set<string>;
-  readonly scheduleSave: () => void;
   readonly renderAll: () => void;
 }
 
@@ -143,7 +144,7 @@ export const applyAlign = (axis: "horizontal" | "vertical"): void => {
   const items = collectAlignable();
   if (!alignItems(items, axis)) return;
   w.renderAll();
-  w.scheduleSave();
+  mutatedCurrentMap();
 };
 
 // Build SVG nodes through createElementNS so every element lands in
