@@ -1,4 +1,4 @@
-package main
+package flowgo
 
 import (
 	"bytes"
@@ -164,7 +164,7 @@ func handleMCP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
 			"name":    "flowgo",
-			"version": resolveVersionString(),
+			"version": cfg.Version(),
 			"about":   "POST JSON-RPC 2.0 to this endpoint per the MCP streamable-HTTP transport.",
 		})
 		return
@@ -194,7 +194,7 @@ func handleMCP(w http.ResponseWriter, r *http.Request) {
 			},
 			"serverInfo": map[string]string{
 				"name":    "flowgo",
-				"version": resolveVersionString(),
+				"version": cfg.Version(),
 			},
 			"instructions": mcpInstructions,
 		}
@@ -280,9 +280,9 @@ func mcpToolError(msg string) map[string]any {
 // ---------------------------------------------------------------------------
 
 func updateFile(f func(g *Graph) error) (Graph, error) {
-	mu.Lock()
-	defer mu.Unlock()
-	data, err := os.ReadFile(filePath)
+	cfg.LocalFileMu.Lock()
+	defer cfg.LocalFileMu.Unlock()
+	data, err := os.ReadFile(cfg.LocalFile)
 	if err != nil {
 		return Graph{}, err
 	}
@@ -293,17 +293,17 @@ func updateFile(f func(g *Graph) error) (Graph, error) {
 	if err := f(&g); err != nil {
 		return Graph{}, err
 	}
-	g.Version = resolveVersionString()
-	if err := os.WriteFile(filePath, []byte(serialize(g)), 0644); err != nil {
+	g.Version = cfg.Version()
+	if err := os.WriteFile(cfg.LocalFile, []byte(serialize(g)), 0644); err != nil {
 		return Graph{}, err
 	}
 	return g, nil
 }
 
 func readFile() (Graph, error) {
-	mu.Lock()
-	defer mu.Unlock()
-	data, err := os.ReadFile(filePath)
+	cfg.LocalFileMu.Lock()
+	defer cfg.LocalFileMu.Unlock()
+	data, err := os.ReadFile(cfg.LocalFile)
 	if err != nil {
 		return Graph{}, err
 	}
@@ -936,10 +936,10 @@ func dispatchTool(name string, raw json.RawMessage) (any, error) {
 		}
 	}
 
-	if serveMode {
+	if cfg.ServeMode {
 		switch name {
 		case "start_workspace":
-			return mcpToolText(workspaces.Start()), nil
+			return mcpToolText(cfg.Workspaces.Start()), nil
 		case "share":
 			return shareWorkspace(args)
 		}
@@ -950,14 +950,14 @@ func dispatchTool(name string, raw json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("unknown tool: %s", name)
 	}
 
-	if serveMode {
+	if cfg.ServeMode {
 		wsID := stringArg(args, "workspace_id", "")
 		if wsID == "" {
 			return nil, fmt.Errorf("workspace_id is required (call start_workspace first)")
 		}
 		var result any
 		var inner error
-		err := workspaces.With(wsID, func(ws *Workspace) error {
+		err := cfg.Workspaces.With(wsID, func(ws *Workspace) error {
 			r, e := fn(&ws.Graph, args)
 			result = r
 			inner = e
@@ -1006,7 +1006,7 @@ func dispatchTool(name string, raw json.RawMessage) (any, error) {
 
 func mcpTools() []mcpToolDef {
 	var tools []mcpToolDef
-	if serveMode {
+	if cfg.ServeMode {
 		tools = append(tools,
 			mcpToolDef{
 				Name:        "start_workspace",
@@ -1024,7 +1024,7 @@ func mcpTools() []mcpToolDef {
 	}
 
 	wsArg := func(props map[string]any, required []string) (map[string]any, []string) {
-		if !serveMode {
+		if !cfg.ServeMode {
 			return props, required
 		}
 		np := map[string]any{"workspace_id": schemaString("Workspace id from start_workspace.")}
@@ -1292,12 +1292,12 @@ func shareWorkspace(args map[string]any) (any, error) {
 	if wsID == "" {
 		return nil, fmt.Errorf("workspace_id is required")
 	}
-	if serveCfg == nil || serveCfg.WebhookURL == "" {
+	if cfg.ShareWebhookURL == "" {
 		return nil, fmt.Errorf("share is unconfigured: --share-webhook missing")
 	}
 
 	var graphCopy Graph
-	if err := workspaces.With(wsID, func(ws *Workspace) error {
+	if err := cfg.Workspaces.With(wsID, func(ws *Workspace) error {
 		graphCopy = ws.Graph
 		return nil
 	}); err != nil {
@@ -1323,13 +1323,13 @@ func shareWorkspace(args map[string]any) (any, error) {
 		return nil, fmt.Errorf("marshal payload: %v", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, serveCfg.WebhookURL, bytes.NewReader(payload))
+	req, err := http.NewRequest(http.MethodPost, cfg.ShareWebhookURL, bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("build request: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if serveCfg.WebhookSecret != "" {
-		req.Header.Set("Authorization", "Bearer "+serveCfg.WebhookSecret)
+	if cfg.ShareWebhookSecret != "" {
+		req.Header.Set("Authorization", "Bearer "+cfg.ShareWebhookSecret)
 	}
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)

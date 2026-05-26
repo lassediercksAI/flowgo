@@ -68,7 +68,7 @@ jobs:
           ext=""
           if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
           out="flowgo-${TAG}-${GOOS}-${GOARCH}${ext}"
-          go build -trimpath -ldflags "-s -w -X main.version=${TAG}" -o "$out" .
+          go build -trimpath -ldflags "-s -w -X main.version=${TAG}" -o "$out" ./cmd/flowgo
           echo "OUT=$out" >> "$GITHUB_ENV"
       - name: Attach to release
         env:

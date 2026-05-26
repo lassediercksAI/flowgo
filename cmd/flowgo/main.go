@@ -1,7 +1,11 @@
+// Package main is the public flowgo CLI. It composes the
+// pkg/flowgo library with a small flag parser, browser launcher, and
+// version reporter; everything substantive lives in the library so
+// downstream consumers can wire flowgo onto their own HTTP mux
+// without copying code.
 package main
 
 import (
-	_ "embed"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -13,39 +17,20 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/lassediercks/flowgo/pkg/flowgo"
 	"github.com/lassediercks/flowgo/pkg/graph"
 )
 
-// Re-export the graph types and parser/serializer under their original
-// unqualified names so the rest of this binary (mcp.go, serve.go,
-// workspace.go, validate*.go) keeps compiling without churn. External
-// consumers should import github.com/lassediercks/flowgo/pkg/graph
-// directly instead of relying on these aliases.
-type (
-	Box      = graph.Box
-	Edge     = graph.Edge
-	Text     = graph.Text
-	Line     = graph.Line
-	Stroke   = graph.Stroke
-	NamedMap = graph.NamedMap
-	Graph    = graph.Graph
-)
-
-var (
-	parse     = graph.Parse
-	serialize = graph.Serialize
-)
-
+// version is overwritten at release-build time via:
+//
+//	go build -ldflags "-X main.version=<tag>" ./cmd/flowgo
+//
+// `go install ...@<tag>` also surfaces the module version via
+// runtime/debug, which resolveVersionString falls back on.
 var version = "dev"
 
-//go:embed dist/index.html
-var indexHTML string
-
-//go:embed .release-please-manifest.json
-var releasePleaseManifest []byte
-
 var (
-	mu       sync.Mutex
+	fileMu   sync.Mutex
 	filePath string
 )
 
@@ -106,11 +91,11 @@ func main() {
 
 	createdFile := false
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		seed := serialize(Graph{
+		seed := graph.Serialize(graph.Graph{
 			Version: resolveVersionString(),
-			Maps: []NamedMap{{
+			Maps: []graph.NamedMap{{
 				Path:  "/",
-				Boxes: []Box{{ID: "b1", Label: seedBoxLabel(filePath)}},
+				Boxes: []graph.Box{{ID: "b1", Label: seedBoxLabel(filePath)}},
 			}},
 		})
 		if err := os.WriteFile(filePath, []byte(seed), 0644); err != nil {
@@ -122,9 +107,16 @@ func main() {
 		fmt.Printf("initialised the flowgo interface on a new file %s\n", filePath)
 	}
 
+	flowgo.Configure(flowgo.Config{
+		ServeMode:   false,
+		LocalFile:   filePath,
+		LocalFileMu: &fileMu,
+		Version:     resolveVersionString,
+	})
+
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte(indexHTML))
+		w.Write([]byte(flowgo.IndexHTML))
 	})
 	http.HandleFunc("/state", handleState)
 	http.HandleFunc("/save", handleSave)
@@ -132,7 +124,7 @@ func main() {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		fmt.Fprintln(w, resolveVersionString())
 	})
-	http.HandleFunc("/mcp", handleMCP)
+	http.HandleFunc("/mcp", flowgo.MCPHandler)
 
 	// Walk forward from the canonical port so a second flowgo (or any
 	// process holding 54041) doesn't fail to start. Range is bounded to
@@ -144,9 +136,6 @@ func main() {
 	}
 	addr := ln.Addr().(*net.TCPAddr)
 	displayHost := bindHost
-	// When binding to all interfaces, surface the host's real LAN IP
-	// in the printed URL — `0.0.0.0` isn't a thing the user can paste
-	// into another browser tab.
 	if bindHost == "0.0.0.0" {
 		if lan := pickLanIP(); lan != "" {
 			displayHost = lan
@@ -169,8 +158,6 @@ func main() {
 // RFC 1918 private ranges (10/8, 172.16/12, 192.168/16) over any other
 // non-loopback IPv4. Empty string when nothing usable is reachable —
 // callers should fall back to bindHost in that case.
-//
-// Pulled out of main so it can be unit-tested via a fake addr provider.
 func pickLanIP() string {
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
@@ -204,9 +191,7 @@ func pickLanIPFromAddrs(addrs []net.Addr) string {
 }
 
 // listenFirstFree tries each port in [start, end] on host and returns the
-// first listener that binds successfully. The window is small on purpose:
-// "next free port" should still produce a predictable URL, not vanish into
-// the ephemeral range.
+// first listener that binds successfully.
 func listenFirstFree(host string, start, end int) (net.Listener, error) {
 	var lastErr error
 	for port := start; port <= end; port++ {
@@ -220,14 +205,14 @@ func listenFirstFree(host string, start, end int) (net.Listener, error) {
 }
 
 func handleState(w http.ResponseWriter, r *http.Request) {
-	mu.Lock()
-	defer mu.Unlock()
+	fileMu.Lock()
+	defer fileMu.Unlock()
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	g, err := parse(string(data))
+	g, err := graph.Parse(string(data))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -241,15 +226,15 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST only", 405)
 		return
 	}
-	var g Graph
+	var g graph.Graph
 	if err := json.NewDecoder(r.Body).Decode(&g); err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	mu.Lock()
-	defer mu.Unlock()
+	fileMu.Lock()
+	defer fileMu.Unlock()
 	g.Version = resolveVersionString()
-	if err := os.WriteFile(filePath, []byte(serialize(g)), 0644); err != nil {
+	if err := os.WriteFile(filePath, []byte(graph.Serialize(g)), 0644); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -294,10 +279,9 @@ func resolveVersionString() string {
 	if version != "dev" {
 		return version
 	}
-	var m map[string]string
-	if err := json.Unmarshal(releasePleaseManifest, &m); err == nil {
-		if v := m["."]; v != "" {
-			return v
+	if info, ok := debug.ReadBuildInfo(); ok {
+		if v := info.Main.Version; v != "" && v != "(devel)" {
+			return strings.TrimPrefix(v, "v")
 		}
 	}
 	return "dev"

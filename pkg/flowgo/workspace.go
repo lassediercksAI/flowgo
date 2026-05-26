@@ -1,4 +1,4 @@
-package main
+package flowgo
 
 import (
 	"crypto/rand"
@@ -24,7 +24,7 @@ type WorkspaceManager struct {
 	ttl   time.Duration
 }
 
-func newWorkspaceManager(ttl time.Duration) *WorkspaceManager {
+func NewWorkspaceManager(ttl time.Duration) *WorkspaceManager {
 	m := &WorkspaceManager{
 		items: map[string]*Workspace{},
 		ttl:   ttl,

@@ -1,4 +1,4 @@
-package main
+package graph
 
 import (
 	"strings"
@@ -23,7 +23,7 @@ func TestParseVersionDirective(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			g, err := parse(tc.input)
+			g, err := Parse(tc.input)
 			if err != nil {
 				t.Fatalf("parse: %v", err)
 			}
@@ -37,7 +37,7 @@ func TestParseVersionDirective(t *testing.T) {
 // `version` on its own (no value) is a parse error — silently dropping
 // it would mask a corrupted file from the user.
 func TestParseVersionMissingValue(t *testing.T) {
-	_, err := parse("version\n")
+	_, err := Parse("version\n")
 	if err == nil {
 		t.Fatal("expected error for bare `version` directive")
 	}
@@ -52,13 +52,13 @@ func TestParseVersionMissingValue(t *testing.T) {
 // writer's version.
 func TestSerializeVersionDirective(t *testing.T) {
 	t.Run("omitted when empty", func(t *testing.T) {
-		out := serialize(Graph{Maps: []NamedMap{{Path: "/", Boxes: []Box{{ID: "b1", Label: "hi"}}}}})
+		out := Serialize(Graph{Maps: []NamedMap{{Path: "/", Boxes: []Box{{ID: "b1", Label: "hi"}}}}})
 		if strings.HasPrefix(out, "version") {
 			t.Fatalf("unexpected version line in output:\n%s", out)
 		}
 	})
 	t.Run("first line when set", func(t *testing.T) {
-		out := serialize(Graph{
+		out := Serialize(Graph{
 			Version: "0.0.23",
 			Maps:    []NamedMap{{Path: "/", Boxes: []Box{{ID: "b1", Label: "hi"}}}},
 		})
@@ -68,7 +68,7 @@ func TestSerializeVersionDirective(t *testing.T) {
 	})
 }
 
-// parse(serialize(g)) must preserve Version verbatim so consumers can
+// Parse(Serialize(g)) must preserve Version verbatim so consumers can
 // trust it as a stable record.
 func TestVersionRoundTrip(t *testing.T) {
 	for _, v := range []string{"", "0.0.23", "1.2.3-rc.4", "dev"} {
@@ -76,7 +76,7 @@ func TestVersionRoundTrip(t *testing.T) {
 			Version: v,
 			Maps:    []NamedMap{{Path: "/", Boxes: []Box{{ID: "b1", Label: "hi"}}}},
 		}
-		out, err := parse(serialize(g))
+		out, err := Parse(Serialize(g))
 		if err != nil {
 			t.Fatalf("version %q re-parse: %v", v, err)
 		}

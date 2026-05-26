@@ -1,4 +1,4 @@
-package main
+package graph
 
 import (
 	"os"
@@ -15,12 +15,12 @@ func TestMapFlowgoIsValid(t *testing.T) {
 		t.Fatalf("read map.flowgo: %v", err)
 	}
 
-	g, err := parse(string(raw))
+	g, err := Parse(string(raw))
 	if err != nil {
 		t.Fatalf("parse map.flowgo: %v", err)
 	}
 
-	if errs := validateGraph(g); len(errs) > 0 {
+	if errs := Validate(g); len(errs) > 0 {
 		var b strings.Builder
 		for _, e := range errs {
 			b.WriteString("  - ")
@@ -30,19 +30,16 @@ func TestMapFlowgoIsValid(t *testing.T) {
 		t.Fatalf("map.flowgo failed validation (%d issue(s)):\n%s", len(errs), b.String())
 	}
 
-	// parse → serialize → parse must yield an equivalent graph; otherwise
-	// we have a lossy round-trip somewhere (e.g., a new field that the
-	// serializer forgot to emit, or the parser dropped on the way in).
-	round, err := parse(serialize(g))
+	round, err := Parse(Serialize(g))
 	if err != nil {
 		t.Fatalf("re-parse after serialize: %v", err)
 	}
-	if errs := validateGraph(round); len(errs) > 0 {
+	if errs := Validate(round); len(errs) > 0 {
 		t.Fatalf("round-tripped graph failed validation: %v", errs)
 	}
 	if !graphsEquivalent(g, round) {
 		t.Fatalf("parse(serialize(g)) != g — lossy round-trip\noriginal: %s\nround-trip: %s",
-			serialize(g), serialize(round))
+			Serialize(g), Serialize(round))
 	}
 }
 
