@@ -22,6 +22,11 @@ import { startEdit } from "./edit.ts";
 import { nearestHandle, pickTargetHandle } from "./anchors.ts";
 import { addOrReplaceEdge as addOrReplaceEdgePure } from "../graph/edge.ts";
 import { createBoxAt } from "./factories.ts";
+import {
+  mutatedCurrentMap,
+  mutatedEdge,
+  mutatedLine,
+} from "./mutations.ts";
 
 interface BoxLike {
   id: string;
@@ -107,7 +112,6 @@ interface MouseBindings {
   readonly setDropTargetId: (id: string | null) => void;
   readonly dropTargetHandle: () => string | null;
   readonly setDropTargetHandle: (h: string | null) => void;
-  readonly scheduleSave: () => void;
   readonly setStatus: (s: string) => void;
 }
 
@@ -243,7 +247,7 @@ const onMouseUp = (e: MouseEvent): void => {
     const primaryId = drag.primaryId;
     w.setDrag(null);
     if (wasActive) {
-      w.scheduleSave();
+      mutatedCurrentMap();
     } else {
       // Single-click without movement: collapse selection to just this item.
       w.selected.clear();
@@ -331,7 +335,7 @@ const onMouseUp = (e: MouseEvent): void => {
       if (link.fromHandle) newEdge.fromHandle = link.fromHandle;
       if (toCode) newEdge.toHandle = toCode;
       map.edges = addOrReplaceEdgePure(map.edges, newEdge);
-      w.scheduleSave();
+      mutatedEdge();
       renderEdges();
     } else {
       // Dropped in empty space: spawn a new box at the cursor and
@@ -360,7 +364,7 @@ const onMouseUp = (e: MouseEvent): void => {
         applyClasses();
         startEdit(newEl, newBox, { cancelDeletes: true });
       }
-      w.scheduleSave();
+      mutatedCurrentMap();
     }
     w.setLink(null);
     if (w.dropTargetId() || w.dropTargetHandle()) {
@@ -490,7 +494,7 @@ const onBgDblClick = (e: MouseEvent): void => {
     const hit = tryInsertMidNearPoint(w.currentMap(), cx, cy);
     if (hit) {
       cancelPendingLine();
-      w.scheduleSave();
+      mutatedLine();
       renderAll();
     }
     return;

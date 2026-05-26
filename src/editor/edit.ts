@@ -10,6 +10,7 @@
 // of that span.
 
 import { MAX_LABEL_LEN, normalizeLabel } from "../graph/label.ts";
+import { mutatedBox, mutatedDoc, mutatedText } from "./mutations.ts";
 
 interface BoxLike {
   id: string;
@@ -37,7 +38,6 @@ interface EditBindings {
   readonly setGraph: (g: { maps: { path: string }[] }) => void;
   readonly ensureMap: (path: string) => ReturnType<EditBindings["getCurrentMap"]>;
   readonly selected: Set<string>;
-  readonly scheduleSave: () => void;
   readonly renderAll: () => void;
   readonly setStatus: (s: string) => void;
 }
@@ -88,7 +88,7 @@ export const startTextEdit = (el: HTMLElement, t: TextLike): void => {
     const newLabel = readEditableText(el);
     if (commit && newLabel && newLabel !== t.label) {
       t.label = newLabel;
-      must().scheduleSave();
+      mutatedText();
     }
     el.textContent = t.label;
   };
@@ -177,14 +177,14 @@ export const startEdit = (
       w.setGraph(g);
       w.setCurrentMap(w.ensureMap(cur));
       w.selected.delete(b.id);
-      w.scheduleSave();
+      mutatedDoc();
       w.renderAll();
       w.setStatus("cancelled");
       return;
     }
     if (commit && newLabel && newLabel !== b.label) {
       b.label = newLabel;
-      must().scheduleSave();
+      mutatedBox();
     }
     // Rebuild the affected box from state. Trying to surgically
     // pluck out only the stray nodes the contenteditable inserted

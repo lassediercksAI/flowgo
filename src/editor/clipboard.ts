@@ -5,6 +5,8 @@
 // copied box set, mirroring the existing semantics. Each paste shifts
 // by 20px so repeated paste presses cascade rather than stack.
 
+import { mutatedCurrentMap } from "./mutations.ts";
+
 interface BoxLike {
   id: string;
   label: string;
@@ -62,7 +64,6 @@ interface ClipboardBindings {
   readonly findTextById: (id: string) => TextLike | undefined;
   readonly findLineById: (id: string) => LineLike | undefined;
   readonly mintId: (prefix: string) => string;
-  readonly scheduleSave: () => void;
   readonly renderAll: () => void;
   readonly deleteSelection: () => void;
   readonly setStatus: (s: string) => void;
@@ -153,7 +154,7 @@ export const cutSelection = (): void => {
 
 export const pasteSelection = (): void => {
   const {
-    selected, currentMap, mintId, scheduleSave, renderAll,
+    selected, currentMap, mintId, renderAll,
     setStatus, clearSelectedEdge,
   } = must();
   if (!buffer) {
@@ -207,7 +208,7 @@ export const pasteSelection = (): void => {
     if (ed.toHandle) newEdge.toHandle = ed.toHandle;
     map.edges.push(newEdge);
   }
-  scheduleSave();
+  mutatedCurrentMap();
   renderAll();
   setStatus("pasted " + selected.size + " items");
 };

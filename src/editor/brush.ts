@@ -4,6 +4,7 @@
 // dispatches mousedown/move/up to the start/extend/finish trio.
 
 import { simplifyStroke } from "../index.ts";
+import { mutatedStroke } from "./mutations.ts";
 import { toDataX, toDataY } from "./viewport.ts";
 
 interface ActiveStroke {
@@ -17,7 +18,6 @@ interface BrushBindings {
   readonly mintId: () => string;
   readonly strokeLayer: () => SVGGElement;
   readonly currentMap: () => { strokes?: Array<unknown> };
-  readonly scheduleSave: () => void;
   readonly afterCommit: () => void; // call renderStrokes
   readonly setStatus: (s: string) => void;
 }
@@ -157,7 +157,7 @@ export const finishStroke = (): void => {
     };
     if (active.palette >= 2) stroke.palette = active.palette;
     (m.strokes ??= []).push(stroke);
-    must().scheduleSave();
+    mutatedStroke();
   } else {
     const g = active.polyEl.parentNode;
     if (g && g.parentNode) g.parentNode.removeChild(g);
