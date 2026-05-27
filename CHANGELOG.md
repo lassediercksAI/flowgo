@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/lassediercks/flowgo/compare/v0.1.3...v0.1.4) (2026-05-27)
+
+
+### Features
+
+* **editor:** add wireCollab extension point + typed mutation events ([52ea1ee](https://github.com/lassediercks/flowgo/commit/52ea1ee96b759ccee293dc576adfe0b25913224f))
+
 ## [0.1.3](https://github.com/lassediercks/flowgo/compare/v0.1.2...v0.1.3) (2026-05-26)
 
 
