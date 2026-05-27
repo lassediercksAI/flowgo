@@ -42,6 +42,7 @@ import {
   wirePersistence,
 } from "./persistence.ts";
 import { mutatedCurrentMap, wireMutations } from "./mutations.ts";
+import { exposeCollabHandle } from "./collab-api.ts";
 import {
   cloneSelection as cloneSelectionPure,
   wireClone,
@@ -236,8 +237,16 @@ wirePersistence({
 
 // Every mutation funnels through mutations.ts. The default wiring
 // just calls scheduleSave; downstream consumers can swap it without
-// touching the 26 call sites.
-wireMutations({ scheduleSave: () => scheduleSave() });
+// touching the 26 call sites. onMutate fans events out to any
+// collab plugin that called whenCollabReady (see collab-api.ts).
+const onLocalMutationCallbacks = [];
+wireMutations({
+  scheduleSave: () => scheduleSave(),
+  getMapPath: () => currentPath,
+  onMutate: (e) => {
+    for (const cb of onLocalMutationCallbacks) cb(e);
+  },
+});
 
 wireClone({
   currentMap: () => state,
@@ -390,4 +399,26 @@ fetch("/version")
     if (v) document.getElementById("version").textContent = "flowgo " + v;
   })
   .catch(() => { /* version stamp is best-effort */ });
+
+// Expose the collab extension point. Plugins import whenCollabReady
+// from "@flowgo/editor/collab"; nothing in the CLI / single-user
+// bundle imports it so this is a no-op there.
+exposeCollabHandle({
+  snapshot: () => structuredClone(graph),
+  applyRemotePatch: (fn) => {
+    fn(graph);
+    // The graph mutation may have changed the current map's contents
+    // (or even removed it). Refresh the local `state` alias so the
+    // next render reads the right slice.
+    state = ensureMap(currentPath);
+    renderAll();
+  },
+  onLocalMutation: (cb) => {
+    onLocalMutationCallbacks.push(cb);
+    return () => {
+      const i = onLocalMutationCallbacks.indexOf(cb);
+      if (i >= 0) onLocalMutationCallbacks.splice(i, 1);
+    };
+  },
+});
 

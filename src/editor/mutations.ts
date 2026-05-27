@@ -2,13 +2,38 @@
 // mutation seam in the editor calls one of the typed mutator
 // functions below instead of scheduleSave() directly.
 //
-// Today every mutator funnels into the wired scheduleSave —
-// behaviour is identical to calling scheduleSave() at the call site.
-// The typed surface exists so that downstream wiring can hook on
-// the right kind of change without a 30-site audit later.
+// Two hooks fan out from each mutator:
+//
+//   scheduleSave  — required. Today this funnels into the editor's
+//                   own debounced save path so file persistence (CLI
+//                   mode) or in-memory session save (serve mode)
+//                   happens automatically.
+//   onMutate      — optional. Fires alongside scheduleSave with a
+//                   typed event so a downstream binding (e.g. a Yjs
+//                   collab plugin) can scope its diff to the right
+//                   kind of change without a 30-site audit.
+
+export type MutationKind =
+  | "box"
+  | "edge"
+  | "text"
+  | "line"
+  | "stroke"
+  | "currentMap"
+  | "doc";
+
+export interface MutationEvent {
+  readonly kind: MutationKind;
+  readonly mapPath: string;
+}
 
 interface MutationBindings {
   readonly scheduleSave: () => void;
+  /** Optional. Returns the editor's currently-focused map path
+   *  (e.g. "/", "/b1", "/b1/c2"). Defaults to "/" if not provided. */
+  readonly getMapPath?: () => string;
+  /** Optional. Called after scheduleSave for every mutation. */
+  readonly onMutate?: (e: MutationEvent) => void;
 }
 
 let bindings: MutationBindings | null = null;
@@ -17,25 +42,29 @@ export const wireMutations = (b: MutationBindings): void => {
   bindings = b;
 };
 
-const fire = (): void => {
+const fire = (kind: MutationKind): void => {
   if (!bindings) throw new Error("mutations: wireMutations() not called");
   bindings.scheduleSave();
+  if (bindings.onMutate) {
+    const mapPath = bindings.getMapPath ? bindings.getMapPath() : "/";
+    bindings.onMutate({ kind, mapPath });
+  }
 };
 
 // One function per kind on the current map. The function shapes
 // reserve room for downstream wiring that wants to scope a diff to
-// a specific entity; today they all just fire scheduleSave.
+// a specific entity; today they all just fire scheduleSave + onMutate.
 
-export const mutatedBox = (): void => fire();
-export const mutatedEdge = (): void => fire();
-export const mutatedText = (): void => fire();
-export const mutatedLine = (): void => fire();
-export const mutatedStroke = (): void => fire();
+export const mutatedBox = (): void => fire("box");
+export const mutatedEdge = (): void => fire("edge");
+export const mutatedText = (): void => fire("text");
+export const mutatedLine = (): void => fire("line");
+export const mutatedStroke = (): void => fire("stroke");
 
 // The current map changed in a way that spans multiple kinds or
 // touches the whole map (paste, align, multi-select palette change).
-export const mutatedCurrentMap = (): void => fire();
+export const mutatedCurrentMap = (): void => fire("currentMap");
 
 // The document structure changed (maps added/removed via box
 // deletion, or anything that affects more than one map at once).
-export const mutatedDoc = (): void => fire();
+export const mutatedDoc = (): void => fire("doc");
