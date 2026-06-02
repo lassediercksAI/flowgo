@@ -1,7 +1,8 @@
 // Document- and bg-layer-level mouse handling. Coordinates pan,
 // drag, rubber-band selection, link-drag (creating new edges by
-// dragging from a handle dot), and the bg-layer mousedown/dblclick
-// that spawn rubber-band selection or new boxes.
+// dragging from a handle dot), the bg-layer mousedown/dblclick
+// that spawn rubber-band selection or new boxes, and the wheel /
+// two-finger trackpad swipe that pans the viewport.
 //
 // The state these handlers mutate (drag, link, band, pan, dropTargetId,
 // selectedEdge, selected, lastCursor) is owned by main.ts; this
@@ -376,6 +377,30 @@ const onMouseUp = (e: MouseEvent): void => {
   }
 };
 
+// Two-finger trackpad swipe (and scroll-wheel) → pan the viewport.
+// macOS surfaces a two-finger parallel swipe as a `wheel` event with
+// `deltaMode === 0` (pixel-precise) and `ctrlKey === false`. Pinch-to-
+// zoom on the same trackpad fires `wheel` with `ctrlKey === true`;
+// we ignore those so the browser's existing zoom path still runs and
+// our pan doesn't fight a pinch. Subtracting deltaX/deltaY matches
+// "natural" scrolling — swiping fingers down reveals content below,
+// same as scrolling a long page.
+const onWheel = (e: WheelEvent): void => {
+  if (e.ctrlKey) return;
+  // Let scrollable chrome (help modal) keep its native scroll. Every
+  // other surface — bg-layer, canvas, boxes, edges — should pan.
+  const tgt = e.target;
+  if (tgt instanceof Element && tgt.closest("#helpModal")) return;
+  e.preventDefault();
+  // deltaMode 1 = lines, 2 = pages. Convert to roughly equivalent
+  // pixel deltas so a discrete-tick mouse wheel still moves a useful
+  // amount instead of one pixel per detent.
+  const factor = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? window.innerHeight : 1;
+  viewport.x -= e.deltaX * factor;
+  viewport.y -= e.deltaY * factor;
+  applyViewport();
+};
+
 const onMiddleClickPan = (e: MouseEvent): void => {
   if (e.button !== 2) return;
   e.preventDefault();
@@ -508,6 +533,9 @@ export const attachMouseListeners = (): void => {
   document.addEventListener("mousemove", onMouseMove);
   document.addEventListener("mouseup", onMouseUp);
   document.addEventListener("mousedown", onMiddleClickPan);
+  // passive: false — we call preventDefault() to suppress the browser
+  // default page scroll / overscroll-bounce while the user pans.
+  document.addEventListener("wheel", onWheel, { passive: false });
   window.addEventListener("contextmenu", (e) => e.preventDefault());
   // Suppress middle-click autoscroll/paste so we can use it for navigation.
   window.addEventListener("auxclick", (e) => {

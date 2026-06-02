@@ -1,0 +1,43 @@
+# Compose file for `just dev`. The dev image carries go + pnpm + just;
+# the workspace is bind-mounted so edits on the host take effect inside
+# the container. Node modules and the go / pnpm caches live in named
+# volumes so they survive rebuilds and don't litter the host tree.
+#
+# Run via the justfile target (which sets FLOWGO_FILE from the user's
+# CLI arg) rather than `docker compose up` directly.
+
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    # Publish the whole port walk (54041–54099). The Go server picks
+    # the first free port in that range at startup; forwarding the
+    # whole range means the chosen port is always reachable on the
+    # host, no matter which one ended up taken.
+    ports:
+      - "54041-54099:54041-54099"
+    volumes:
+      - .:/work
+      # Named volumes shadow /work for paths that should NOT mirror the
+      # host: pnpm's node_modules (host might have a different node
+      # version / arch installed), the pnpm content-addressed store,
+      # and the go module + build caches.
+      - flowgo-node-modules:/work/node_modules
+      - flowgo-pnpm-store:/pnpm
+      - flowgo-go-cache:/go
+    environment:
+      FLOWGO_FILE: ${FLOWGO_FILE:-map.flowgo}
+    # tini PID 1 — ensures SIGINT from `docker compose up` reaches the
+    # bash polling loop so its trap can tear down vite + go cleanly.
+    init: true
+    # Allocate a TTY so the in-container `go run` output streams
+    # interactively (and Ctrl+C is forwarded as a real SIGINT).
+    tty: true
+    stdin_open: true
+    command: ["just", "_dev-inside"]
+
+volumes:
+  flowgo-node-modules:
+  flowgo-pnpm-store:
+  flowgo-go-cache:

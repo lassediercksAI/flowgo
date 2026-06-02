@@ -1,18 +1,29 @@
 # Dev tasks for flowgo.
 #
-# `just dev`  — rebuilds dist/index.html on TS/HTML edits (vite --watch)
-#               and restarts the Go server on changes to dist/index.html
-#               or any *.go file. No external watcher binary required;
-#               the Go side is polled with stat + a 500ms sleep.
+# `just dev`  — runs the whole dev stack inside Docker (vite --watch
+#               and a polling-restart for the Go server). The host
+#               only needs `docker` and `just` — no local go / pnpm.
+#               Source is bind-mounted from the repo; node_modules and
+#               the pnpm + go caches live in named volumes (see
+#               Dockerfile.dev + compose.yaml).
 #
-#               Binds 0.0.0.0 (--host) by default so other devices on the
-#               LAN / containers can reach the dev server.
+#               The container binds 0.0.0.0 and the whole port walk
+#               54041–54099 is forwarded to the host, so whichever
+#               port flowgo grabs is reachable at http://localhost:<port>
+#               (printed on first start).
 #
-#               The first run opens the editor in your browser; subsequent
-#               restarts set FLOWGO_NO_OPEN=1 so they reuse the existing tab
-#               (just hit reload, or rely on the server reconnect).
+#               File-ownership note: on Linux, dist/index.html and any
+#               other files written by the container are root-owned.
+#               If that's a problem locally, run
+#                 sudo chown -R $(id -u):$(id -g) pkg/flowgo/dist
+#               after the container exits.
 #
-# Requires: pnpm, go.
+# `just build` / `just test` / `just typecheck` still run on the host
+# and need local pnpm + go. To run them inside the dev container
+# instead, use `docker compose exec dev just <target>`.
+#
+# Requires (for `just dev`): docker.
+# Requires (for build / test / typecheck on host): pnpm, go.
 
 set shell := ["bash", "-cu"]
 
@@ -20,17 +31,41 @@ default_file := "map.flowgo"
 
 default: dev
 
-# Frontend (vite --watch) + Go (poll + restart on file change).
+# Run the dev stack (vite --watch + go poll-restart) inside Docker.
 dev file=default_file:
-    @command -v pnpm >/dev/null || { echo "pnpm not found — npm i -g pnpm"; exit 1; }
-    @command -v go   >/dev/null || { echo "go not found";                    exit 1; }
-    pnpm install --silent
-    just _dev-run "{{file}}"
+    @command -v docker >/dev/null || { echo "docker not found — install Docker"; exit 1; }
+    FLOWGO_FILE="{{file}}" docker compose up --build
 
-# Internal: vite --watch in the background, polling-loop runs go.
-_dev-run file:
+# Stop the dev container and free its forwarded ports.
+dev-down:
+    docker compose down
+
+# Internal: the vite --watch + go polling-restart loop. Intended to run
+# INSIDE the dev container (`docker compose up` invokes it as the
+# service command). The file to open is passed via the FLOWGO_FILE
+# env, set from the host's `just dev <file>` invocation.
+_dev-inside:
     #!/usr/bin/env bash
     set -euo pipefail
+    file="${FLOWGO_FILE:-map.flowgo}"
+    # Platform-aware install: Docker compose's first-create behaviour
+    # for a named volume layered on a bind mount can carry the host's
+    # macOS-arm64 node_modules into the Linux container, where `pnpm
+    # install` then sees node_modules as "up to date" and skips
+    # fetching the platform-correct native bindings (rolldown, esbuild,
+    # …). Stamping a sentinel with the current OS+arch lets us detect
+    # a mismatch and reinstall from scratch. With the pnpm store on a
+    # named volume, the rebuild is a hardlink pass — fast.
+    sentinel=node_modules/.installed-platform
+    want="$(uname -s)-$(uname -m)"
+    if [[ ! -f "$sentinel" || "$(cat "$sentinel" 2>/dev/null)" != "$want" ]]; then
+        echo "── installing node_modules for $want (sentinel: $(cat "$sentinel" 2>/dev/null || echo none)) ──"
+        # `node_modules` itself is the named-volume mount point and
+        # can't be unlinked — empty its contents instead, mount stays.
+        find node_modules -mindepth 1 -delete 2>/dev/null || true
+        pnpm install
+        echo "$want" > "$sentinel"
+    fi
     pnpm exec vite build
     pnpm exec vite build --watch >/tmp/flowgo-vite.log 2>&1 &
     VITE_PID=$!
@@ -47,11 +82,10 @@ _dev-run file:
         [[ -n "${marker}" ]] && rm -f "$marker" || true
     }
     # Trap EXIT for normal exits; trap INT/TERM separately and exit
-    # explicitly so Ctrl+C tears down the polling loop. Without the
-    # explicit `exit`, bash runs the handler and then resumes after
-    # the interrupted `sleep`, which silently restarts `go run` on
-    # the next tick (e.g. when vite finishes its in-flight rebuild
-    # and updates dist/index.html post-INT).
+    # explicitly so Ctrl+C (forwarded by tini as SIGTERM to PID 1)
+    # tears down the polling loop. Without the explicit `exit`, bash
+    # runs the handler and then resumes after the interrupted `sleep`,
+    # which silently restarts `go run` on the next tick.
     shutdown() {
         trap - INT TERM EXIT
         cleanup
@@ -60,17 +94,14 @@ _dev-run file:
     trap cleanup EXIT
     trap shutdown INT TERM
 
-    started=0
     start_go() {
         [[ -n "${GO_PID}" ]] && kill "$GO_PID" 2>/dev/null || true
         wait "$GO_PID" 2>/dev/null || true
         echo "── restarting flowgo ──────────────────────────────────"
-        if (( started )); then
-            FLOWGO_NO_OPEN=1 go run ./cmd/flowgo "{{file}}" --host &
-        else
-            go run ./cmd/flowgo "{{file}}" --host &
-            started=1
-        fi
+        # --host (bind 0.0.0.0) so the forwarded host port reaches us.
+        # FLOWGO_NO_OPEN is baked into the image so the binary doesn't
+        # try to xdg-open from a container that has no browser.
+        go run ./cmd/flowgo "$file" --host &
         GO_PID=$!
         touch "$marker"
     }

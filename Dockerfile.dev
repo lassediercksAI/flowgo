@@ -1,0 +1,66 @@
+# Single-stage dev image: go + node + pnpm + just so `just dev` can run
+# the whole stack inside one container with zero host deps beyond
+# docker. Multi-arch (amd64 / arm64) via TARGETARCH.
+#
+# This is a *development* image — chubby on purpose. The release build
+# embeds the frontend into the Go binary; see `just build`. Don't ship
+# this image to production.
+
+FROM golang:1.24-bookworm
+
+ARG TARGETARCH
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl ca-certificates xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node 22 LTS, pinned for reproducibility. corepack pulls pnpm at the
+# version the repo's package.json declares (10.34.0).
+#
+# Bundled corepack ships with signing keys that predate pnpm's current
+# release key — `corepack prepare pnpm@<x>` fails with "Cannot find
+# matching keyid". Upgrading corepack to latest before preparing
+# pulls fresh keys and unblocks the install.
+# (See https://github.com/nodejs/corepack/issues/612.)
+#
+# Vite 8 requires Node 22.12+, so the tarball above is pinned at
+# 22.13.0 (the first LTS-line release that satisfies that bound).
+RUN set -eux; \
+    case "$TARGETARCH" in \
+        amd64) NODE_ARCH=x64 ;; \
+        arm64) NODE_ARCH=arm64 ;; \
+        *) echo "unsupported arch: $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://nodejs.org/dist/v22.13.0/node-v22.13.0-linux-${NODE_ARCH}.tar.xz" \
+        | tar -xJ -C /usr/local --strip-components=1; \
+    npm install -g corepack@latest; \
+    corepack enable; \
+    corepack prepare pnpm@10.34.0 --activate
+
+# just — same justfile flows run inside the container as on the host.
+RUN set -eux; \
+    case "$TARGETARCH" in \
+        amd64) JUST_ARCH=x86_64 ;; \
+        arm64) JUST_ARCH=aarch64 ;; \
+    esac; \
+    curl -fsSL "https://github.com/casey/just/releases/download/1.36.0/just-1.36.0-${JUST_ARCH}-unknown-linux-musl.tar.gz" \
+        | tar -xz -C /usr/local/bin just
+
+WORKDIR /work
+
+# Keep caches outside the bind-mounted /work so they survive across
+# fresh clones and live in named volumes (see compose.yaml).
+ENV PNPM_HOME=/pnpm \
+    PNPM_STORE_DIR=/pnpm/store \
+    GOPATH=/go \
+    GOCACHE=/go/cache
+
+# Force chokidar/vite to poll the filesystem. Bind-mount inotify is
+# unreliable on Docker Desktop (macOS / Windows); polling costs ~1%
+# idle CPU but guarantees rebuilds fire. No-op on Linux native.
+ENV CHOKIDAR_USEPOLLING=true
+
+# The Go server tries to open a browser on first start. Inside a
+# container that's a no-op error path — suppress it so the binary
+# just prints the URL.
+ENV FLOWGO_NO_OPEN=1

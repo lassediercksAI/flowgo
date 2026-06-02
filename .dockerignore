@@ -1,0 +1,15 @@
+# Keep the build context lean. `.:/work` is bind-mounted at runtime so
+# anything here only affects `docker build` (the initial image) — but
+# pulling node_modules / .git / dist into the context still slows the
+# first build noticeably.
+
+.git
+.github
+.claude
+.claude-container
+node_modules
+.pnpm-store
+pkg/flowgo/dist
+/flowgo
+*.tsbuildinfo
+*.log
