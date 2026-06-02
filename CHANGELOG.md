@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/lassediercks/flowgo/compare/v0.1.4...v0.1.5) (2026-06-02)
+
+
+### Features
+
+* **editor:** trackpad two-finger pan + Dockerized dev workflow ([fdb93e2](https://github.com/lassediercks/flowgo/commit/fdb93e26ebe85d33241bda921113fd37e23fe9fa))
+
 ## [0.1.4](https://github.com/lassediercks/flowgo/compare/v0.1.3...v0.1.4) (2026-05-27)
 
 
