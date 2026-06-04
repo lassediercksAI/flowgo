@@ -9,7 +9,13 @@
 // triplet ordered correctly and the URL-hash + history.pushState
 // invariants maintained.
 
-import { recenter } from "./viewport.ts";
+import {
+  applyViewport,
+  clampScale,
+  recenter,
+  viewport,
+  wireViewportSync,
+} from "./viewport.ts";
 
 interface MapLike {
   path: string;
@@ -63,12 +69,87 @@ export const ensureMap = (path: string): MapLike => {
   return m;
 };
 
-export const readPathFromURL = (): string => {
+// Hash format: "#<path>?z=<scale>&x=<vx>&y=<vy>" — query-string syntax
+// inside the fragment so bookmarks restore both the current submap and
+// the view (pan + zoom). The view params are all optional; "#/" still
+// works as a bare path. Parsing returns just the path here; view
+// params are handled by readViewFromURL().
+const splitHash = (): { path: string; query: string } => {
   let h = location.hash || "";
   if (h.startsWith("#")) h = h.slice(1);
-  if (!h) return "/";
-  if (!h.startsWith("/")) h = "/" + h;
-  return h;
+  const q = h.indexOf("?");
+  const path = q === -1 ? h : h.slice(0, q);
+  const query = q === -1 ? "" : h.slice(q + 1);
+  return { path, query };
+};
+
+export const readPathFromURL = (): string => {
+  const { path } = splitHash();
+  if (!path) return "/";
+  if (!path.startsWith("/")) return "/" + path;
+  return path;
+};
+
+// Parses ?z=&x=&y= out of the hash. Any combination is allowed —
+// callers should treat `null` fields as "leave at recenter default".
+// Returns null when no view params were present at all so the caller
+// can fall back to the recenter path with no extra plumbing.
+export const readViewFromURL = (): { s?: number; x?: number; y?: number } | null => {
+  const { query } = splitHash();
+  if (!query) return null;
+  const params = new URLSearchParams(query);
+  const out: { s?: number; x?: number; y?: number } = {};
+  const z = params.get("z");
+  const x = params.get("x");
+  const y = params.get("y");
+  if (z !== null) {
+    const n = Number(z);
+    if (Number.isFinite(n)) out.s = clampScale(n);
+  }
+  if (x !== null) {
+    const n = Number(x);
+    if (Number.isFinite(n)) out.x = n;
+  }
+  if (y !== null) {
+    const n = Number(y);
+    if (Number.isFinite(n)) out.y = n;
+  }
+  if (out.s === undefined && out.x === undefined && out.y === undefined) {
+    return null;
+  }
+  return out;
+};
+
+// Serialise current viewport to the query portion. Values that match
+// defaults (s=1, x=0, y=0) are omitted to keep clean URLs clean. Only
+// integers for x/y — sub-pixel precision doesn't survive a bookmark
+// and just makes the URL ugly. Three decimal places for s covers the
+// useful precision without trailing noise.
+const buildViewQuery = (): string => {
+  const parts: string[] = [];
+  if (viewport.s !== 1) parts.push(`z=${viewport.s.toFixed(3)}`);
+  if (viewport.x !== 0) parts.push(`x=${Math.round(viewport.x)}`);
+  if (viewport.y !== 0) parts.push(`y=${Math.round(viewport.y)}`);
+  return parts.length === 0 ? "" : "?" + parts.join("&");
+};
+
+// Debounced URL writer. Pan + zoom can fire 60 times a second during a
+// drag; replaceState'ing on every tick is fine on modern browsers but
+// looks janky in DevTools' URL log. 200ms is short enough that a
+// reload right after letting go restores faithfully, long enough that
+// idle drags don't spam history.replaceState.
+let viewSyncTimer: number | null = null;
+const VIEW_SYNC_DELAY_MS = 200;
+const syncViewToURL = (): void => {
+  if (viewSyncTimer !== null) clearTimeout(viewSyncTimer);
+  viewSyncTimer = window.setTimeout(() => {
+    viewSyncTimer = null;
+    const path = bindings?.getCurrentPath() ?? "/";
+    const next = "#" + path + buildViewQuery();
+    if (location.hash !== next) {
+      history.replaceState(history.state, "", next);
+    }
+  }, VIEW_SYNC_DELAY_MS);
 };
 
 export interface SetPathOptions {
@@ -84,12 +165,26 @@ export const navigateTo = (p: string, opts?: SetPathOptions): void => {
   b.clearSelectedEdge();
   b.renderAll();
   renderPath();
-  if (!keepViewport) recenter(ensureMap(p) as Parameters<typeof recenter>[0]);
-  // Persist the current submap path in the URL hash so the location is
-  // bookmarkable and the browser back/forward stack walks navigation.
-  const newHash = "#" + p;
-  if (location.hash !== newHash) {
+  if (!keepViewport) {
+    recenter(ensureMap(p) as Parameters<typeof recenter>[0]);
+  } else {
+    // recenter() is the only path that calls applyViewport() — when
+    // we skip it (URL-restored view, or callers that just want to
+    // preserve the camera through navigation) the new map still needs
+    // a transform push so the CSS / SVG layers reflect viewport.x/y/s.
+    applyViewport();
+  }
+  // Persist the current submap path + view (pan / zoom) in the URL
+  // hash so the location is bookmarkable and the browser back/forward
+  // stack walks navigation. pushState only when the path actually
+  // changed — view-only changes go through replaceState in
+  // syncViewToURL so we don't pollute history with every wheel tick.
+  const newHash = "#" + p + buildViewQuery();
+  const currentPath = splitHash().path || "/";
+  if (currentPath !== p) {
     history.pushState(null, "", newHash);
+  } else if (location.hash !== newHash) {
+    history.replaceState(history.state, "", newHash);
   }
 };
 
@@ -170,10 +265,38 @@ export const renderPath = (): void => {
 };
 
 // Wire the browser's hashchange to navigateTo() so back/forward
-// buttons land on the right submap.
+// buttons land on the right submap, and install the viewport→URL
+// sync so pan/zoom replaceState the view params into the hash.
 export const attachNavigationListeners = (): void => {
   window.addEventListener("hashchange", () => {
     const p = readPathFromURL();
-    if (p !== must().getCurrentPath()) navigateTo(p);
+    const v = readViewFromURL();
+    if (p !== must().getCurrentPath()) {
+      // Path changed — let navigateTo do the full reload. When the
+      // bookmark also pinned a view we apply it *before* navigateTo
+      // so its keepViewport-skip-recenter branch renders against the
+      // restored camera, then call applyViewport for the DOM push.
+      if (v) {
+        applyURLView(v);
+        navigateTo(p, { keepViewport: true });
+      } else {
+        navigateTo(p);
+      }
+    } else if (v) {
+      // Same map, hash changed (back/forward across view-only
+      // snapshots). Apply the new view and push the transform.
+      applyURLView(v);
+      applyViewport();
+    }
   });
+  wireViewportSync(syncViewToURL);
+};
+
+// Apply parsed URL view params to the live viewport without losing
+// the values the URL didn't specify. Exported so persistence.ts can
+// call it on initial load before/around setCurrentPath.
+export const applyURLView = (v: { s?: number; x?: number; y?: number }): void => {
+  if (v.s !== undefined) viewport.s = clampScale(v.s);
+  if (v.x !== undefined) viewport.x = v.x;
+  if (v.y !== undefined) viewport.y = v.y;
 };

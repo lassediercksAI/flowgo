@@ -621,8 +621,13 @@ const onTouchMove = (e: TouchEvent): void => {
   const drag = w.drag();
   if (drag) {
     e.preventDefault();
-    const dx = t.clientX - drag.downX;
-    const dy = t.clientY - drag.downY;
+    // Client-space delta (used for the drag-threshold check) vs
+    // data-space delta (used to drive movers, which store data px).
+    // At zoom != 1 the two diverge; movers want the data version.
+    const cdx = t.clientX - drag.downX;
+    const cdy = t.clientY - drag.downY;
+    const sdx = cdx / viewport.s;
+    const sdy = cdy / viewport.s;
     if (
       !drag.active &&
       movedBeyond(drag.downX, drag.downY, t.clientX, t.clientY, STILL_TOLERANCE_PX)
@@ -638,7 +643,7 @@ const onTouchMove = (e: TouchEvent): void => {
     }
     if (drag.active) {
       // Touch has no shift key — pass null so movers skip grid snap.
-      for (const m of drag.movers) m.apply(dx, dy, null);
+      for (const m of drag.movers) m.apply(sdx, sdy, null);
       renderEdges();
       armDeleteZone(isOverDeleteZone(t.clientY));
     }

@@ -153,6 +153,15 @@
     position: absolute; inset: 0; z-index: 2;
     background: transparent;
     pointer-events: none;
+    /* Pin the transform origin to the top-left so the
+       `transform: translate(x,y) scale(s)` applied by
+       viewport.applyViewport() matches its math —
+       screen_x = vx + dataX * s — instead of pivoting around the
+       element's centre (the CSS default). Without this, zoom drifts
+       content by `centerX * (1 - s)` and the bg-layer grid (which
+       uses background-position, no CSS transform) reads as
+       "anchored to the cursor" relative to the content. */
+    transform-origin: 0 0;
   }
   #canvas .box, #canvas .text-item, #canvas #alignToolbar { pointer-events: auto; }
 
@@ -462,6 +471,29 @@
   }
   body.panning, body.panning * { cursor: grabbing !important; }
 
+  /* Transient zoom indicator. Pops up on every zoom change with the
+     current scale; fades out after a short idle so it doesn't sit
+     permanently in the viewport. The .at-min / .at-max modifiers add
+     a red outline so the user can tell when further zoom is clamped
+     vs. when they merely chose to stop. */
+  #zoom-indicator {
+    position: absolute; z-index: 20;
+    top: calc(12px + env(safe-area-inset-top, 0px));
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.72); color: #fff;
+    padding: 6px 12px; border-radius: 6px;
+    font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+    pointer-events: none; user-select: none;
+    opacity: 0;
+    /* opacity-only transition so layout never thrashes during fade. */
+    transition: opacity .25s ease-out, box-shadow .15s;
+  }
+  #zoom-indicator.visible { opacity: 1; }
+  #zoom-indicator.at-min, #zoom-indicator.at-max {
+    box-shadow: 0 0 0 2px #dc2626;
+  }
+
   /* Delete drop zone: only meaningful while a touch drag is in
      flight (body.dragging). Pushed below the notch / status bar via
      the safe-area inset (works because the viewport meta sets
@@ -585,6 +617,7 @@
   <span id="path"></span>
 </div>
 <div id="deleteZone">drop here to delete</div>
+<div id="zoom-indicator">100%</div>
 <div id="bg-layer"></div>
 <svg id="bg-svg">
   <g id="stroke-layer"></g>
@@ -675,7 +708,10 @@
     <table>
       <tr><td>Two-finger swipe (trackpad) / scroll wheel</td><td>Pan the viewport</td></tr>
       <tr><td>Right-click + drag</td><td>Pan the viewport</td></tr>
+      <tr><td>Trackpad pinch / <kbd>⌘</kbd>+scroll / <kbd>Ctrl</kbd>+scroll</td><td>Zoom in / out (anchored to the cursor; clamps 50% – 800%)</td></tr>
+      <tr><td><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>0</kbd></td><td>Reset zoom to 100% and recenter on the anchor box</td></tr>
       <tr><td>Resize the window</td><td>Auto-recenters the current map</td></tr>
+      <tr><td>(pan + zoom)</td><td>Persisted in the URL hash (<code>#/path?z=&amp;x=&amp;y=</code>) so reloads / bookmarks restore the view</td></tr>
     </table>
 
     <h3>Other</h3>

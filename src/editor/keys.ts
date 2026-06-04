@@ -42,7 +42,7 @@ import {
   renderAll,
   renderEdges,
 } from "./render.ts";
-import { toDataX, toDataY } from "./viewport.ts";
+import { recenter, toDataX, toDataY, viewport } from "./viewport.ts";
 
 interface BoxLike {
   id: string;
@@ -65,6 +65,11 @@ interface TextLike {
 
 interface LineLike {
   id: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  mids?: Array<[number, number]>;
   palette?: number;
   style?: number;
 }
@@ -339,6 +344,21 @@ export const attachKeyboardListener = (): void => {
     if (mod && !e.altKey && !e.shiftKey && (e.key === "v" || e.key === "V")) {
       e.preventDefault();
       pasteSelection();
+      return;
+    }
+
+    // Cmd/Ctrl + 0 → reset zoom to 100% and recenter on the anchor.
+    // Mirrors the browser-zoom shortcut for "back to default view"
+    // but operates on the canvas viewport. recenter() already
+    // prioritises the anchor box → b1 → bbox of all content, so the
+    // same heuristic that picks the load-time camera also drives the
+    // reset. The viewport.s = 1 assignment goes before recenter()
+    // because recenter's translate math reads viewport.s — at the
+    // new scale, not the old one.
+    if (mod && !e.altKey && !e.shiftKey && e.key === "0") {
+      e.preventDefault();
+      viewport.s = 1;
+      recenter(w.currentMap());
       return;
     }
 

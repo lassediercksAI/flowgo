@@ -32,6 +32,8 @@ interface PersistenceBindings {
   ) => void;
   readonly getCurrentPath: () => string;
   readonly readPathFromURL: () => string;
+  readonly readViewFromURL: () => { s?: number; x?: number; y?: number } | null;
+  readonly applyURLView: (v: { s?: number; x?: number; y?: number }) => void;
   readonly setStatus: (s: string) => void;
   readonly clearSelected: () => void;
   readonly clearSelectedEdge: () => void;
@@ -93,7 +95,17 @@ export const load = async (): Promise<void> => {
   savedSnapshot = JSON.stringify(g);
   undoStack = [];
   redoStack = [];
-  b.setCurrentPath(b.readPathFromURL());
+  // If the URL hash carries a view (?z=&x=&y=), apply it before
+  // setCurrentPath so the initial navigateTo skips recenter and lands
+  // exactly where the bookmark pinned us. With no view in the URL we
+  // take the default recenter path.
+  const urlView = b.readViewFromURL();
+  if (urlView) {
+    b.applyURLView(urlView);
+    b.setCurrentPath(b.readPathFromURL(), { keepViewport: true });
+  } else {
+    b.setCurrentPath(b.readPathFromURL());
+  }
   b.setStatus(SNAPSHOT_MODE ? "snapshot " + SNAPSHOT_ID + " — local edits only" : "loaded");
 };
 

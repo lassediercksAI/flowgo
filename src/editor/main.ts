@@ -27,11 +27,13 @@ import { isBrushMode, wireBrush } from "./brush.ts";
 import { wireLine } from "./line.ts";
 import { wireClipboard } from "./clipboard.ts";
 import {
+  applyURLView,
   attachNavigationListeners,
   ensureMap,
   goUp,
   navigateTo,
   readPathFromURL,
+  readViewFromURL,
   wireNavigation,
 } from "./navigation.ts";
 import {
@@ -230,6 +232,8 @@ wirePersistence({
   setCurrentPath: (p, opts) => navigateTo(p, opts),
   getCurrentPath: () => currentPath,
   readPathFromURL,
+  readViewFromURL,
+  applyURLView,
   setStatus,
   clearSelected: () => selected.clear(),
   clearSelectedEdge: () => { selectedEdge = null; },

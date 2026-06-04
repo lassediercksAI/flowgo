@@ -9,7 +9,7 @@
 // module asks for it through wireMouse() bindings and writes back
 // through the supplied setters.
 
-import { applyViewport, toDataX, toDataY, viewport } from "./viewport.ts";
+import { applyViewport, toDataX, toDataY, viewport, zoomAt } from "./viewport.ts";
 import {
   applyClasses,
   clearProximity,
@@ -160,14 +160,18 @@ const onMouseMove = (e: MouseEvent): void => {
   }
   const drag = w.drag();
   if (drag) {
-    const dx = e.clientX - drag.downX;
-    const dy = e.clientY - drag.downY;
-    if (!drag.active && Math.hypot(dx, dy) > 4) {
+    // dx/dy on the wire are in client (screen) pixels; movers store
+    // and write data-unit positions. Divide by the current zoom so a
+    // 1px finger move at scale=2 only moves the box by 0.5 data px,
+    // and the box visually tracks the cursor exactly.
+    const sdx = (e.clientX - drag.downX) / viewport.s;
+    const sdy = (e.clientY - drag.downY) / viewport.s;
+    if (!drag.active && Math.hypot(e.clientX - drag.downX, e.clientY - drag.downY) > 4) {
       drag.active = true;
       for (const m of drag.movers) m.el?.classList?.add("dragging");
     }
     if (drag.active) {
-      for (const m of drag.movers) m.apply(dx, dy, e);
+      for (const m of drag.movers) m.apply(sdx, sdy, e);
       renderEdges();
     }
     return;
@@ -377,27 +381,36 @@ const onMouseUp = (e: MouseEvent): void => {
   }
 };
 
-// Two-finger trackpad swipe (and scroll-wheel) → pan the viewport.
-// macOS surfaces a two-finger parallel swipe as a `wheel` event with
-// `deltaMode === 0` (pixel-precise) and `ctrlKey === false`. Pinch-to-
-// zoom on the same trackpad fires `wheel` with `ctrlKey === true`;
-// we ignore those so the browser's existing zoom path still runs and
-// our pan doesn't fight a pinch. Subtracting deltaX/deltaY matches
-// "natural" scrolling — swiping fingers down reveals content below,
-// same as scrolling a long page.
+// Wheel events come from three sources on a Mac:
+//   • Two-finger parallel swipe on the trackpad → ctrlKey=false → pan.
+//   • Pinch on the trackpad → ctrlKey=true (browsers synthesise this)
+//     → zoom anchored to the cursor.
+//   • Mouse wheel with Cmd/Ctrl held → meta/ctrlKey=true → also zoom.
+//
+// "Natural" pan direction matches OS scrolling (deltaY positive →
+// scroll down → content below revealed → canvas moves up). Zoom uses
+// an exponential mapping (1.001^-deltaY) so a tiny trackpad delta and
+// a 120-unit mouse notch both feel right at any current zoom level.
 const onWheel = (e: WheelEvent): void => {
-  if (e.ctrlKey) return;
   // Let scrollable chrome (help modal) keep its native scroll. Every
-  // other surface — bg-layer, canvas, boxes, edges — should pan.
+  // other surface — bg-layer, canvas, boxes, edges — should pan/zoom.
   const tgt = e.target;
   if (tgt instanceof Element && tgt.closest("#helpModal")) return;
   e.preventDefault();
+  if (e.ctrlKey || e.metaKey) {
+    // Exponential step keeps the perceived zoom rate constant across
+    // scales: each pixel of deltaY multiplies the scale by a fixed
+    // factor, instead of adding to it.
+    const factor = Math.exp(-e.deltaY * 0.01);
+    zoomAt(e.clientX, e.clientY, viewport.s * factor);
+    return;
+  }
   // deltaMode 1 = lines, 2 = pages. Convert to roughly equivalent
   // pixel deltas so a discrete-tick mouse wheel still moves a useful
   // amount instead of one pixel per detent.
-  const factor = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? window.innerHeight : 1;
-  viewport.x -= e.deltaX * factor;
-  viewport.y -= e.deltaY * factor;
+  const pxFactor = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? window.innerHeight : 1;
+  viewport.x -= e.deltaX * pxFactor;
+  viewport.y -= e.deltaY * pxFactor;
   applyViewport();
 };
 
