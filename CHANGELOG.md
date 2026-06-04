@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/lassediercks/flowgo/compare/v0.1.5...v0.1.6) (2026-06-04)
+
+
+### Features
+
+* **editor:** canvas zoom (pinch / Cmd+scroll) with cursor anchor ([46bd9a3](https://github.com/lassediercks/flowgo/commit/46bd9a34b4d5cf0c1eb55f9efc12876cbce5638d))
+
 ## [0.1.5](https://github.com/lassediercks/flowgo/compare/v0.1.4...v0.1.5) (2026-06-02)
 
 
