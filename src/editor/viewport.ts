@@ -69,7 +69,7 @@ export const applyViewport = (): void => {
   const major = GRID_MAJOR * s;
   bg.style.backgroundSize =
     `${minor}px ${minor}px, ${minor}px ${minor}px, ${major}px ${major}px, ${major}px ${major}px`;
-  viewChanged?.();
+  if (viewSyncSuspended === 0) viewChanged?.();
 };
 
 // Cursor-anchored zoom: solve for a new viewport.x/y such that the
@@ -105,7 +105,7 @@ export const zoomAt = (
 const INDICATOR_TTL_MS = 1200;
 let indicatorEl: HTMLElement | null = null;
 let indicatorTimer: number | null = null;
-const flashZoomIndicator = (): void => {
+export const flashZoomIndicator = (): void => {
   if (!indicatorEl) indicatorEl = document.getElementById("zoom-indicator");
   if (!indicatorEl) return;
   const pct = Math.round(viewport.s * 100);
@@ -130,7 +130,9 @@ const flashZoomIndicator = (): void => {
 //   1. The map's anchor box (the one with `anchor: true`).
 //   2. A box with id "b1" — the conventional first box (back-compat
 //      so older maps without an explicit anchor still centre nicely).
-//   3. The bounding box of every concrete piece on the map.
+//   3. The first box on the map — gives Cmd+0 a predictable landing
+//      spot on maps that never had an anchor designated.
+//   4. The bounding box of every concrete piece on the map.
 // Side effects: mutates `viewport` and replays applyViewport.
 //
 // Recenter does NOT change viewport.s — zoom is sticky across
@@ -151,7 +153,10 @@ export const recenter = (currentMap: {
 }): void => {
   const s = viewport.s;
   const boxes = currentMap.boxes ?? [];
-  const target = boxes.find((b) => b.anchor) ?? boxes.find((b) => b.id === "b1");
+  const target =
+    boxes.find((b) => b.anchor) ??
+    boxes.find((b) => b.id === "b1") ??
+    boxes[0];
   if (target && target.id) {
     // Prefer the rendered element's true centre; fall back to the
     // stored top-left (matches existing bbox math for single-point
@@ -202,7 +207,21 @@ export const recenter = (currentMap: {
 // whenever pan/zoom changes — applyViewport() invokes it on every
 // redraw. Kept here so viewport.ts owns the "view changed" signal
 // without depending on navigation.ts.
+//
+// `viewSyncSuspended` lets non-user-driven redraws (e.g. window.resize
+// → recenter, initial load layout) push the transform without
+// stomping a bookmarked URL. Callers wrap their work in
+// withSuppressedViewSync().
 let viewChanged: (() => void) | null = null;
+let viewSyncSuspended = 0;
 export const wireViewportSync = (cb: () => void): void => {
   viewChanged = cb;
+};
+export const withSuppressedViewSync = <T>(fn: () => T): T => {
+  viewSyncSuspended++;
+  try {
+    return fn();
+  } finally {
+    viewSyncSuspended--;
+  }
 };

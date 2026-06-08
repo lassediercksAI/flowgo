@@ -42,7 +42,7 @@ import {
   renderAll,
   renderEdges,
 } from "./render.ts";
-import { recenter, toDataX, toDataY, viewport } from "./viewport.ts";
+import { flashZoomIndicator, recenter, toDataX, toDataY, viewport } from "./viewport.ts";
 
 interface BoxLike {
   id: string;
@@ -359,6 +359,7 @@ export const attachKeyboardListener = (): void => {
       e.preventDefault();
       viewport.s = 1;
       recenter(w.currentMap());
+      flashZoomIndicator();
       return;
     }
 

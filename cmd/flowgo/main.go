@@ -141,17 +141,38 @@ func main() {
 			displayHost = lan
 		}
 	}
+	// FLOWGO_DISPLAY_HOST overrides the host portion of the printed
+	// URL without affecting where the server actually binds. Useful
+	// when the LAN IP picked from inside a container is the Docker
+	// bridge address (e.g. 192.168.165.2) — unreachable from the
+	// host — and the dev image wants to point users at the
+	// port-forwarded "localhost" instead.
+	if v := os.Getenv("FLOWGO_DISPLAY_HOST"); v != "" {
+		displayHost = v
+	}
 	url := fmt.Sprintf("http://%s:%d", displayHost, addr.Port)
 	fmt.Printf("flowgo editing %s\n  GUI: %s\n  MCP: %s/mcp\n", filePath, url, url)
 	if bindHost == "127.0.0.1" && os.Getenv("FLOWGO_NO_OPEN") == "" {
 		openBrowser(url)
-	} else if bindHost != "127.0.0.1" {
+	} else if bindHost != "127.0.0.1" && !isLocalhostHost(displayHost) {
 		fmt.Printf("  (also reachable on http://localhost:%d from this machine)\n", addr.Port)
 	}
 	maybeNotifyNewVersion()
 	if err := http.Serve(ln, nil); err != nil {
 		die("serve: %v", err)
 	}
+}
+
+// isLocalhostHost reports whether the display host is one of the
+// loopback aliases the "(also reachable on localhost…)" hint would
+// just repeat. Keeps the redundant line suppressed when callers set
+// FLOWGO_DISPLAY_HOST to any of localhost / 127.0.0.1 / ::1.
+func isLocalhostHost(h string) bool {
+	switch h {
+	case "localhost", "127.0.0.1", "::1", "[::1]":
+		return true
+	}
+	return false
 }
 
 // pickLanIP returns a usable IPv4 from this host's interfaces, preferring

@@ -94,6 +94,12 @@ export const readPathFromURL = (): string => {
 // callers should treat `null` fields as "leave at recenter default".
 // Returns null when no view params were present at all so the caller
 // can fall back to the recenter path with no extra plumbing.
+// Limit URL-supplied translate values to a sane range. CSS transforms
+// stop being usable well before this, but a malformed bookmark with
+// `?x=1e308` would land the viewport at infinity. ±1e6 covers any
+// realistic map ten times over.
+const MAX_TRANSLATE = 1_000_000;
+
 export const readViewFromURL = (): { s?: number; x?: number; y?: number } | null => {
   const { query } = splitHash();
   if (!query) return null;
@@ -102,17 +108,20 @@ export const readViewFromURL = (): { s?: number; x?: number; y?: number } | null
   const z = params.get("z");
   const x = params.get("x");
   const y = params.get("y");
-  if (z !== null) {
+  // Empty values (`?z=`) parse as `Number("") === 0`, which would
+  // silently clamp users to 50% scale or zero translate. Treat the
+  // empty string the same as a missing key.
+  if (z !== null && z !== "") {
     const n = Number(z);
     if (Number.isFinite(n)) out.s = clampScale(n);
   }
-  if (x !== null) {
+  if (x !== null && x !== "") {
     const n = Number(x);
-    if (Number.isFinite(n)) out.x = n;
+    if (Number.isFinite(n)) out.x = Math.max(-MAX_TRANSLATE, Math.min(MAX_TRANSLATE, n));
   }
-  if (y !== null) {
+  if (y !== null && y !== "") {
     const n = Number(y);
-    if (Number.isFinite(n)) out.y = n;
+    if (Number.isFinite(n)) out.y = Math.max(-MAX_TRANSLATE, Math.min(MAX_TRANSLATE, n));
   }
   if (out.s === undefined && out.x === undefined && out.y === undefined) {
     return null;
@@ -157,6 +166,13 @@ export interface SetPathOptions {
 }
 
 export const navigateTo = (p: string, opts?: SetPathOptions): void => {
+  // Cancel any pending pan/zoom URL sync from before this navigation
+  // — letting it fire after navigateTo's own pushState would
+  // replaceState the new path's hash with the *previous* map's view.
+  if (viewSyncTimer !== null) {
+    clearTimeout(viewSyncTimer);
+    viewSyncTimer = null;
+  }
   const keepViewport = opts?.keepViewport ?? false;
   const b = must();
   b.setCurrentPath(p);

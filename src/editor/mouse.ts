@@ -381,33 +381,58 @@ const onMouseUp = (e: MouseEvent): void => {
   }
 };
 
-// Wheel events come from three sources on a Mac:
-//   • Two-finger parallel swipe on the trackpad → ctrlKey=false → pan.
-//   • Pinch on the trackpad → ctrlKey=true (browsers synthesise this)
-//     → zoom anchored to the cursor.
-//   • Mouse wheel with Cmd/Ctrl held → meta/ctrlKey=true → also zoom.
+// Wheel events come from four sources we care about:
+//   • Trackpad two-finger swipe → ctrlKey=false, almost always emits
+//     non-zero deltaX (even small) → pan.
+//   • Trackpad pinch → ctrlKey=true (browsers synthesise this) → zoom
+//     anchored to the cursor.
+//   • Mouse wheel + Cmd/Ctrl held → ctrl/metaKey=true → zoom.
+//   • Bare mouse wheel (incl. Apple Magic Mouse, Logitech high-res
+//     mice) → ctrlKey=false, deltaX=0 → zoom (Figma/Miro default).
 //
-// "Natural" pan direction matches OS scrolling (deltaY positive →
-// scroll down → content below revealed → canvas moves up). Zoom uses
-// an exponential mapping (1.001^-deltaY) so a tiny trackpad delta and
-// a 120-unit mouse notch both feel right at any current zoom level.
+// Discrimination is by deltaX presence, not delta magnitude:
+// high-resolution / smooth-scroll mice emit fractional deltaY (just
+// like a trackpad's vertical component), so any magnitude test
+// classifies them as trackpad and pans when the user expected zoom.
+// Pure-vertical trackpad swipes do exist but are rare; in that
+// failure mode the user gets zoom instead of pan, which is also the
+// behaviour they get with the modifier-key path.
+const looksLikeMouseWheel = (e: WheelEvent): boolean => {
+  // deltaMode 1/2 (lines / pages) are only emitted by mouse wheels
+  // (Firefox on some platforms); trackpads always use pixel mode.
+  if (e.deltaMode !== 0) return true;
+  return e.deltaX === 0;
+};
+
+const zoomFromWheel = (e: WheelEvent): void => {
+  // Normalise deltaY to pixels — Firefox can deliver lines/pages.
+  const pxDelta =
+    e.deltaMode === 1
+      ? e.deltaY * 16
+      : e.deltaMode === 2
+      ? e.deltaY * window.innerHeight
+      : e.deltaY;
+  // Exponential step keeps the perceived zoom rate constant across
+  // scales: each pixel of deltaY multiplies the scale by a fixed
+  // factor, instead of adding to it.
+  const factor = Math.exp(-pxDelta * 0.01);
+  zoomAt(e.clientX, e.clientY, viewport.s * factor);
+};
+
 const onWheel = (e: WheelEvent): void => {
   // Let scrollable chrome (help modal) keep its native scroll. Every
   // other surface — bg-layer, canvas, boxes, edges — should pan/zoom.
   const tgt = e.target;
   if (tgt instanceof Element && tgt.closest("#helpModal")) return;
   e.preventDefault();
-  if (e.ctrlKey || e.metaKey) {
-    // Exponential step keeps the perceived zoom rate constant across
-    // scales: each pixel of deltaY multiplies the scale by a fixed
-    // factor, instead of adding to it.
-    const factor = Math.exp(-e.deltaY * 0.01);
-    zoomAt(e.clientX, e.clientY, viewport.s * factor);
+  if (e.ctrlKey || e.metaKey || looksLikeMouseWheel(e)) {
+    zoomFromWheel(e);
     return;
   }
-  // deltaMode 1 = lines, 2 = pages. Convert to roughly equivalent
-  // pixel deltas so a discrete-tick mouse wheel still moves a useful
-  // amount instead of one pixel per detent.
+  // Trackpad two-finger swipe → pan. "Natural" direction matches OS
+  // scrolling (deltaY positive → scroll down → content below revealed
+  // → canvas moves up). deltaMode 1/2 normalisation kept for the rare
+  // Firefox trackpad config that reports lines.
   const pxFactor = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? window.innerHeight : 1;
   viewport.x -= e.deltaX * pxFactor;
   viewport.y -= e.deltaY * pxFactor;

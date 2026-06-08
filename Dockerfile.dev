@@ -64,3 +64,10 @@ ENV CHOKIDAR_USEPOLLING=true
 # container that's a no-op error path — suppress it so the binary
 # just prints the URL.
 ENV FLOWGO_NO_OPEN=1
+
+# Override the host portion of the printed URL. Without this the
+# binary auto-picks a LAN IP from its own interfaces, which inside
+# a container is the Docker bridge address (e.g. 192.168.165.2) —
+# unreachable from the host. Pointing at "localhost" lines up with
+# the port-forwarded route published by compose.yaml.
+ENV FLOWGO_DISPLAY_HOST=localhost

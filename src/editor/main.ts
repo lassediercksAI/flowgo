@@ -22,6 +22,7 @@ import {
 import { attachHelpListeners } from "./help.ts";
 import {
   recenter as recenterPure,
+  withSuppressedViewSync,
 } from "./viewport.ts";
 import { isBrushMode, wireBrush } from "./brush.ts";
 import { wireLine } from "./line.ts";
@@ -391,8 +392,10 @@ window.addEventListener(
 );
 
 // On window resize, recentre the map under the new viewport — view-only,
-// no data mutation, so the file isn't dirtied.
-window.addEventListener("resize", () => recenter());
+// no data mutation, so the file isn't dirtied. Suppress the URL sync
+// so an incidental window resize doesn't overwrite the bookmarked
+// view params with the recentre-driven pan offset.
+window.addEventListener("resize", () => withSuppressedViewSync(recenter));
 
 load();
 

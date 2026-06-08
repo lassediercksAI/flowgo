@@ -66,10 +66,16 @@ _dev-inside:
         pnpm install
         echo "$want" > "$sentinel"
     fi
-    pnpm exec vite build
+    # Single vite source for dist/index.html. We deliberately don't
+    # run a one-shot `vite build` first because `vite build --watch`
+    # already does an initial build — running both touched the file
+    # twice and tripped the polling loop into a spurious restart of
+    # the server immediately after the first start.
     pnpm exec vite build --watch >/tmp/flowgo-vite.log 2>&1 &
     VITE_PID=$!
     GO_PID=
+    BIN=/tmp/flowgo-dev
+    dist=pkg/flowgo/dist/index.html
     # Touch a marker after each successful start; on each tick check
     # whether any *.go or dist/index.html is newer than the marker.
     # `-nt` is portable across bash on macOS (BSD) and Linux (GNU).
@@ -85,7 +91,7 @@ _dev-inside:
     # explicitly so Ctrl+C (forwarded by tini as SIGTERM to PID 1)
     # tears down the polling loop. Without the explicit `exit`, bash
     # runs the handler and then resumes after the interrupted `sleep`,
-    # which silently restarts `go run` on the next tick.
+    # which silently restarts the server on the next tick.
     shutdown() {
         trap - INT TERM EXIT
         cleanup
@@ -94,14 +100,53 @@ _dev-inside:
     trap cleanup EXIT
     trap shutdown INT TERM
 
+    # Wait for vite to produce the first dist before launching the
+    # Go binary, so the embedded asset exists at compile time. Also
+    # wait for its mtime to stop moving — `vite build --watch` can
+    # touch dist/index.html more than once during its initial pass
+    # (esp. under CHOKIDAR_USEPOLLING), and starting the loop while
+    # vite is still writing trips a spurious restart right after the
+    # first build.
+    echo "── waiting for vite to produce $dist ──"
+    while [[ ! -f "$dist" ]]; do sleep 0.2; done
+    prev=""
+    while :; do
+        cur=$(stat -c %Y "$dist" 2>/dev/null || echo "")
+        # If stat failed (e.g. file racy-deleted), treat it as still
+        # writing — never exit on an empty cur, even when prev is
+        # also "" (the initial state), or we'd race past vite's
+        # initial build.
+        if [[ -z "$cur" ]]; then
+            sleep 1.5
+            continue
+        fi
+        if [[ "$cur" == "$prev" ]]; then break; fi
+        prev=$cur
+        sleep 1.5
+    done
+
+    # Build + exec the binary directly. We used to use `go run`, but
+    # `go run` builds then forks the actual server as a child —
+    # `kill $GO_PID` only reaches the wrapper, leaving the server
+    # orphaned and holding port 54041. The next restart then picks
+    # 54042 (next free) and you end up with two flowgos running.
+    # Building and exec'ing keeps $GO_PID the server's own PID.
     start_go() {
-        [[ -n "${GO_PID}" ]] && kill "$GO_PID" 2>/dev/null || true
-        wait "$GO_PID" 2>/dev/null || true
+        if [[ -n "${GO_PID}" ]]; then
+            kill "$GO_PID" 2>/dev/null || true
+            wait "$GO_PID" 2>/dev/null || true
+            GO_PID=
+        fi
+        echo "── building flowgo ────────────────────────────────────"
+        if ! go build -o "$BIN" ./cmd/flowgo; then
+            echo "── go build failed — leaving previous server (if any) ──"
+            return
+        fi
         echo "── restarting flowgo ──────────────────────────────────"
         # --host (bind 0.0.0.0) so the forwarded host port reaches us.
         # FLOWGO_NO_OPEN is baked into the image so the binary doesn't
         # try to xdg-open from a container that has no browser.
-        go run ./cmd/flowgo "$file" --host &
+        "$BIN" "$file" --host &
         GO_PID=$!
         touch "$marker"
     }
@@ -112,7 +157,7 @@ _dev-inside:
         changed=0
         while IFS= read -r f; do
             if [[ "$f" -nt "$marker" ]]; then changed=1; break; fi
-        done < <(find . \( -name '*.go' -o -path './pkg/flowgo/dist/index.html' \) -not -path './node_modules/*' 2>/dev/null)
+        done < <(find . \( -name '*.go' -o -path "./$dist" \) -not -path './node_modules/*' 2>/dev/null)
         (( changed )) && start_go
     done
 
