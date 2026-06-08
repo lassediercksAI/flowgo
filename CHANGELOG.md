@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/lassediercks/flowgo/compare/v0.1.6...v0.1.7) (2026-06-08)
+
+
+### Features
+
+* **editor:** mousewheel zoom + URL persistence hardening ([bd50caa](https://github.com/lassediercks/flowgo/commit/bd50caabd2cf0660a073dcae4e225f17d4ed7c67))
+
 ## [0.1.6](https://github.com/lassediercks/flowgo/compare/v0.1.5...v0.1.6) (2026-06-04)
 
 
