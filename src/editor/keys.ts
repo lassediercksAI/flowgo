@@ -25,7 +25,6 @@ import {
 import {
   copySelection,
   cutSelection,
-  pasteSelection,
 } from "./clipboard.ts";
 import {
   createTextAt,
@@ -341,11 +340,12 @@ export const attachKeyboardListener = (): void => {
       cutSelection();
       return;
     }
-    if (mod && !e.altKey && !e.shiftKey && (e.key === "v" || e.key === "V")) {
-      e.preventDefault();
-      pasteSelection();
-      return;
-    }
+    // Cmd/Ctrl + V is intentionally NOT handled here. Calling
+    // preventDefault() on the keydown would suppress the browser's
+    // native `paste` event, which is the only way to read an image off
+    // the OS clipboard. Paste is handled in media.ts's document-level
+    // `paste` listener, which inserts a clipboard image when present
+    // and otherwise falls back to the internal buffer (pasteSelection).
 
     // Cmd/Ctrl + 0 → reset zoom to 100% and recenter on the anchor.
     // Mirrors the browser-zoom shortcut for "back to default view"

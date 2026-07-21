@@ -36,6 +36,15 @@ interface LineLike {
   style?: number;
 }
 
+interface ImageLike {
+  id: string;
+  src: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 interface EdgeLike {
   from: string;
   fromHandle?: string;
@@ -48,12 +57,14 @@ interface CurrentMap {
   edges: EdgeLike[];
   texts: TextLike[];
   lines: LineLike[];
+  images?: ImageLike[];
 }
 
 interface ClipboardBuffer {
   boxes: BoxLike[];
   texts: TextLike[];
   lines: LineLike[];
+  images: ImageLike[];
   edges: EdgeLike[];
   pasteOffset: number;
 }
@@ -63,6 +74,7 @@ interface ClipboardBindings {
   readonly currentMap: () => CurrentMap;
   readonly findTextById: (id: string) => TextLike | undefined;
   readonly findLineById: (id: string) => LineLike | undefined;
+  readonly findImageById: (id: string) => ImageLike | undefined;
   readonly mintId: (prefix: string) => string;
   readonly renderAll: () => void;
   readonly deleteSelection: () => void;
@@ -82,12 +94,13 @@ const must = (): ClipboardBindings => {
 };
 
 export const copySelection = (): boolean => {
-  const { selected, currentMap, findTextById, findLineById } = must();
+  const { selected, currentMap, findTextById, findLineById, findImageById } = must();
   if (selected.size === 0) return false;
   const map = currentMap();
   const boxes: BoxLike[] = [];
   const texts: TextLike[] = [];
   const lines: LineLike[] = [];
+  const images: ImageLike[] = [];
   const edges: EdgeLike[] = [];
   const boxIds = new Set<string>();
   for (const id of selected) {
@@ -115,6 +128,18 @@ export const copySelection = (): boolean => {
       if (l.style) copy.style = l.style;
       if (l.mids?.length) copy.mids = l.mids.map(([x, y]) => [x, y]);
       lines.push(copy);
+      continue;
+    }
+    const img = findImageById(id);
+    if (img) {
+      images.push({
+        id: img.id,
+        src: img.src,
+        x: img.x,
+        y: img.y,
+        width: img.width,
+        height: img.height,
+      });
     }
   }
   for (const e of map.edges) {
@@ -127,8 +152,10 @@ export const copySelection = (): boolean => {
       });
     }
   }
-  if (!boxes.length && !texts.length && !lines.length) return false;
-  buffer = { boxes, texts, lines, edges, pasteOffset: 0 };
+  if (!boxes.length && !texts.length && !lines.length && !images.length) {
+    return false;
+  }
+  buffer = { boxes, texts, lines, images, edges, pasteOffset: 0 };
   // Mirror box/text labels to the OS clipboard so external editors can
   // paste plain text. Internal paste still reads `buffer`, so structure
   // (edges, shapes, positions) round-trips losslessly inside flowgo.
@@ -197,6 +224,24 @@ export const pasteSelection = (): void => {
     if (l.mids?.length) pasted.mids = l.mids.map(([x, y]) => [x + dx, y + dy]);
     map.lines.push(pasted);
     selected.add(newId);
+  }
+  if (buffer.images.length) {
+    if (!map.images) map.images = [];
+    for (const img of buffer.images) {
+      const newId = mintId("img");
+      idMap.set(img.id, newId);
+      // src is reused verbatim — the media file is content-addressed
+      // and can be shared by any number of references.
+      map.images.push({
+        id: newId,
+        src: img.src,
+        x: img.x + dx,
+        y: img.y + dy,
+        width: img.width,
+        height: img.height,
+      });
+      selected.add(newId);
+    }
   }
   for (const ed of buffer.edges) {
     const from = idMap.get(ed.from);

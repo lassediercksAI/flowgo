@@ -15,6 +15,8 @@ import {
 import { mutatedLine } from "./mutations.ts";
 import {
   makeBoxMover,
+  makeImageMover,
+  makeImageResizeMover,
   makeLineEndpointMover,
   makeLineMover,
   makeStrokeMover,
@@ -43,6 +45,14 @@ interface LineLike {
   style?: number;
 }
 interface StrokeLike { id: string; points: Array<[number, number]> }
+interface ImageLike {
+  id: string;
+  src: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 interface EdgeLike {
   from: string;
   to: string;
@@ -56,6 +66,7 @@ interface CurrentMap {
   texts: TextLike[];
   lines: LineLike[];
   strokes?: StrokeLike[];
+  images?: ImageLike[];
 }
 
 interface DragState {
@@ -155,6 +166,14 @@ export const collectMovers = (): Mover[] => {
         const lineEl = g.querySelector<SVGPathElement>(".stroke-line")!;
         movers.push(makeStrokeMover(s, g, hitEl, lineEl));
       }
+      continue;
+    }
+    const img = (map.images ?? []).find((x) => x.id === id);
+    if (img) {
+      const me = w.canvas.querySelector<HTMLElement>(
+        `.image-item[data-id="${id}"]`,
+      );
+      if (me) movers.push(makeImageMover(img, me));
     }
   }
   return movers;
@@ -201,6 +220,69 @@ export const attachTextHandlers = (
     w.selected.add(t.id);
     applyClasses();
     startTextEdit(el, t);
+  });
+};
+
+export const attachImageHandlers = (
+  el: HTMLElement,
+  img: ImageLike,
+): void => {
+  // Bottom-right grip: resize (aspect-locked) via a single-mover drag.
+  const grip = el.querySelector<HTMLElement>(".image-resize-handle");
+  grip?.addEventListener("mousedown", (e) => {
+    const w = must();
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!w.selected.has(img.id)) {
+      w.selected.clear();
+      w.selected.add(img.id);
+    }
+    if (w.selectedEdge()) {
+      w.setSelectedEdge(null);
+      renderEdges();
+    }
+    applyClasses();
+    w.setDrag({
+      movers: [makeImageResizeMover(img, el)],
+      primaryId: img.id,
+      downX: e.clientX,
+      downY: e.clientY,
+      active: false,
+    });
+  });
+
+  // Body drag (single or multi-select), mirroring box body-drag incl.
+  // Alt-clone.
+  el.addEventListener("mousedown", (e) => {
+    const w = must();
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).classList.contains("image-resize-handle")) {
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    if (!w.selected.has(img.id)) {
+      if (!e.shiftKey) w.selected.clear();
+      w.selected.add(img.id);
+      if (w.selectedEdge()) {
+        w.setSelectedEdge(null);
+        renderEdges();
+      }
+      applyClasses();
+    }
+    let primaryId = img.id;
+    if (e.altKey) {
+      const idMap = w.cloneSelection();
+      if (idMap.has(img.id)) primaryId = idMap.get(img.id)!;
+    }
+    w.setDrag({
+      movers: collectMovers(),
+      primaryId,
+      downX: e.clientX,
+      downY: e.clientY,
+      active: false,
+    });
   });
 };
 

@@ -36,12 +36,21 @@ interface Edge {
   to: string;
   toHandle?: string;
 }
+interface Img {
+  id: string;
+  src: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 interface State {
   boxes: Box[];
   texts: Text[];
   lines: Line[];
   edges: Edge[];
+  images: Img[];
   selected: Set<string>;
 }
 
@@ -50,6 +59,7 @@ const makeState = (): State => ({
   texts: [],
   lines: [],
   edges: [],
+  images: [],
   selected: new Set(),
 });
 
@@ -63,9 +73,11 @@ const wire = (s: State): void => {
       edges: s.edges,
       texts: s.texts,
       lines: s.lines,
+      images: s.images,
     }),
     findTextById: (id) => s.texts.find((t) => t.id === id),
     findLineById: (id) => s.lines.find((l) => l.id === id),
+    findImageById: (id) => s.images.find((i) => i.id === id),
     mintId: (p) => `${p}_new${++n}`,
     renderAll: () => {},
     deleteSelection: () => {
@@ -251,5 +263,28 @@ describe("copy/paste round-trip preserves in-app structure", () => {
     // Edge between the pasted pair is duplicated with the new ids.
     expect(s.edges).toHaveLength(2);
     expect(s.edges[1]).toEqual({ from: pastedFirst?.id, to: pastedSecond?.id });
+  });
+
+  it("copies + pastes an image: new id, 20px cascade, shared src", () => {
+    const s = makeState();
+    s.images = [
+      { id: "img1", src: "flowgo-media/abc.png", x: 100, y: 100, width: 300, height: 200 },
+    ];
+    s.selected = new Set(["img1"]);
+    wire(s);
+
+    copySelection();
+    s.selected.clear();
+    pasteSelection();
+
+    expect(s.images).toHaveLength(2);
+    const pasted = s.images[1]!;
+    expect(pasted.id).not.toBe("img1");
+    // src is reused verbatim — the media file is shared, not re-uploaded.
+    expect(pasted.src).toBe("flowgo-media/abc.png");
+    expect(pasted).toMatchObject({ x: 120, y: 120, width: 300, height: 200 });
+    // The pasted image is the new selection.
+    expect(s.selected.has(pasted.id)).toBe(true);
+    expect(s.selected.has("img1")).toBe(false);
   });
 });
