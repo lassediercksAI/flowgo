@@ -163,7 +163,7 @@
        "anchored to the cursor" relative to the content. */
     transform-origin: 0 0;
   }
-  #canvas .box, #canvas .text-item, #canvas #alignToolbar { pointer-events: auto; }
+  #canvas .box, #canvas .text-item, #canvas .image-item, #canvas #alignToolbar { pointer-events: auto; }
 
   /* Floating mini-toolbar shown above the bounding box of the
      current selection when 2+ boxes / texts are selected. Lives
@@ -284,6 +284,37 @@
   }
   .text-item.dragging { cursor: grabbing; }
   .text-item.selected { border-color: #07f; background: rgba(0,119,255,.05); }
+
+  /* Pasted / dropped image assets. The wrapper carries the position +
+     display size (data-pixel width/height set inline by render.ts); the
+     inner <img> fills it and is pointer-transparent so drags land on
+     the wrapper, not the image. */
+  .image-item {
+    position: absolute; cursor: grab;
+    user-select: none; -webkit-user-select: none;
+    box-sizing: border-box; border: 1px solid transparent;
+    line-height: 0;
+  }
+  .image-item img {
+    display: block; width: 100%; height: 100%;
+    pointer-events: none; -webkit-user-drag: none; user-select: none;
+    object-fit: fill;
+  }
+  .image-item.dragging { cursor: grabbing; }
+  .image-item.selected {
+    border-color: #07f;
+    outline: 3px solid #07f; outline-offset: 3px;
+    box-shadow: 0 0 0 3px #fff;
+  }
+  /* Bottom-right resize grip — only visible/interactive once selected. */
+  .image-resize-handle {
+    position: absolute; right: -6px; bottom: -6px;
+    width: 12px; height: 12px;
+    background: #07f; border: 2px solid #fff; border-radius: 2px;
+    box-sizing: border-box; cursor: nwse-resize;
+    display: none; z-index: 9;
+  }
+  .image-item.selected .image-resize-handle { display: block; }
   .text-item[contenteditable="true"] {
     cursor: text; user-select: text; outline: none;
     background: #ffffe0; border-color: #aaa;

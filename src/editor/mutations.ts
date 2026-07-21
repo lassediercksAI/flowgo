@@ -19,6 +19,7 @@ export type MutationKind =
   | "text"
   | "line"
   | "stroke"
+  | "image"
   | "currentMap"
   | "doc";
 
@@ -60,6 +61,7 @@ export const mutatedEdge = (): void => fire("edge");
 export const mutatedText = (): void => fire("text");
 export const mutatedLine = (): void => fire("line");
 export const mutatedStroke = (): void => fire("stroke");
+export const mutatedImage = (): void => fire("image");
 
 // The current map changed in a way that spans multiple kinds or
 // touches the whole map (paste, align, multi-select palette change).

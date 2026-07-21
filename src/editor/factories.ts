@@ -52,6 +52,7 @@ interface CurrentMap {
   texts: TextLike[];
   lines: LineLike[];
   strokes?: { id: string }[];
+  images?: { id: string }[];
 }
 
 interface FactoryBindings {
@@ -168,6 +169,9 @@ export const deleteSelection = (): void => {
   map.texts = map.texts.filter((t) => !sel.has(t.id));
   map.lines = map.lines.filter((l) => !sel.has(l.id));
   map.strokes = (map.strokes ?? []).filter((s) => !sel.has(s.id));
+  // Media files are content-addressed and may be shared by clones /
+  // pasted copies, so we leave them on disk — only the reference goes.
+  map.images = (map.images ?? []).filter((i) => !sel.has(i.id));
   // Drop each deleted box's submap and any descendants.
   const cur = w.currentPath();
   const g = w.graph();

@@ -100,6 +100,61 @@ export const makeBoxMover = (b: BoxLike, el: HTMLElement): Mover => {
   };
 };
 
+export interface ImageLike {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+// Images move exactly like boxes — translate the top-left corner and
+// mirror it onto the element's left/top.
+export const makeImageMover = (img: ImageLike, el: HTMLElement): Mover => {
+  const startX = img.x;
+  const startY = img.y;
+  return {
+    el,
+    apply(dx, dy, ev) {
+      let nx = startX + dx;
+      let ny = startY + dy;
+      if (ev?.shiftKey) {
+        nx = snap(nx);
+        ny = snap(ny);
+      }
+      img.x = nx;
+      img.y = ny;
+      el.style.left = img.x + "px";
+      el.style.top = img.y + "px";
+    },
+  };
+};
+
+// Resize from the bottom-right corner, preserving the image's captured
+// aspect ratio (width drives, height follows). Shift snaps the new
+// width to the grid. MIN_IMAGE keeps the asset from collapsing to an
+// unclickable sliver.
+const MIN_IMAGE = 20;
+export const makeImageResizeMover = (
+  img: ImageLike,
+  el: HTMLElement,
+): Mover => {
+  const startW = img.width;
+  const startH = img.height;
+  const aspect = startH / startW || 1;
+  return {
+    el,
+    apply(dx, _dy, ev) {
+      let nw = startW + dx;
+      if (ev?.shiftKey) nw = snap(nw);
+      if (nw < MIN_IMAGE) nw = MIN_IMAGE;
+      img.width = nw;
+      img.height = Math.max(MIN_IMAGE, Math.round(nw * aspect));
+      el.style.width = img.width + "px";
+      el.style.height = img.height + "px";
+    },
+  };
+};
+
 export const makeTextMover = (t: TextLike, el: HTMLElement): Mover => {
   const startX = t.x;
   const startY = t.y;

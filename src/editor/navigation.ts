@@ -24,6 +24,7 @@ interface MapLike {
   texts?: unknown[];
   lines?: unknown[];
   strokes?: unknown[];
+  images?: unknown[];
 }
 
 interface GraphLike {
@@ -66,6 +67,7 @@ export const ensureMap = (path: string): MapLike => {
   m.texts ??= [];
   m.lines ??= [];
   m.strokes ??= [];
+  m.images ??= [];
   return m;
 };
 

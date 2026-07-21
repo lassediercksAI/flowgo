@@ -65,10 +65,12 @@ import { attachMouseListeners, wireMouse } from "./mouse.ts";
 import { attachTouchListeners, wireTouch } from "./touch.ts";
 import {
   attachBoxHandlers,
+  attachImageHandlers,
   attachLineHandlers,
   attachTextHandlers,
   wireAttach,
 } from "./attach.ts";
+import { attachMediaListeners, wireMedia } from "./media.ts";
 import { attachAlignToolbar, wireAlign } from "./align.ts";
 import { attachModeBar } from "./modebar.ts";
 
@@ -113,12 +115,14 @@ function uid(prefix) {
     state.texts || [],
     state.lines || [],
     state.strokes || [],
+    state.images || [],
   ));
 }
 
 const findTextById = (id) => state.texts.find((t) => t.id === id);
 const findLineById = (id) => state.lines.find((l) => l.id === id);
 const findStrokeById = (id) => (state.strokes || []).find((s) => s.id === id);
+const findImageById = (id) => (state.images || []).find((i) => i.id === id);
 
 const recenter = () => recenterPure(state);
 
@@ -156,6 +160,7 @@ wireRender({
   nearTargetId: () => nearTargetId,
   attachBoxHandlers,
   attachTextHandlers,
+  attachImageHandlers,
   attachLineHandlers,
   isBrushMode: () => isBrushMode(),
   setStatus,
@@ -258,6 +263,7 @@ wireClone({
   selected,
   findTextById,
   findLineById,
+  findImageById,
   mintId: uid,
 });
 
@@ -274,6 +280,7 @@ wireClipboard({
   currentMap: () => state,
   findTextById,
   findLineById,
+  findImageById,
   mintId: uid,
   renderAll: () => renderAll(),
   deleteSelection: () => deleteSelection(),
@@ -291,6 +298,17 @@ wireBrush({
 
 wireLine({
   lineLayer: () => lineLayer,
+  setStatus,
+});
+
+wireMedia({
+  canvas,
+  currentMap: () => state,
+  mintId: uid,
+  lastCursor,
+  selected,
+  clearSelectedEdge: () => { selectedEdge = null; },
+  renderAll: () => renderAll(),
   setStatus,
 });
 
@@ -358,6 +376,8 @@ wireKeys({
   setStatus,
 });
 attachKeyboardListener();
+
+attachMediaListeners();
 
 // ---------------------------------------------------------------
 // Toolbar buttons + window listeners + version stamp + initial load.

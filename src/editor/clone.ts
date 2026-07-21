@@ -37,6 +37,15 @@ interface LineLike {
   style?: number;
 }
 
+interface ImageLike {
+  id: string;
+  src: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 interface EdgeLike {
   from: string;
   fromHandle?: string;
@@ -49,6 +58,7 @@ interface CurrentMap {
   texts: TextLike[];
   lines: LineLike[];
   edges: EdgeLike[];
+  images?: ImageLike[];
 }
 
 interface CloneBindings {
@@ -56,6 +66,7 @@ interface CloneBindings {
   readonly selected: Set<string>;
   readonly findTextById: (id: string) => TextLike | undefined;
   readonly findLineById: (id: string) => LineLike | undefined;
+  readonly findImageById: (id: string) => ImageLike | undefined;
   readonly mintId: (prefix: string) => string;
 }
 
@@ -72,7 +83,9 @@ export const wireClone = (b: CloneBindings): void => {
 // Returns the {oldId -> newId} map. The selection Set is replaced by
 // the new ids; the caller renders.
 export const cloneSelection = (): Map<string, string> => {
-  const { currentMap, selected, findTextById, findLineById, mintId } = must();
+  const {
+    currentMap, selected, findTextById, findLineById, findImageById, mintId,
+  } = must();
   const map = currentMap();
   const idMap = new Map<string, string>();
   const sourceIds = Array.from(selected);
@@ -109,6 +122,21 @@ export const cloneSelection = (): Map<string, string> => {
       if (l.style) lc.style = l.style;
       if (l.mids?.length) lc.mids = l.mids.map(([x, y]) => [x, y]);
       map.lines.push(lc);
+      continue;
+    }
+    const img = findImageById(id);
+    if (img) {
+      const newId = mintId("img");
+      idMap.set(id, newId);
+      if (!map.images) map.images = [];
+      map.images.push({
+        id: newId,
+        src: img.src,
+        x: img.x,
+        y: img.y,
+        width: img.width,
+        height: img.height,
+      });
     }
   }
 

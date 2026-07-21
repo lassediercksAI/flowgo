@@ -116,12 +116,22 @@ interface StrokeData {
   palette?: number;
 }
 
+interface ImageData {
+  id: string;
+  src: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 interface CurrentMap {
   boxes: BoxData[];
   edges: EdgeData[];
   texts: TextData[];
   lines: LineData[];
   strokes?: StrokeData[];
+  images?: ImageData[];
 }
 
 interface RenderBindings {
@@ -140,6 +150,7 @@ interface RenderBindings {
   readonly nearTargetId: () => string | null;
   readonly attachBoxHandlers: (el: HTMLElement, b: BoxData) => void;
   readonly attachTextHandlers: (el: HTMLElement, t: TextData) => void;
+  readonly attachImageHandlers: (el: HTMLElement, img: ImageData) => void;
   readonly attachLineHandlers: (
     g: SVGGElement,
     line: SVGPathElement,
@@ -208,6 +219,27 @@ export const renderAll = (): void => {
     el.textContent = t.label;
     w.canvas.appendChild(el);
     w.attachTextHandlers(el, t);
+  }
+  for (const img of map.images ?? []) {
+    const el = document.createElement("div");
+    el.className = "image-item";
+    el.dataset["id"] = img.id;
+    el.style.left = img.x + "px";
+    el.style.top = img.y + "px";
+    el.style.width = img.width + "px";
+    el.style.height = img.height + "px";
+    const im = document.createElement("img");
+    im.src = img.src;
+    im.draggable = false;
+    im.alt = "";
+    el.appendChild(im);
+    // Resize grip, bottom-right. Hidden until the image is selected
+    // (CSS gates it on .image-item.selected).
+    const grip = document.createElement("div");
+    grip.className = "image-resize-handle";
+    el.appendChild(grip);
+    w.canvas.appendChild(el);
+    w.attachImageHandlers(el, img);
   }
   applyClasses();
   renderLines();
@@ -351,6 +383,9 @@ export const applyClasses = (): void => {
     }
   }
   for (const el of w.canvas.querySelectorAll<HTMLElement>(".text-item")) {
+    el.classList.toggle("selected", w.selected.has(el.dataset["id"] ?? ""));
+  }
+  for (const el of w.canvas.querySelectorAll<HTMLElement>(".image-item")) {
     el.classList.toggle("selected", w.selected.has(el.dataset["id"] ?? ""));
   }
   for (const el of w.lineLayer.querySelectorAll<SVGGElement>(".line-group")) {
