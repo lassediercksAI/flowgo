@@ -28,6 +28,10 @@ services:
       - flowgo-go-cache:/go
     environment:
       FLOWGO_FILE: ${FLOWGO_FILE:-map.flowgo}
+      # Host's LAN IP, injected by `just dev` so the server advertises a
+      # URL reachable from other devices. Overrides the image's default
+      # (localhost). Defaults to localhost for a bare `docker compose up`.
+      FLOWGO_DISPLAY_HOST: ${FLOWGO_DISPLAY_HOST:-localhost}
     # tini PID 1 — ensures SIGINT from `docker compose up` reaches the
     # bash polling loop so its trap can tear down vite + go cleanly.
     init: true
