@@ -79,6 +79,19 @@ type Stroke struct {
 	Palette int         `json:"palette,omitempty"`
 }
 
+// Image is a raster asset placed on a map. Src is a path relative to
+// the .flowgo file (e.g. "flowgo-media/<hash>.png"); the binary lives
+// in the flowgo-media/ sibling folder, never inline in the text file.
+// Width/Height are the on-canvas display size in data pixels.
+type Image struct {
+	ID     string  `json:"id"`
+	Src    string  `json:"src"`
+	X      float64 `json:"x"`
+	Y      float64 `json:"y"`
+	Width  float64 `json:"width"`
+	Height float64 `json:"height"`
+}
+
 // NamedMap is one canvas at a given path. Submap paths are slash-
 // separated box ids: "/A/B" hangs off box A on "/" and box B on "/A".
 type NamedMap struct {
@@ -88,6 +101,7 @@ type NamedMap struct {
 	Texts   []Text   `json:"texts,omitempty"`
 	Lines   []Line   `json:"lines,omitempty"`
 	Strokes []Stroke `json:"strokes,omitempty"`
+	Images  []Image  `json:"images,omitempty"`
 }
 
 // Graph is the full document — every map keyed by its path.
@@ -363,6 +377,26 @@ func Parse(s string) (Graph, error) {
 				pts = append(pts, []float64{px, py})
 			}
 			g.Maps[cur].Strokes = append(g.Maps[cur].Strokes, Stroke{ID: toks[1], Points: pts, Palette: palette})
+		case "image":
+			if len(toks) < 7 {
+				return g, fmt.Errorf("line %d: image needs id src x y width height", lineNo)
+			}
+			coords := make([]float64, 4)
+			for i, t := range toks[3:7] {
+				v, err := strconv.ParseFloat(t, 64)
+				if err != nil {
+					return g, fmt.Errorf("line %d: bad image coord: %v", lineNo, err)
+				}
+				coords[i] = v
+			}
+			g.Maps[cur].Images = append(g.Maps[cur].Images, Image{
+				ID:     toks[1],
+				Src:    toks[2],
+				X:      coords[0],
+				Y:      coords[1],
+				Width:  coords[2],
+				Height: coords[3],
+			})
 		default:
 			return g, fmt.Errorf("line %d: unknown directive %q", lineNo, toks[0])
 		}
@@ -383,7 +417,7 @@ func Serialize(g Graph) string {
 	}
 	var nonEmpty []NamedMap
 	for _, m := range g.Maps {
-		if len(m.Boxes) == 0 && len(m.Edges) == 0 && len(m.Texts) == 0 && len(m.Lines) == 0 && len(m.Strokes) == 0 {
+		if len(m.Boxes) == 0 && len(m.Edges) == 0 && len(m.Texts) == 0 && len(m.Lines) == 0 && len(m.Strokes) == 0 && len(m.Images) == 0 {
 			continue
 		}
 		nonEmpty = append(nonEmpty, m)
@@ -418,6 +452,11 @@ func Serialize(g Graph) string {
 			}
 		}
 		for _, x := range m.Strokes {
+			if x.ID != "" {
+				used[x.ID] = struct{}{}
+			}
+		}
+		for _, x := range m.Images {
 			if x.ID != "" {
 				used[x.ID] = struct{}{}
 			}
@@ -547,6 +586,17 @@ func Serialize(g Graph) string {
 				}
 				fmt.Fprintf(&b, " %g,%g", p[0], p[1])
 			}
+			b.WriteString("\n")
+		}
+		if (len(m.Boxes) > 0 || len(m.Edges) > 0 || len(m.Texts) > 0 || len(m.Lines) > 0 || len(m.Strokes) > 0) && len(m.Images) > 0 {
+			b.WriteString("\n")
+		}
+		for _, img := range m.Images {
+			id := img.ID
+			if id == "" {
+				id = fallbackID("img")
+			}
+			fmt.Fprintf(&b, "image %s %s %g %g %g %g", id, quote(img.Src), img.X, img.Y, img.Width, img.Height)
 			b.WriteString("\n")
 		}
 	}

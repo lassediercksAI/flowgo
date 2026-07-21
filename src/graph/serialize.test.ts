@@ -54,6 +54,44 @@ describe("serializeGraph", () => {
     expect(out).toBe("box b1 hi 10 20\n");
   });
 
+  it("emits an image directive (id src x y width height)", () => {
+    const out = serializeGraph({
+      maps: [
+        {
+          path: "/",
+          images: [
+            {
+              id: "img1",
+              src: "flowgo-media/abc123.png",
+              x: 10,
+              y: 20,
+              width: 300,
+              height: 200,
+            },
+          ],
+        },
+      ],
+    });
+    expect(out).toBe("image img1 flowgo-media/abc123.png 10 20 300 200\n");
+  });
+
+  it("separates an image block from a preceding box block with a blank line", () => {
+    const out = serializeGraph({
+      maps: [
+        {
+          path: "/",
+          boxes: [{ id: "b1", label: "hi", x: 0, y: 0 }],
+          images: [
+            { id: "img1", src: "flowgo-media/x.png", x: 0, y: 0, width: 100, height: 80 },
+          ],
+        },
+      ],
+    });
+    expect(out).toBe(
+      ["box b1 hi 0 0", "", "image img1 flowgo-media/x.png 0 0 100 80", ""].join("\n"),
+    );
+  });
+
   it("emits a `map` header when there are multiple maps", () => {
     const out = serializeGraph({
       maps: [
