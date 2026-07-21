@@ -18,3 +18,9 @@ entities.json
 node_modules
 .pnpm-store
 *.tsbuildinfo
+
+# Local dev artifacts created by `just dev`: the default map it opens
+# and the media folder that pasted/dropped images are stored in.
+# Anchored to the repo root so pkg/graph/map.flowgo stays tracked.
+/map.flowgo
+/flowgo-media/
