@@ -32,9 +32,38 @@ default_file := "map.flowgo"
 default: dev
 
 # Run the dev stack (vite --watch + go poll-restart) inside Docker.
+# Detects the host's LAN IP and hands it to the container as
+# FLOWGO_DISPLAY_HOST so the URL the server prints is reachable from
+# other devices on the network (a phone, another machine), not just
+# this box. Docker already publishes the forwarded ports on 0.0.0.0, so
+# the LAN route works — only the advertised hostname needed fixing.
+# Falls back to localhost when no LAN IP can be found.
 dev file=default_file:
-    @command -v docker >/dev/null || { echo "docker not found — install Docker"; exit 1; }
-    FLOWGO_FILE="{{file}}" docker compose up --build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v docker >/dev/null || { echo "docker not found — install Docker"; exit 1; }
+    lan_ip=""
+    # macOS: ipconfig getifaddr on the usual interfaces.
+    if command -v ipconfig >/dev/null 2>&1; then
+        for ifc in en0 en1 en2; do
+            if lan_ip=$(ipconfig getifaddr "$ifc" 2>/dev/null) && [[ -n "$lan_ip" ]]; then break; fi
+        done
+    fi
+    # Linux: first address from `hostname -I`.
+    if [[ -z "$lan_ip" ]] && command -v hostname >/dev/null 2>&1; then
+        lan_ip=$(hostname -I 2>/dev/null | awk '{print $1}') || true
+    fi
+    # Linux fallback: source address on the default route.
+    if [[ -z "$lan_ip" ]] && command -v ip >/dev/null 2>&1; then
+        lan_ip=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}') || true
+    fi
+    if [[ -n "$lan_ip" ]]; then
+        echo "── LAN-reachable: the server will advertise http://$lan_ip:<port> ──"
+    else
+        lan_ip=localhost
+        echo "── no LAN IP found — advertising localhost only ──"
+    fi
+    FLOWGO_FILE="{{file}}" FLOWGO_DISPLAY_HOST="$lan_ip" docker compose up --build
 
 # Stop the dev container and free its forwarded ports.
 dev-down:
