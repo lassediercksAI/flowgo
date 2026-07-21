@@ -37,6 +37,7 @@ interface BoxLike {
 }
 
 interface TextLike { id: string; x: number; y: number }
+interface ImageLike { id: string; x: number; y: number; width: number; height: number }
 interface LineLike {
   id: string;
   x1: number;
@@ -58,6 +59,7 @@ interface CurrentMap {
   edges: EdgeLike[];
   texts: TextLike[];
   lines: LineLike[];
+  images?: ImageLike[];
 }
 
 interface DragState {
@@ -297,6 +299,13 @@ const onMouseUp = (e: MouseEvent): void => {
           w.selected.add(t.id);
         }
       }
+      for (const img of map.images ?? []) {
+        const ix2 = img.x + img.width;
+        const iy2 = img.y + img.height;
+        if (img.x < x2 && ix2 > x1 && img.y < y2 && iy2 > y1) {
+          w.selected.add(img.id);
+        }
+      }
       for (const l of map.lines) {
         const xs = [l.x1, l.x2];
         const ys = [l.y1, l.y2];
@@ -381,29 +390,17 @@ const onMouseUp = (e: MouseEvent): void => {
   }
 };
 
-// Wheel events come from four sources we care about:
-//   • Trackpad two-finger swipe → ctrlKey=false, almost always emits
-//     non-zero deltaX (even small) → pan.
-//   • Trackpad pinch → ctrlKey=true (browsers synthesise this) → zoom
-//     anchored to the cursor.
-//   • Mouse wheel + Cmd/Ctrl held → ctrl/metaKey=true → zoom.
-//   • Bare mouse wheel (incl. Apple Magic Mouse, Logitech high-res
-//     mice) → ctrlKey=false, deltaX=0 → zoom (Figma/Miro default).
+// Wheel-driven navigation. Zoom is gated on an explicit modifier so a
+// bare two-finger trackpad swipe (in any direction) always pans:
+//   • Cmd / Ctrl + scroll → zoom, anchored to the cursor.
+//   • Trackpad pinch → the browser synthesises a ctrlKey wheel event,
+//     so it takes the same zoom path.
+//   • Everything else (two-finger swipe, bare mouse wheel) → pan.
 //
-// Discrimination is by deltaX presence, not delta magnitude:
-// high-resolution / smooth-scroll mice emit fractional deltaY (just
-// like a trackpad's vertical component), so any magnitude test
-// classifies them as trackpad and pans when the user expected zoom.
-// Pure-vertical trackpad swipes do exist but are rare; in that
-// failure mode the user gets zoom instead of pan, which is also the
-// behaviour they get with the modifier-key path.
-const looksLikeMouseWheel = (e: WheelEvent): boolean => {
-  // deltaMode 1/2 (lines / pages) are only emitted by mouse wheels
-  // (Firefox on some platforms); trackpads always use pixel mode.
-  if (e.deltaMode !== 0) return true;
-  return e.deltaX === 0;
-};
-
+// We deliberately don't try to tell a trackpad from a mouse wheel by
+// delta shape — a pure-vertical two-finger swipe is indistinguishable
+// from a mouse notch, and guessing wrong is exactly the "it zoomed when
+// I meant to pan" bug. Requiring a modifier for zoom removes the guess.
 const zoomFromWheel = (e: WheelEvent): void => {
   // Normalise deltaY to pixels — Firefox can deliver lines/pages.
   const pxDelta =
@@ -425,7 +422,9 @@ const onWheel = (e: WheelEvent): void => {
   const tgt = e.target;
   if (tgt instanceof Element && tgt.closest("#helpModal")) return;
   e.preventDefault();
-  if (e.ctrlKey || e.metaKey || looksLikeMouseWheel(e)) {
+  // Zoom only with a modifier (Cmd/Ctrl) or a pinch (which the browser
+  // reports as ctrlKey). A bare two-finger swipe falls through to pan.
+  if (e.ctrlKey || e.metaKey) {
     zoomFromWheel(e);
     return;
   }
