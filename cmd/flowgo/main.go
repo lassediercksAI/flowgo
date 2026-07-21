@@ -6,12 +6,16 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -32,7 +36,39 @@ var version = "dev"
 var (
 	fileMu   sync.Mutex
 	filePath string
+	mediaMu  sync.Mutex
 )
+
+// mediaDirName is the sibling folder (next to the .flowgo file) that
+// holds pasted/dropped image assets. It's also the URL prefix the
+// editor references images by, so the on-disk layout and the relative
+// `src` in the .flowgo file line up.
+const mediaDirName = "flowgo-media"
+
+// mediaExtByType maps accepted image content-types to the file
+// extension used for content-addressed storage. Anything not listed is
+// rejected — we don't want to write arbitrary uploaded bytes to disk.
+var mediaExtByType = map[string]string{
+	"image/png":     ".png",
+	"image/jpeg":    ".jpg",
+	"image/gif":     ".gif",
+	"image/webp":    ".webp",
+	"image/svg+xml": ".svg",
+}
+
+// mediaTypeByExt is the reverse map, used to set Content-Type when
+// serving a stored asset back.
+var mediaTypeByExt = map[string]string{
+	".png":  "image/png",
+	".jpg":  "image/jpeg",
+	".gif":  "image/gif",
+	".webp": "image/webp",
+	".svg":  "image/svg+xml",
+}
+
+func mediaDir() string {
+	return filepath.Join(filepath.Dir(filePath), mediaDirName)
+}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -120,6 +156,8 @@ func main() {
 	})
 	http.HandleFunc("/state", handleState)
 	http.HandleFunc("/save", handleSave)
+	http.HandleFunc("/media", handleMediaUpload)
+	http.HandleFunc("/"+mediaDirName+"/", handleMediaGet)
 	http.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		fmt.Fprintln(w, resolveVersionString())
@@ -260,6 +298,93 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(204)
+}
+
+// maxMediaBytes caps a single uploaded asset. Images beyond this are
+// rejected rather than silently written — a mind-map isn't a photo
+// library, and huge inlined assets bloat the working directory.
+const maxMediaBytes = 25 << 20 // 25 MiB
+
+// handleMediaUpload accepts a raw image body (Content-Type set to the
+// image MIME) and writes it into the flowgo-media/ folder under a
+// content-addressed name: sha256(bytes)[:16] + ext. Identical uploads
+// collapse to one file (dedup). Responds {"src":"flowgo-media/<name>"}
+// — the relative path the editor stores in the .flowgo file.
+func handleMediaUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	ct := r.Header.Get("Content-Type")
+	// Strip any "; charset=..." parameter before the map lookup.
+	if i := strings.IndexByte(ct, ';'); i >= 0 {
+		ct = strings.TrimSpace(ct[:i])
+	}
+	ext, ok := mediaExtByType[ct]
+	if !ok {
+		http.Error(w, "unsupported image type: "+ct, http.StatusUnsupportedMediaType)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxMediaBytes)
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "read body: "+err.Error(), http.StatusRequestEntityTooLarge)
+		return
+	}
+	if len(data) == 0 {
+		http.Error(w, "empty body", 400)
+		return
+	}
+	sum := sha256.Sum256(data)
+	name := hex.EncodeToString(sum[:])[:16] + ext
+
+	mediaMu.Lock()
+	defer mediaMu.Unlock()
+	dir := mediaDir()
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		http.Error(w, "mkdir media: "+err.Error(), 500)
+		return
+	}
+	dst := filepath.Join(dir, name)
+	if _, err := os.Stat(dst); os.IsNotExist(err) {
+		if err := os.WriteFile(dst, data, 0644); err != nil {
+			http.Error(w, "write media: "+err.Error(), 500)
+			return
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"src": mediaDirName + "/" + name})
+}
+
+// handleMediaGet serves a stored asset. The filename is sanitized to a
+// bare base name so a crafted path (../, absolute, nested) can't escape
+// the media folder.
+func handleMediaGet(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/"+mediaDirName+"/")
+	// Reject anything that isn't a simple filename living directly in
+	// the media folder — no separators, no traversal, no empties.
+	if rest == "" || rest != filepath.Base(rest) || strings.Contains(rest, "..") {
+		http.Error(w, "bad media path", 400)
+		return
+	}
+	full := filepath.Join(mediaDir(), rest)
+	f, err := os.Open(full)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || info.IsDir() {
+		http.NotFound(w, r)
+		return
+	}
+	if ct, ok := mediaTypeByExt[strings.ToLower(filepath.Ext(rest))]; ok {
+		w.Header().Set("Content-Type", ct)
+	}
+	// Content-addressed names are immutable, so caching is safe and cheap.
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	http.ServeContent(w, r, rest, info.ModTime(), f)
 }
 
 func openBrowser(url string) {
