@@ -54,12 +54,23 @@ export interface StrokeData {
   readonly palette?: number | undefined;
 }
 
+export interface ImageData {
+  readonly id: string;
+  // Path relative to the .flowgo file, e.g. "flowgo-media/<hash>.png".
+  readonly src: string;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
 export interface ConcreteMap extends MapLike {
   readonly boxes?: ReadonlyArray<BoxData>;
   readonly edges?: ReadonlyArray<EdgeData>;
   readonly texts?: ReadonlyArray<TextData>;
   readonly lines?: ReadonlyArray<LineData>;
   readonly strokes?: ReadonlyArray<StrokeData>;
+  readonly images?: ReadonlyArray<ImageData>;
 }
 
 export interface ConcreteGraph extends GraphLike {
@@ -97,7 +108,8 @@ export const serializeGraph = (g: ConcreteGraph): string => {
       (m.edges?.length ?? 0) > 0 ||
       (m.texts?.length ?? 0) > 0 ||
       (m.lines?.length ?? 0) > 0 ||
-      (m.strokes?.length ?? 0) > 0,
+      (m.strokes?.length ?? 0) > 0 ||
+      (m.images?.length ?? 0) > 0,
   );
   const multi = maps.length > 1;
   let out = "";
@@ -178,6 +190,13 @@ export const serializeGraph = (g: ConcreteGraph): string => {
         .join(" ");
       const pal = isPaletteOrFont(s.palette) ? ` ${s.palette}` : "";
       out += `stroke ${s.id}${pal} ${pairs}\n`;
+    }
+
+    const beforeImages =
+      beforeStrokes || (m.strokes?.length ?? 0) > 0;
+    if (beforeImages && (m.images?.length ?? 0)) out += "\n";
+    for (const img of m.images ?? []) {
+      out += `image ${img.id} ${flowgoQuote(img.src)} ${flowgoNum(img.x)} ${flowgoNum(img.y)} ${flowgoNum(img.width)} ${flowgoNum(img.height)}\n`;
     }
   });
 

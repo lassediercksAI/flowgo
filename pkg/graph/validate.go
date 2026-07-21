@@ -166,6 +166,22 @@ func validateMap(m NamedMap) []error {
 			errs = append(errs, fmt.Errorf("map %q: stroke %q has invalid palette %d", m.Path, s.ID, s.Palette))
 		}
 	}
+	for i, img := range m.Images {
+		if img.ID == "" {
+			errs = append(errs, fmt.Errorf("map %q: image[%d] has empty id", m.Path, i))
+			continue
+		}
+		if other, dup := itemIDs[img.ID]; dup {
+			errs = append(errs, fmt.Errorf("map %q: image id %q collides with %s", m.Path, img.ID, other))
+		}
+		itemIDs[img.ID] = "image"
+		if img.Src == "" {
+			errs = append(errs, fmt.Errorf("map %q: image %q has empty src", m.Path, img.ID))
+		}
+		if img.Width <= 0 || img.Height <= 0 {
+			errs = append(errs, fmt.Errorf("map %q: image %q has non-positive size %gx%g", m.Path, img.ID, img.Width, img.Height))
+		}
+	}
 
 	return errs
 }
