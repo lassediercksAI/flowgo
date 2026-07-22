@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.1.8](https://github.com/lassediercks/flowgo/compare/v0.1.7...v0.1.8) (2026-07-22)
+
+
+### Features
+
+* **dev:** advertise the host LAN IP from just dev ([85192aa](https://github.com/lassediercks/flowgo/commit/85192aabe3d63dea4d30da608bbefd9855eee3ee))
+* **editor:** gate wheel zoom on a modifier so two-finger swipe pans ([e67f8c5](https://github.com/lassediercks/flowgo/commit/e67f8c5088b0b2af19e2e21dbf32a37c23d34f47))
+* **editor:** paste and drag-drop images as movable assets ([52809b0](https://github.com/lassediercks/flowgo/commit/52809b0c9d3129376b720ac09c3c77c6ee2b1a00))
+* **graph:** add image element to the .flowgo format ([ecec7c3](https://github.com/lassediercks/flowgo/commit/ecec7c3aac08eb6686e948c0691bc87ffaff5723))
+* **server:** content-addressed media upload and serving ([f898692](https://github.com/lassediercks/flowgo/commit/f8986929741775147cf66fe747a64e1bc0981587))
+
+
+### Bug Fixes
+
+* **editor:** hide the map toolbar until navigation needs it ([1cb299b](https://github.com/lassediercks/flowgo/commit/1cb299bfab1830bc6b44cc1cfdec730a4d115380))
+
 ## [0.1.7](https://github.com/lassediercks/flowgo/compare/v0.1.6...v0.1.7) (2026-06-08)
 
 
