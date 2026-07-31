@@ -290,6 +290,88 @@
   }
 
   /* Font-size scale: 1 = default (14px). 2-9 step monotonically larger. */
+  /* Hexagon boxes (hexagon setting: ⚙ popover / ⬡ mode-bar latch /
+     flowgo --hexagon). The element itself stays an
+     UNCLIPPED rectangle so the 8 link-handle dots and the selection
+     outline keep rendering outside the hexagon silhouette — the
+     shape is painted by two clipped pseudo-elements instead:
+     ::before is the border colour at full size, ::after is the fill
+     inset by the border width. Size is fixed at 120x104 (a regular
+     flat-top hexagon, height = width * sqrt(3)/2) and set inline by
+     render.ts — hexes are never resizable; the lattice snap math in
+     src/graph/hex.ts depends on the uniform size. */
+  .box.hex {
+    --hex-poly: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+    --hex-border: #333;
+    --hex-fill: #fff;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    min-width: 0;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Fixed width: wrap long labels instead of growing the box. */
+    white-space: pre-wrap;
+  }
+  .box.hex::before, .box.hex::after {
+    content: "";
+    position: absolute;
+    clip-path: var(--hex-poly);
+    pointer-events: none;
+  }
+  .box.hex::before { inset: 0; background: var(--hex-border); z-index: 0; }
+  .box.hex::after { inset: 2px; background: var(--hex-fill); z-index: 1; }
+  .box.hex .box-label {
+    position: relative;
+    z-index: 2;
+    max-width: 100%;
+    overflow: hidden;
+    /* Keep text off the slanted corners. */
+    padding: 0 14px;
+  }
+  .box.hex .handle { z-index: 3; }
+  /* State overrides: the rectangle rules above set background /
+     box-shadow / outline on .box directly; hexes translate each cue
+     into the pseudo-element border + a drop-shadow, which follows the
+     clipped silhouette instead of the element's rectangle. */
+  .box.hex.dragging { box-shadow: none; filter: drop-shadow(0 4px 6px rgba(0,0,0,.25)); }
+  .box.hex.has-submap { box-shadow: none; filter: drop-shadow(4px 4px 0 #222); }
+  .box.hex.drop-target {
+    box-shadow: none;
+    --hex-border: #2a7;
+    filter: drop-shadow(0 0 3px rgba(34,170,119,.6));
+  }
+  .box.hex.selected {
+    outline: none;
+    box-shadow: none;
+    --hex-border: #07f;
+    filter: drop-shadow(0 0 3px rgba(0,119,255,.7));
+  }
+  .box.hex.has-submap.selected {
+    box-shadow: none;
+    filter: drop-shadow(4px 4px 0 #222) drop-shadow(0 0 3px rgba(0,119,255,.7));
+  }
+  /* Palette hues: same pairs as the rectangle rules, mapped onto the
+     border/fill variables (text colour inherits from .box.palette-N). */
+  .box.hex.palette-2 { background: transparent; --hex-border: #fff; --hex-fill: #111; }
+  .box.hex.palette-3 { background: transparent; --hex-border: #b91c1c; --hex-fill: #fecaca; }
+  .box.hex.palette-4 { background: transparent; --hex-border: #c2410c; --hex-fill: #fed7aa; }
+  .box.hex.palette-5 { background: transparent; --hex-border: #a16207; --hex-fill: #fef9c3; }
+  .box.hex.palette-6 { background: transparent; --hex-border: #15803d; --hex-fill: #bbf7d0; }
+  .box.hex.palette-7 { background: transparent; --hex-border: #1d4ed8; --hex-fill: #bfdbfe; }
+  .box.hex.palette-8 { background: transparent; --hex-border: #6d28d9; --hex-fill: #ddd6fe; }
+  .box.hex.palette-9 { background: transparent; --hex-border: #374151; --hex-fill: #e5e7eb; }
+  /* After the palette block so the edit-highlight fill wins over the
+     palette fill, mirroring the rectangle cascade. */
+  .box.hex[contenteditable="true"] { background: transparent; --hex-fill: #ffffe0; }
+
+  /* Hexagon mode: crosshair over empty canvas signals "double-click
+     drops a hexagon here" (parallel of the line-mode cursor cue). */
+  body.hex-mode #bg-layer, body.hex-mode #canvas { cursor: crosshair; }
+
   .box.font-2 { font-size: 16px; }
   .box.font-3 { font-size: 18px; }
   .box.font-4 { font-size: 20px; }
@@ -588,6 +670,41 @@
   }
   #helpBtn:hover { background: #f0f0f0; }
 
+  /* Settings gear + popover. Sits left of the help button; the
+     popover hosts persistent per-browser preferences (currently just
+     the hexagon toggle). Deliberately minimal — grow it as settings
+     accrue rather than building a modal now. */
+  #settingsBtn {
+    position: absolute; z-index: 11;
+    top: calc(8px + env(safe-area-inset-top, 0px));
+    right: calc(48px + env(safe-area-inset-right, 0px));
+    width: 32px; height: 32px; border-radius: 50%;
+    background: #fff; border: 1px solid #ccc;
+    font-size: 15px; color: #555;
+    cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,.1);
+    line-height: 1;
+  }
+  #settingsBtn:hover { background: #f0f0f0; }
+  #settingsPop {
+    position: absolute; z-index: 12;
+    top: calc(46px + env(safe-area-inset-top, 0px));
+    right: calc(8px + env(safe-area-inset-right, 0px));
+    background: #fff; border: 1px solid #ccc; border-radius: 8px;
+    padding: 12px 14px; box-shadow: 0 4px 14px rgba(0,0,0,.15);
+    display: none; min-width: 230px;
+  }
+  #settingsPop.open { display: block; }
+  #settingsPop h3 {
+    margin: 0 0 8px; font-size: 11px; color: #555;
+    text-transform: uppercase; letter-spacing: .8px;
+  }
+  #settingsPop label {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; color: #333; cursor: pointer;
+    user-select: none;
+  }
+  #settingsPop .hint { margin: 6px 0 0; font-size: 11px; color: #888; }
+
   #helpOverlay {
     position: absolute; inset: 0; z-index: 100;
     background: rgba(0,0,0,.45);
@@ -685,6 +802,16 @@
 </svg>
 <div id="canvas"></div>
 <button id="helpBtn" title="Help (keybinds)" aria-label="Help">?</button>
+<button id="settingsBtn" title="Settings" aria-label="Settings">⚙</button>
+<div id="settingsPop" role="dialog" aria-label="Settings">
+  <h3>Settings</h3>
+  <label>
+    <input type="checkbox" id="hexSettingCheck">
+    Double-click creates hexagons
+  </label>
+  <p class="hint">Hexagons have a fixed size, snap edge-to-edge near
+  other hexagons, and never overlap.</p>
+</div>
 
 <div id="helpOverlay" class="hidden" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
   <div id="helpModal">
@@ -718,6 +845,7 @@
       <tr><td><kbd>T</kbd></td><td>Spawn a text label at the cursor (auto-edits)</td></tr>
       <tr><td><kbd>L</kbd></td><td>Enter line-draw mode: click start, click end · <kbd>L</kbd> or <kbd>Escape</kbd> to exit</td></tr>
       <tr><td><kbd>B</kbd> / <kbd>V</kbd></td><td>Enter brush mode (drag to paint freehand) / leave brush mode</td></tr>
+      <tr><td><kbd>⚙</kbd> settings → "Double-click creates hexagons"</td><td>Persistent setting: double-click adds a fixed-size hexagon — hexagons snap edge-to-edge near other hexagons and never overlap · also <code>flowgo --hexagon</code> from the CLI</td></tr>
       <tr><td><kbd>1</kbd>–<kbd>9</kbd> in brush mode</td><td>Set the next stroke's colour (cursor pencil tints to match)</td></tr>
       <tr><td>Click a text / line</td><td>Select it</td></tr>
       <tr><td>Double-click a text</td><td>Edit its label</td></tr>
@@ -802,6 +930,7 @@
       <tr><td>Drag</td><td>Pan the viewport</td></tr>
       <tr><td>Tap</td><td>Clear the current selection</td></tr>
       <tr><td>Double-tap</td><td>Add a new box at the tap point (auto-edits)</td></tr>
+      <tr><td>⬡ latch in the mode bar</td><td>Toggle the hexagon setting: while on, double-tap adds a fixed-size hexagon — hexagons snap edge-to-edge near other hexagons and never overlap</td></tr>
       <tr><td>Pinch with two fingers</td><td>Browser zoom in / out</td></tr>
     </table>
 

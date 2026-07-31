@@ -25,6 +25,7 @@ import {
   withSuppressedViewSync,
 } from "./viewport.ts";
 import { isBrushMode, wireBrush } from "./brush.ts";
+import { isHexMode, setHexMode, wireHex } from "./hex.ts";
 import { wireLine } from "./line.ts";
 import { wireClipboard } from "./clipboard.ts";
 import {
@@ -301,6 +302,10 @@ wireLine({
   setStatus,
 });
 
+wireHex({
+  setStatus,
+});
+
 wireMedia({
   canvas,
   currentMap: () => state,
@@ -402,6 +407,30 @@ attachModeBar();
 document.getElementById("upBtn").addEventListener("click", goUp);
 document.getElementById("downloadBtn").addEventListener("click", downloadFlowgo);
 document.getElementById("reshareBtn").addEventListener("click", reshare);
+
+// Settings popover (⚙): hosts persistent per-browser preferences.
+// The checkbox mirrors the hexagon setting on every open (the mode
+// bar or a CLI flag may have changed it since), so no live observer
+// is needed.
+{
+  const btn = document.getElementById("settingsBtn");
+  const pop = document.getElementById("settingsPop");
+  const check = document.getElementById("hexSettingCheck") as HTMLInputElement | null;
+  if (btn && pop && check) {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const open = pop.classList.toggle("open");
+      if (open) check.checked = isHexMode();
+    });
+    check.addEventListener("change", () => setHexMode(check.checked));
+    // Click-away closes; clicks inside the popover stay inside.
+    pop.addEventListener("click", (e) => e.stopPropagation());
+    document.addEventListener("click", () => pop.classList.remove("open"));
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") pop.classList.remove("open");
+    });
+  }
+}
 
 // Suppress middle-click autoscroll/paste so we can use it for navigation.
 // (auxclick is suppressed inside attachMouseListeners.)

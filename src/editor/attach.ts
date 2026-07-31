@@ -16,6 +16,7 @@ import { mutatedLine } from "./mutations.ts";
 import {
   makeBoxMover,
   makeBoxResizeMover,
+  makeHexMover,
   makeImageMover,
   makeImageResizeMover,
   makeLineEndpointMover,
@@ -25,6 +26,7 @@ import {
   type Mover,
   type ResizeCorner,
 } from "./movers.ts";
+import { hexCenters } from "./hex.ts";
 import { handleAnchor, nearestHandle } from "./anchors.ts";
 import { startEdit, startTextEdit } from "./edit.ts";
 import { toDataX, toDataY } from "./viewport.ts";
@@ -37,6 +39,7 @@ interface BoxLike {
   y: number;
   w?: number;
   h?: number;
+  shape?: number;
 }
 interface TextLike { id: string; label: string; x: number; y: number }
 interface LineLike {
@@ -128,7 +131,17 @@ export const collectMovers = (): Mover[] => {
     const b = map.boxes.find((x) => x.id === id);
     if (b) {
       const me = w.canvas.querySelector<HTMLElement>(`.box[data-id="${id}"]`);
-      if (me) movers.push(makeBoxMover(b, me));
+      if (me) {
+        // Hexagons get the magnetic lattice mover. Every selected hex
+        // is excluded from its obstacle set so a multi-hex drag doesn't
+        // snap against itself — any overlap such a drag produces is
+        // settled onto free cells at drop time (settleHexBoxes).
+        movers.push(
+          b.shape === 1
+            ? makeHexMover(b, me, hexCenters(map.boxes, w.selected))
+            : makeBoxMover(b, me),
+        );
+      }
       continue;
     }
     const t = w.findTextById(id);

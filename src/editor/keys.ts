@@ -54,6 +54,7 @@ interface BoxLike {
   anchor?: boolean;
   w?: number;
   h?: number;
+  shape?: number;
 }
 
 interface TextLike {
@@ -382,6 +383,9 @@ export const attachKeyboardListener = (): void => {
       setBrushMode(true);
       return;
     }
+    // V exits the transient tool modes (brush / line). The hexagon
+    // preference is deliberately NOT touched here — it's a persistent
+    // setting (⚙ popover / mode-bar latch), not a tool mode.
     if (!mod && !e.altKey && (e.key === "v" || e.key === "V")) {
       e.preventDefault();
       setBrushMode(false);
@@ -406,6 +410,13 @@ export const attachKeyboardListener = (): void => {
       const box = w.currentMap().boxes.find((b) => b.id === id);
       if (!box) {
         w.setStatus("resize only applies to boxes");
+        return;
+      }
+      // Hexagons are uniform by contract — the lattice snap math
+      // depends on every hex sharing the fixed size, so resize (and
+      // auto-size reset) is refused outright.
+      if (box.shape === 1) {
+        w.setStatus("hexagons have a fixed size and can't be resized");
         return;
       }
       if (e.shiftKey) {

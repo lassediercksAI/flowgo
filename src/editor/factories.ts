@@ -14,7 +14,9 @@
 // that hung off any deleted box (and edges that referenced one of
 // the removed boxes).
 
+import { HEX_H, HEX_W, snapHexCenter } from "../graph/hex.ts";
 import { startEdit, startTextEdit } from "./edit.ts";
+import { hexCenters, isHexMode } from "./hex.ts";
 import {
   mutatedBox,
   mutatedDoc,
@@ -28,6 +30,7 @@ interface BoxLike {
   label: string;
   x: number;
   y: number;
+  shape?: number;
 }
 
 interface TextLike {
@@ -85,6 +88,13 @@ export const createBoxAt = (
   y: number,
   centerOn?: { x: number; y: number },
 ): void => {
+  // Hexagon mode hijacks every box-creation path (mouse dblclick,
+  // touch double-tap, future callers) right here so no caller needs
+  // to know about hexagons.
+  if (isHexMode()) {
+    createHexBoxAt(centerOn ?? { x, y });
+    return;
+  }
   const w = must();
   const id = w.mintId();
   const b: BoxLike = { id, label: "new", x, y };
@@ -98,6 +108,40 @@ export const createBoxAt = (
     el.style.top = b.y + "px";
   }
   mutatedBox();
+  if (el) {
+    w.selected.clear();
+    w.selected.add(id);
+    if (w.selectedEdge()) {
+      w.clearSelectedEdge();
+      renderEdges();
+    }
+    applyClasses();
+    startEdit(el, b);
+  }
+};
+
+// Hexagon variant of createBoxAt: the new box carries shape = 1 and a
+// known fixed size (HEX_W × HEX_H — hexes are never resizable), so no
+// post-render offsetWidth recentring is needed. Placement is magnetic:
+// within snapping range of an existing hexagon the centre snaps to the
+// nearest FREE lattice cell (occupied target → nearest free adjacent
+// cell); far from every hexagon the click point is used as-is.
+const createHexBoxAt = (center: { x: number; y: number }): void => {
+  const w = must();
+  const id = w.mintId();
+  const boxes = w.currentMap().boxes;
+  const c = snapHexCenter(center, hexCenters(boxes)) ?? center;
+  const b: BoxLike = {
+    id,
+    label: "new",
+    x: c.x - HEX_W / 2,
+    y: c.y - HEX_H / 2,
+    shape: 1,
+  };
+  boxes.push(b);
+  renderAll();
+  mutatedBox();
+  const el = w.canvas.querySelector<HTMLElement>(`.box[data-id="${id}"]`);
   if (el) {
     w.selected.clear();
     w.selected.add(id);

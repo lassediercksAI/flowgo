@@ -247,6 +247,36 @@ describe("serializeGraph", () => {
     );
   });
 
+  it("emits `boxshape <id> <shape>` after the box block, before anchor", () => {
+    // Shaped boxes emit a follow-up directive (mirrors linestyle) so
+    // older flowgo binaries that don't know shapes still parse the box
+    // geometry cleanly. Default shape (0 or unset) is silent. The
+    // box → boxshape → anchor order must match the Go serializer in
+    // pkg/graph byte-for-byte.
+    const out = serializeGraph({
+      maps: [
+        {
+          path: "/",
+          boxes: [
+            { id: "b1", label: "rect", x: 0, y: 0, anchor: true },
+            { id: "b2", label: "hex", x: 10, y: 20, shape: 1 },
+            { id: "b3", label: "plain", x: 30, y: 40, shape: 0 },
+          ],
+        },
+      ],
+    });
+    expect(out).toBe(
+      [
+        "box b1 rect 0 0",
+        "box b2 hex 10 20",
+        "box b3 plain 30 40",
+        "boxshape b2 1",
+        "anchor b1",
+        "",
+      ].join("\n"),
+    );
+  });
+
   it("emits line mid control points after the palette slot", () => {
     // When mids are present without a real palette we emit the "1"
     // sentinel so the coordinates land in stable positional slots;

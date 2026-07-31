@@ -5,6 +5,7 @@
 // copied box set, mirroring the existing semantics. Each paste shifts
 // by 20px so repeated paste presses cascade rather than stack.
 
+import { settleHexBoxes } from "./hex.ts";
 import { mutatedCurrentMap } from "./mutations.ts";
 
 interface BoxLike {
@@ -16,6 +17,7 @@ interface BoxLike {
   font?: number;
   w?: number;
   h?: number;
+  shape?: number;
 }
 
 interface TextLike {
@@ -115,6 +117,7 @@ export const copySelection = (): boolean => {
         copy.w = b.w;
         copy.h = b.h;
       }
+      if (b.shape) copy.shape = b.shape;
       boxes.push(copy);
       boxIds.add(b.id);
       continue;
@@ -214,6 +217,7 @@ export const pasteSelection = (): void => {
       copy.w = b.w;
       copy.h = b.h;
     }
+    if (b.shape) copy.shape = b.shape;
     map.boxes.push(copy);
     selected.add(newId);
   }
@@ -268,6 +272,9 @@ export const pasteSelection = (): void => {
     if (ed.toHandle) newEdge.toHandle = ed.toHandle;
     map.edges.push(newEdge);
   }
+  // The 20px paste cascade can drop hexagons onto occupied spots —
+  // settle them onto free lattice cells (hexes never overlap).
+  settleHexBoxes(map.boxes);
   mutatedCurrentMap();
   renderAll();
   setStatus("pasted " + selected.size + " items");

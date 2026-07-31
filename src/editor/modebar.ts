@@ -1,15 +1,23 @@
 // Touch-only mode bar: pinned to the right edge so coarse-pointer
 // users can switch between cursor / brush / line modes that desktop
-// users hit with the V / B / L keys. Visibility is controlled by CSS
+// users hit with the V / B / L keys, plus a latch for the persistent
+// hexagon setting (double-click spawns hexagons) that desktop users
+// flip in the ⚙ settings popover. Visibility is controlled by CSS
 // (`body.touch-input #modeBar`) so the bar simply doesn't render on
 // fine-pointer devices.
 //
-// The bar reads the current mode from body class flags (`.brush-mode`
-// / `.line-mode`, owned by brush.ts / line.ts) and keeps its active
-// highlight in sync via a MutationObserver, so keyboard toggles and
-// button taps land on the same source of truth.
+// The bar reads current state from body class flags (`.brush-mode` /
+// `.line-mode` / `.hex-mode`, owned by brush.ts / line.ts / hex.ts)
+// and keeps its highlights in sync via a MutationObserver, so
+// keyboard toggles, the settings popover, and button taps all land
+// on the same source of truth.
+//
+// Mode buttons (cursor/brush/line) are mutually exclusive; the hex
+// latch is independent — it changes what a double-click creates, not
+// which tool is active, so it can be on in any mode.
 
 import { isBrushMode, setBrushMode } from "./brush.ts";
+import { isHexMode, setHexMode } from "./hex.ts";
 import { isLineMode, setLineMode } from "./line.ts";
 
 type Mode = "cursor" | "brush" | "line";
@@ -64,6 +72,17 @@ const iconBrush = (): SVGSVGElement => svgEl(20, (svg) => {
   tip.setAttribute("fill", "#a60");
   tip.setAttribute("stroke", "currentColor");
   svg.appendChild(tip);
+});
+
+// Flat-top hexagon outline — the shape hexagon mode spawns. Vertices
+// of a regular flat-top hex around (10, 10) with circumradius 7.
+const iconHex = (): SVGSVGElement => svgEl(20, (svg) => {
+  const p = document.createElementNS(ns, "path");
+  p.setAttribute(
+    "d",
+    "M17 10 L13.5 16.06 L6.5 16.06 L3 10 L6.5 3.94 L13.5 3.94 Z",
+  );
+  svg.appendChild(p);
 });
 
 // Diagonal segment with two endpoint dots.
@@ -125,9 +144,33 @@ export const attachModeBar = (): void => {
     return btn;
   };
 
-  make("cursor", "Cursor", iconCursor());
-  make("brush",  "Brush",  iconBrush());
-  make("line",   "Line",   iconLine());
+  make("cursor", "Cursor",  iconCursor());
+  make("brush",  "Brush",   iconBrush());
+  make("line",   "Line",    iconLine());
+
+  // Hexagon latch — independent of the exclusive mode cycle above.
+  // Toggles the persistent setting; highlight mirrors isHexMode().
+  const hexBtn = document.createElement("button");
+  hexBtn.type = "button";
+  hexBtn.dataset["mode"] = "hex";
+  hexBtn.title = "Double-click creates hexagons";
+  hexBtn.setAttribute("aria-label", "Double-click creates hexagons");
+  hexBtn.appendChild(iconHex());
+  hexBtn.addEventListener("mousedown", (e) => e.stopPropagation());
+  hexBtn.addEventListener("touchstart", (e) => e.stopPropagation(), { passive: true });
+  let hexActivated = false;
+  const hexActivate = (e: Event) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (hexActivated) return;
+    hexActivated = true;
+    setTimeout(() => { hexActivated = false; }, 0);
+    setHexMode(!isHexMode());
+    sync();
+  };
+  hexBtn.addEventListener("pointerup", hexActivate);
+  hexBtn.addEventListener("click", hexActivate);
+  bar.appendChild(hexBtn);
 
   const sync = (): void => {
     const m = currentMode();
@@ -135,6 +178,8 @@ export const attachModeBar = (): void => {
       el.classList.toggle("active", mode === m);
       el.setAttribute("aria-pressed", mode === m ? "true" : "false");
     }
+    hexBtn.classList.toggle("active", isHexMode());
+    hexBtn.setAttribute("aria-pressed", isHexMode() ? "true" : "false");
   };
   sync();
 

@@ -40,8 +40,17 @@ type Box struct {
 	// auto-size: the box hugs its label like it always has. Persisted
 	// as a separate `boxsize <id> <w> <h>` directive — the positional
 	// slots on the `box` line are all claimed by back-compat baggage.
+	// Ignored for hexagons (Shape=1), which have a fixed uniform size.
 	W float64 `json:"w,omitempty"`
 	H float64 `json:"h,omitempty"`
+	// Shape selects the render silhouette: 0 (default) is the classic
+	// auto-sized rectangle, 1 is a hexagon (hexagon mode in the editor:
+	// uniform fixed size, lattice-snapped, never resizable). 2-9 are
+	// reserved. Persisted as a separate `boxshape <id> <shape>`
+	// directive after the box block — the positional slots on the
+	// `box` line are all claimed by back-compat baggage (mirrors the
+	// linestyle precedent for lines).
+	Shape int `json:"shape,omitempty"`
 }
 
 // Edge connects two boxes within the same map.
@@ -346,17 +355,41 @@ func Parse(s string) (Graph, error) {
 				// carry garbage (mirrors linestyle's out-of-range skip).
 				break
 			}
-			foundBox := false
+			foundSizeBox := false
 			for i := range g.Maps[cur].Boxes {
 				if g.Maps[cur].Boxes[i].ID == toks[1] {
 					g.Maps[cur].Boxes[i].W = bw
 					g.Maps[cur].Boxes[i].H = bh
+					foundSizeBox = true
+					break
+				}
+			}
+			if !foundSizeBox {
+				return g, fmt.Errorf("line %d: boxsize refers to unknown box %q", lineNo, toks[1])
+			}
+		case "boxshape":
+			if len(toks) < 3 {
+				return g, fmt.Errorf("line %d: boxshape needs id and shape", lineNo)
+			}
+			shapeVal, err := strconv.Atoi(toks[2])
+			if err != nil {
+				return g, fmt.Errorf("line %d: bad boxshape: %v", lineNo, err)
+			}
+			if shapeVal < 1 || shapeVal > 9 {
+				// 0 means default (rectangle); ignore so the field stays
+				// at the zero value rather than carrying garbage.
+				break
+			}
+			foundBox := false
+			for i := range g.Maps[cur].Boxes {
+				if g.Maps[cur].Boxes[i].ID == toks[1] {
+					g.Maps[cur].Boxes[i].Shape = shapeVal
 					foundBox = true
 					break
 				}
 			}
 			if !foundBox {
-				return g, fmt.Errorf("line %d: boxsize refers to unknown box %q", lineNo, toks[1])
+				return g, fmt.Errorf("line %d: boxshape refers to unknown box %q", lineNo, toks[1])
 			}
 		case "anchor":
 			if len(toks) < 2 {
@@ -528,11 +561,18 @@ func Serialize(g Graph) string {
 			}
 			b.WriteString("\n")
 		}
-		// boxsize directives follow the box block (like linestyle after
-		// lines) so parsers see the box before its size annotation.
+		// boxsize then boxshape directives follow the box block (like
+		// linestyle after lines) so parsers see the box before its
+		// annotations. Emit order is part of the byte-parity contract
+		// with src/graph/serialize.ts — keep the two in sync.
 		for _, box := range m.Boxes {
 			if box.W > 0 && box.H > 0 {
 				fmt.Fprintf(&b, "boxsize %s %g %g\n", box.ID, box.W, box.H)
+			}
+		}
+		for _, box := range m.Boxes {
+			if box.Shape >= 1 && box.Shape <= 9 {
+				fmt.Fprintf(&b, "boxshape %s %d\n", box.ID, box.Shape)
 			}
 		}
 		// Single-anchor invariant: emit at most one `anchor <id>` line.

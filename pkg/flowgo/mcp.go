@@ -45,6 +45,7 @@ STYLING (1-9 SCALES)
 - palette: 1=default (white box, black text), 2=inverted (black bg, white text), 3=red, 4=orange, 5=yellow, 6=green, 7=blue, 8=purple, 9=gray. Applies to boxes, edges, texts, lines, strokes.
 - font (boxes, texts): 1=default 14px, scales up to 9 ≈ 56px.
 - style (lines only): 1=straight, 2=smooth bezier, 3=orthogonal right-angle elbows.
+- shape (boxes only): 0=rectangle (default), 1=hexagon. Hexagons render at a fixed 120x104 size in the GUI and snap onto a hex lattice near other hexagons — they never overlap and are not resizable.
 
 EDGE HANDLES
 fromHandle/toHandle pin the connection to a specific side or corner of the source/target box: t (top), r (right), b (bottom), l (left), tl, tr, bl, br. Omit both to let the renderer auto-pick the nearest pair. Edges are undirected — add_edge from A to B is the same edge as B to A; update_edge / delete_edge match in either order.
@@ -84,6 +85,7 @@ UTF-8 text, one directive per line, '#' for comments.
     line   <id> <x1> <y1> <x2> <y2> [palette] [mid <x>,<y> ...]
     stroke <id> <x>,<y> <x>,<y> ... [palette]
     linestyle <id> <style>
+    boxshape <id> <shape>
     anchor <id>
 
 Notes:
@@ -97,6 +99,10 @@ Notes:
   not advertise sides or rotation as parameters.
 - 'map <path>' switches the current map. Paths look like /, /b1,
   /b1/c2. Each path is "the inside of" the box at that path.
+- 'boxshape <id> <shape>' tags a box with a non-default silhouette:
+  1 = hexagon (fixed 120x104, lattice-snapped, not resizable in the
+  GUI); 2-9 reserved. Omitted or 0 = rectangle. Emitted after the box
+  block so older binaries still parse the geometry.
 - 'anchor <id>' is at most once per map — the per-map recenter target.
 
 ## Coordinate system
@@ -458,6 +464,19 @@ func actAddBox(g *Graph, args map[string]any) (any, error) {
 	if w != nil {
 		box.W, box.H = w[0], w[1]
 	}
+	if v, ok := args["shape"]; ok {
+		s, err := shapeProp(v)
+		if err != nil {
+			return nil, err
+		}
+		box.Shape = s
+		// Hexagons keep the fixed lattice size. Rejecting (rather than
+		// silently dropping) a size given alongside shape=1 tells the
+		// MCP client its intent can't be honoured.
+		if s == 1 && (box.W != 0 || box.H != 0) {
+			return nil, fmt.Errorf("hexagons have a fixed size and are not resizable — omit w/h")
+		}
+	}
 	m.Boxes = append(m.Boxes, box)
 	return mcpToolText(id), nil
 }
@@ -513,6 +532,7 @@ func actUpdateBox(g *Graph, args map[string]any) (any, error) {
 	_, hasPalette := args["palette"]
 	_, hasFont := args["font"]
 	anchorArg, hasAnchor := args["anchor"]
+	shapeArg, hasShape := args["shape"]
 	m := ensureMapAt(g, path)
 	for i := range m.Boxes {
 		if m.Boxes[i].ID != id {
@@ -555,11 +575,34 @@ func actUpdateBox(g *Graph, args map[string]any) (any, error) {
 				m.Boxes[i].Anchor = false
 			}
 		}
-		if size, err := boxSizeArgs(args); err != nil {
+		size, err := boxSizeArgs(args)
+		if err != nil {
 			return nil, err
-		} else if size != nil {
+		}
+		newShape := m.Boxes[i].Shape
+		if hasShape {
+			s, err := shapeProp(shapeArg)
+			if err != nil {
+				return nil, err
+			}
+			newShape = s
+		}
+		// Hexagons have a fixed lattice size — any explicit w/h aimed
+		// at one (whether it already is a hex or becomes one in this
+		// call) is rejected so the client learns its intent can't be
+		// honoured. Becoming a hexagon clears a previously pinned size.
+		if size != nil && newShape == 1 {
+			return nil, fmt.Errorf("hexagons have a fixed size and are not resizable — omit w/h")
+		}
+		if size != nil {
 			// {0,0} restores auto-size; anything else pins the size.
 			m.Boxes[i].W, m.Boxes[i].H = size[0], size[1]
+		}
+		if hasShape {
+			m.Boxes[i].Shape = newShape
+			if newShape == 1 {
+				m.Boxes[i].W, m.Boxes[i].H = 0, 0
+			}
 		}
 		return mcpToolText("ok"), nil
 	}
@@ -1128,12 +1171,13 @@ func mcpTools() []mcpToolDef {
 			"palette": paletteSchema,
 			"font":    fontSchema,
 			"anchor":  map[string]any{"type": "boolean", "description": "Set true to make this box the map's recenter anchor (clears any prior anchor on the same map). At most one anchor per map."},
-			"w":       schemaNumber("Optional explicit width in data px (min 80). Both w and h must be given to pin the size; omit both for auto-size (box hugs its label)."),
-			"h":       schemaNumber("Optional explicit height in data px (min 36). Both w and h must be given to pin the size; omit both for auto-size."),
+			"w":       schemaNumber("Optional explicit width in data px (min 80). Both w and h must be given to pin the size; omit both for auto-size (box hugs its label). Ignored for hexagons."),
+			"h":       schemaNumber("Optional explicit height in data px (min 36). Both w and h must be given to pin the size; omit both for auto-size. Ignored for hexagons."),
+			"shape":   schemaNumber("Optional shape: 0=rectangle (default), 1=hexagon. Hexagons render at a fixed 120x104 size, snap onto a hex lattice near other hexagons, never overlap, and are not resizable."),
 		}, []string{"label", "x", "y"})
 
 	addTool("update_box",
-		"Update a box's label, position, color, font size, anchor flag, or explicit size. Pass 1 for palette or font to reset to default. Pass w=0 and h=0 to restore auto-sizing.",
+		"Update a box's label, position, color, font size, shape, anchor flag, or explicit size. Pass 1 for palette or font to reset to default. Pass w=0 and h=0 to restore auto-sizing.",
 		map[string]any{
 			"path":    schemaString("Map path: '/' for root, '/<box_id>' for a box's submap, '/<box_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
 			"id":      schemaString("Box id."),
@@ -1143,8 +1187,9 @@ func mcpTools() []mcpToolDef {
 			"palette": schemaNumber("Optional palette index 1..9."),
 			"font":    schemaNumber("Optional font-size step 1..9."),
 			"anchor":  map[string]any{"type": "boolean", "description": "true sets this box as the map's anchor (clears any prior); false clears the anchor flag on this box."},
-			"w":       schemaNumber("New explicit width in data px, min 80 (optional; set both w and h). 0 together with h=0 restores auto-size."),
-			"h":       schemaNumber("New explicit height in data px, min 36 (optional; set both w and h). 0 together with w=0 restores auto-size."),
+			"w":       schemaNumber("New explicit width in data px, min 80 (optional; set both w and h). 0 together with h=0 restores auto-size. Ignored for hexagons."),
+			"h":       schemaNumber("New explicit height in data px, min 36 (optional; set both w and h). 0 together with w=0 restores auto-size. Ignored for hexagons."),
+			"shape":   schemaNumber("Optional shape: 0=rectangle (default), 1=hexagon (fixed 120x104, lattice-snapped, not resizable). Combining shape=1 with w/h is an error; becoming a hexagon clears any previously pinned size."),
 		}, []string{"id"})
 
 	addTool("delete_box",
@@ -1436,6 +1481,18 @@ func numArg(args map[string]any, key string, def float64) float64 {
 // styleProp parses a 1..9 styling argument (palette, font, line style)
 // per the file-format convention: 1 is the default and stored as 0 so
 // it round-trips as the absent-token. Returns the storage value.
+// shapeProp validates the box shape argument: 0 = rectangle
+// (default, stored as the zero value), 1 = hexagon. 2-9 are reserved
+// in the file format but not accepted over MCP until something
+// renders them.
+func shapeProp(v any) (int, error) {
+	n := intFromAny(v)
+	if n != 0 && n != 1 {
+		return 0, fmt.Errorf("shape must be 0 (rectangle) or 1 (hexagon)")
+	}
+	return n, nil
+}
+
 func styleProp(v any, name string) (int, error) {
 	n := intFromAny(v)
 	switch {

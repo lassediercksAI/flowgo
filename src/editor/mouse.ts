@@ -20,6 +20,7 @@ import {
 import { extendStroke, finishStroke, isPainting, isBrushMode, startStroke } from "./brush.ts";
 import { cancelPendingLine, commitLineOnRelease, isLineMode, placeLinePoint, updateLinePreview } from "./line.ts";
 import { startEdit } from "./edit.ts";
+import { settleHexBoxes } from "./hex.ts";
 import { nearestHandle, pickTargetHandle } from "./anchors.ts";
 import { addOrReplaceEdge as addOrReplaceEdgePure } from "../graph/edge.ts";
 import { createBoxAt } from "./factories.ts";
@@ -254,6 +255,11 @@ const onMouseUp = (e: MouseEvent): void => {
     const primaryId = drag.primaryId;
     w.setDrag(null);
     if (wasActive) {
+      // Hexagons must never overlap. The live hex mover already snaps
+      // a single dragged hex onto free cells, but a multi-select drag
+      // can still land hexes on top of each other — settle them onto
+      // free lattice cells before committing.
+      if (settleHexBoxes(w.currentMap().boxes)) renderAll();
       mutatedCurrentMap();
     } else {
       // Single-click without movement: collapse selection to just this item.

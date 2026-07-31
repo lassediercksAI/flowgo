@@ -7,6 +7,7 @@
 // because all movers need it and nothing else in the editor cares.
 
 import type { HandleCode } from "../graph/handle.ts";
+import { HEX_H, HEX_W, snapHexCenter } from "../graph/hex.ts";
 import { strokePathD } from "../graph/stroke.ts";
 
 export const GRID = 20;
@@ -16,8 +17,11 @@ export interface BoxLike {
   x: number;
   y: number;
   // Explicit size (resize feature). Absent = auto-size to the label.
+  // Never set on hexagons (shape = 1) — they keep the fixed lattice size.
   w?: number;
   h?: number;
+  // Render silhouette: 0/unset rectangle, 1 hexagon. See graph/hex.ts.
+  shape?: number;
 }
 
 export interface TextLike {
@@ -156,6 +160,39 @@ export const makeBoxResizeMover = (
       el.style.left = b.x + "px";
       el.style.top = b.y + "px";
       el.classList.add("sized");
+    },
+  };
+};
+
+// Hexagon boxes (shape = 1) drag freely until their centre comes
+// within HEX_SNAP_RADIUS of another hexagon's centre; from there the
+// position is magnetic — it snaps to the nearest FREE cell of the
+// flat-top lattice anchored at that hexagon, so edges land flush and
+// two hexes can never occupy the same cell. `otherHexCenters` must
+// exclude every hex in the dragged selection (attach.ts does), or the
+// selection would snap against itself.
+//
+// NOTE: hexagons keep their fixed HEX_W × HEX_H size — never write
+// width/height here (or anywhere): resizing is a rectangle-only
+// feature, and all the lattice math depends on the uniform size.
+// Shift-grid snap is deliberately ignored: the hex lattice IS the grid.
+export const makeHexMover = (
+  b: BoxLike,
+  el: HTMLElement,
+  otherHexCenters: ReadonlyArray<{ x: number; y: number }>,
+): Mover => {
+  const startX = b.x;
+  const startY = b.y;
+  return {
+    el,
+    apply(dx, dy, _ev) {
+      const cx = startX + dx + HEX_W / 2;
+      const cy = startY + dy + HEX_H / 2;
+      const snapped = snapHexCenter({ x: cx, y: cy }, otherHexCenters);
+      b.x = (snapped?.x ?? cx) - HEX_W / 2;
+      b.y = (snapped?.y ?? cy) - HEX_H / 2;
+      el.style.left = b.x + "px";
+      el.style.top = b.y + "px";
     },
   };
 };

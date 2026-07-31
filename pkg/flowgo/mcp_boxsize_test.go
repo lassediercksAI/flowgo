@@ -99,6 +99,45 @@ func TestActUpdateBox_SetAndClearSize(t *testing.T) {
 	}
 }
 
+func TestActAddBox_RejectsSizeOnHexagon(t *testing.T) {
+	g := freshGraph()
+	_, err := actAddBox(g, map[string]any{
+		"label": "hex",
+		"x":     float64(0),
+		"y":     float64(0),
+		"shape": float64(1),
+		"w":     float64(200),
+		"h":     float64(120),
+	})
+	if err == nil || !strings.Contains(err.Error(), "not resizable") {
+		t.Fatalf("expected not-resizable error, got %v", err)
+	}
+}
+
+func TestActUpdateBox_RejectsSizeOnHexagon(t *testing.T) {
+	g := freshGraph()
+	g.Maps[0].Boxes = []graph.Box{{ID: "b1", Label: "hex", Shape: 1}}
+	_, err := actUpdateBox(g, map[string]any{
+		"id": "b1", "w": float64(200), "h": float64(120),
+	})
+	if err == nil || !strings.Contains(err.Error(), "not resizable") {
+		t.Fatalf("expected not-resizable error for existing hex, got %v", err)
+	}
+}
+
+func TestActUpdateBox_BecomingHexClearsPinnedSize(t *testing.T) {
+	g := freshGraph()
+	g.Maps[0].Boxes = []graph.Box{{ID: "b1", Label: "x", W: 150, H: 90}}
+	if _, err := actUpdateBox(g, map[string]any{
+		"id": "b1", "shape": float64(1),
+	}); err != nil {
+		t.Fatalf("shape change: %v", err)
+	}
+	if b := g.Maps[0].Boxes[0]; b.Shape != 1 || b.W != 0 || b.H != 0 {
+		t.Fatalf("becoming hex should clear size: %+v", b)
+	}
+}
+
 func TestActUpdateBox_RejectsNegativeSize(t *testing.T) {
 	g := freshGraph()
 	g.Maps[0].Boxes = []graph.Box{{ID: "b1", Label: "x"}}

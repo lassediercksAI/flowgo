@@ -12,6 +12,7 @@ import {
   HANDLE_CODES,
   strokePathD,
 } from "../index.ts";
+import { HEX_H, HEX_W } from "../graph/hex.ts";
 import { hasSubmapContent } from "../graph/submap.ts";
 import { resolveFont, resolvePalette } from "../graph/palette.ts";
 import { endpointAnchor } from "./anchors.ts";
@@ -33,6 +34,7 @@ interface BoxData {
   anchor?: boolean;
   w?: number;
   h?: number;
+  shape?: number;
 }
 
 interface TextData {
@@ -195,16 +197,25 @@ export const renderAll = (): void => {
     const palette = resolvePalette(b.palette);
     const font = resolveFont(b.font);
     el.className = "box"
+      + (b.shape === 1 ? " hex" : "")
       + (hasSubmapContent(g, cur, b.id) ? " has-submap" : "")
       + (palette !== 1 ? " palette-" + palette : "")
       + (font !== 1 ? " font-" + font : "");
     el.dataset["id"] = b.id;
     el.style.left = b.x + "px";
     el.style.top = b.y + "px";
-    // Explicit size (resize feature): pin width/height and switch on
-    // the `sized` class so CSS centers the label inside the fixed
-    // frame instead of the box hugging its content.
-    if (b.w && b.h) {
+    if (b.shape === 1) {
+      // Hexagons are uniform and never resizable: always the fixed
+      // HEX_W × HEX_H — the lattice snap math in ../graph/hex.ts
+      // depends on every hexagon sharing exactly this size, so no
+      // explicit sizing (present or future) may override it. Takes
+      // precedence over any stray w/h from the resize feature.
+      el.style.width = HEX_W + "px";
+      el.style.height = HEX_H + "px";
+    } else if (b.w && b.h) {
+      // Explicit size (resize feature): pin width/height and switch on
+      // the `sized` class so CSS centers the label inside the fixed
+      // frame instead of the box hugging its content.
       el.style.width = b.w + "px";
       el.style.height = b.h + "px";
       el.classList.add("sized");
@@ -221,11 +232,16 @@ export const renderAll = (): void => {
     }
     // Resize grips, one per corner. Hidden until the box enters
     // resize mode (E key → `.resizing` class via applyClasses).
-    for (const corner of RESIZE_CORNERS) {
-      const grip = document.createElement("div");
-      grip.className = "resize-grip rg-" + corner;
-      grip.dataset["corner"] = corner;
-      el.appendChild(grip);
+    // Hexagons get none: their size is fixed by the lattice contract,
+    // and the E handler refuses them anyway — no grips means no
+    // misleading affordance even if that guard ever regresses.
+    if (b.shape !== 1) {
+      for (const corner of RESIZE_CORNERS) {
+        const grip = document.createElement("div");
+        grip.className = "resize-grip rg-" + corner;
+        grip.dataset["corner"] = corner;
+        el.appendChild(grip);
+      }
     }
     w.canvas.appendChild(el);
     w.attachBoxHandlers(el, b);

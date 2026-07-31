@@ -17,6 +17,7 @@ interface BoxLike {
   font?: number;
   w?: number;
   h?: number;
+  shape?: number;
 }
 
 interface TextLike {
@@ -106,6 +107,9 @@ export const cloneSelection = (): Map<string, string> => {
         copy.w = b.w;
         copy.h = b.h;
       }
+      // Hexagons clone as hexagons — the drag that follows an
+      // alt-clone routes through the magnetic hex mover.
+      if (b.shape) copy.shape = b.shape;
       map.boxes.push(copy);
       continue;
     }

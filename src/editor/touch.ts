@@ -53,6 +53,7 @@ import { handleAnchor, nearestHandle, pickTargetHandle } from "./anchors.ts";
 import { addOrReplaceEdge as addOrReplaceEdgePure } from "../graph/edge.ts";
 import { findBoxAt } from "./mouse.ts";
 import { createBoxAt, deleteSelection } from "./factories.ts";
+import { settleHexBoxes } from "./hex.ts";
 import { mutatedCurrentMap, mutatedEdge } from "./mutations.ts";
 import { classifyTap, movedBeyond, type TapRecord } from "./gestures.ts";
 import { makeLineEndpointMover, type Mover } from "./movers.ts";
@@ -767,6 +768,9 @@ const onTouchEnd = (e: TouchEvent): void => {
       lastTap = null;
       return;
     }
+    // Hexagons must never overlap — settle any hex the drag landed on
+    // an occupied spot onto a free lattice cell (mirrors mouse.ts).
+    if (settleHexBoxes(w.currentMap().boxes)) renderAll();
     mutatedCurrentMap();
     lastTap = null;
     return;

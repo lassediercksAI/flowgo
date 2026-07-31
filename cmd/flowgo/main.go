@@ -85,6 +85,7 @@ func main() {
 	}
 	bindHost := "127.0.0.1"
 	useRandomName := false
+	hexagonMode := false
 	var positional []string
 	for _, a := range os.Args[1:] {
 		switch a {
@@ -98,6 +99,8 @@ func main() {
 			useRandomName = true
 		case "--host":
 			bindHost = "0.0.0.0"
+		case "--hexagon":
+			hexagonMode = true
 		default:
 			if strings.HasPrefix(a, "-") {
 				fmt.Fprintf(os.Stderr, "unknown flag: %s\n", a)
@@ -150,6 +153,14 @@ func main() {
 		Version:     resolveVersionString,
 	})
 
+	// Compute the served page once: with --hexagon, inject the flag the
+	// editor's hex.ts reads at boot so double-click spawns hexagons
+	// from the first interaction (and the preference persists in the
+	// browser from there).
+	editorHTML := []byte(flowgo.IndexHTML)
+	if hexagonMode {
+		editorHTML = injectHexagonFlag(editorHTML)
+	}
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// No-store: the editor bundle is embedded at build time, so a
 		// browser that heuristically caches this page (no cache headers
@@ -159,7 +170,7 @@ func main() {
 		// page is served from memory; re-sending it costs nothing.
 		w.Header().Set("Cache-Control", "no-store, must-revalidate")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte(flowgo.IndexHTML))
+		w.Write(editorHTML)
 	})
 	http.HandleFunc("/state", handleState)
 	http.HandleFunc("/save", handleSave)
@@ -394,6 +405,24 @@ func handleMediaGet(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, rest, info.ModTime(), f)
 }
 
+// injectHexagonFlag marks the served editor page so hex.ts boots with
+// the hexagon setting enabled (the `flowgo --hexagon` CLI opt-in).
+// The script tag lands just before </head>; module scripts execute
+// after HTML parsing, so the flag is always set before the editor
+// reads it. If the marker is ever missing from the bundle we fall
+// back to prepending — functional, if inelegant.
+func injectHexagonFlag(html []byte) []byte {
+	const tag = "<script>window.FLOWGO_HEXAGON = true</script>"
+	if idx := strings.Index(string(html), "</head>"); idx >= 0 {
+		out := make([]byte, 0, len(html)+len(tag))
+		out = append(out, html[:idx]...)
+		out = append(out, tag...)
+		out = append(out, html[idx:]...)
+		return out
+	}
+	return append([]byte(tag), html...)
+}
+
 func openBrowser(url string) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
@@ -420,6 +449,8 @@ Usage:
   flowgo <name>                    open <name>.flowgo, creating it if missing
   flowgo new                       create a map with a random humanized name (e.g. solid_frontend.flowgo)
   flowgo <name|new> --host         bind 0.0.0.0 (reach from outside this machine/container)
+  flowgo <name|new> --hexagon      start with the hexagon setting on: double-click adds
+                                   fixed-size, edge-snapping hexagons instead of boxes
   flowgo serve [flags]             public mode: multi-workspace MCP + share-via-webhook
                                    (run 'flowgo serve --help' for flags)
   flowgo upgrade                   download the latest release and replace this binary

@@ -516,6 +516,61 @@ func TestActAddBox_AcceptsAnchor(t *testing.T) {
 	}
 }
 
+// TestActAddBox_AcceptsShape covers the shape flag on add_box:
+// 1 (hexagon) must persist as Box.Shape, 0 stays the zero-value
+// rectangle, and anything else is rejected — the GUI only renders
+// shapes 0 and 1, so the MCP must not let reserved values in.
+func TestActAddBox_AcceptsShape(t *testing.T) {
+	g := freshGraph()
+	id, err := actAddBox(g, map[string]any{
+		"label": "hex",
+		"x":     float64(10),
+		"y":     float64(20),
+		"shape": float64(1),
+	})
+	if err != nil {
+		t.Fatalf("actAddBox: %v", err)
+	}
+	rawID := mcpFirstText(id)
+	var got *graph.Box
+	for i := range g.Maps[0].Boxes {
+		if g.Maps[0].Boxes[i].ID == rawID {
+			got = &g.Maps[0].Boxes[i]
+		}
+	}
+	if got == nil || got.Shape != 1 {
+		t.Fatalf("shape not persisted: %+v", g.Maps[0].Boxes)
+	}
+	if _, err := actAddBox(g, map[string]any{
+		"label": "bad",
+		"x":     float64(0),
+		"y":     float64(0),
+		"shape": float64(3),
+	}); err == nil {
+		t.Fatal("expected error for out-of-range shape")
+	}
+}
+
+func TestActUpdateBox_ShapeSetAndClear(t *testing.T) {
+	g := freshGraph()
+	g.Maps[0].Boxes = []graph.Box{{ID: "b1", Label: "one"}}
+	if _, err := actUpdateBox(g, map[string]any{"id": "b1", "shape": float64(1)}); err != nil {
+		t.Fatalf("actUpdateBox set: %v", err)
+	}
+	if g.Maps[0].Boxes[0].Shape != 1 {
+		t.Fatalf("shape not set: %+v", g.Maps[0].Boxes[0])
+	}
+	if _, err := actUpdateBox(g, map[string]any{"id": "b1", "shape": float64(0)}); err != nil {
+		t.Fatalf("actUpdateBox clear: %v", err)
+	}
+	if g.Maps[0].Boxes[0].Shape != 0 {
+		t.Fatalf("shape not cleared: %+v", g.Maps[0].Boxes[0])
+	}
+	if _, err := actUpdateBox(g, map[string]any{"id": "b1", "shape": float64(2)}); err == nil {
+		t.Fatal("expected error for reserved shape value")
+	}
+}
+
 func TestActUpdateBox_AnchorTrueSweepsOthers(t *testing.T) {
 	g := freshGraph()
 	g.Maps[0].Boxes = []graph.Box{
