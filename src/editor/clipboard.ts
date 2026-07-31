@@ -14,6 +14,8 @@ interface BoxLike {
   y: number;
   palette?: number;
   font?: number;
+  w?: number;
+  h?: number;
 }
 
 interface TextLike {
@@ -109,6 +111,10 @@ export const copySelection = (): boolean => {
       const copy: BoxLike = { id: b.id, label: b.label, x: b.x, y: b.y };
       if (b.palette) copy.palette = b.palette;
       if (b.font) copy.font = b.font;
+      if (b.w && b.h) {
+        copy.w = b.w;
+        copy.h = b.h;
+      }
       boxes.push(copy);
       boxIds.add(b.id);
       continue;
@@ -199,6 +205,15 @@ export const pasteSelection = (): void => {
     const newId = mintId("b");
     idMap.set(b.id, newId);
     const copy: BoxLike = { id: newId, label: b.label, x: b.x + dx, y: b.y + dy };
+    // Carry the visual styling through the paste. palette/font were
+    // captured by copySelection but previously dropped here (texts
+    // kept theirs — this was an oversight, fixed alongside adding w/h).
+    if (b.palette) copy.palette = b.palette;
+    if (b.font) copy.font = b.font;
+    if (b.w && b.h) {
+      copy.w = b.w;
+      copy.h = b.h;
+    }
     map.boxes.push(copy);
     selected.add(newId);
   }

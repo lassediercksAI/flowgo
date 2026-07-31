@@ -202,6 +202,11 @@
   #canvas:has(.dragging) #alignToolbar { display: none !important; }
   .box {
     position: absolute; min-width: 80px; padding: 0.55em 0.85em;
+    /* border-box so an explicit width/height from the resize feature
+       equals the rendered footprint (padding + border included) —
+       stored size and visual size never diverge. No effect on
+       auto-sized boxes (width/height stay auto). */
+    box-sizing: border-box;
     background: #fff; border: 2px solid #333; border-radius: 6px;
     user-select: none;
     box-shadow: 0 1px 2px rgba(0,0,0,.1);
@@ -221,6 +226,30 @@
        through unchanged. */
     white-space: pre;
   }
+  /* Explicitly sized boxes (resize feature): the frame is fixed, so
+     center the label inside it instead of hugging content. Flex on
+     the box doesn't disturb the absolutely-positioned handle / grip
+     children. */
+  .box.sized { display: flex; align-items: center; justify-content: center; }
+
+  /* Resize grips: square corner handles shown only in resize mode
+     (E key toggles `.resizing`). Orange to read as a different verb
+     from the blue connection dots; square vs round for the same
+     reason. Connection handles hide while resizing so the two grip
+     sets never overlap at the corners. */
+  .resize-grip {
+    display: none; position: absolute; width: 12px; height: 12px;
+    background: #fff; border: 2px solid #f80; border-radius: 2px;
+    box-sizing: border-box; z-index: 6;
+  }
+  .box.resizing .resize-grip { display: block; }
+  .box.resizing .handle { display: none; }
+  .box.resizing { outline-color: #f80; }
+  .rg-tl { top: -7px;    left: -7px;   cursor: nwse-resize; }
+  .rg-tr { top: -7px;    right: -7px;  cursor: nesw-resize; }
+  .rg-bl { bottom: -7px; left: -7px;   cursor: nesw-resize; }
+  .rg-br { bottom: -7px; right: -7px;  cursor: nwse-resize; }
+
   .box.dragging { cursor: grabbing; box-shadow: 0 4px 10px rgba(0,0,0,.2); }
   .box.has-submap { box-shadow: 4px 4px 0 0 #222; }
   .box.has-submap.dragging { box-shadow: 6px 6px 0 0 #222, 0 4px 10px rgba(0,0,0,.2); }
@@ -677,6 +706,8 @@
       <tr><td><kbd>+</kbd> / <kbd>-</kbd> with anything selected</td><td>Step palette colour by ±1 (wraps <kbd>1</kbd>↔<kbd>9</kbd>) — works on boxes, texts, lines, strokes, and the selected edge</td></tr>
       <tr><td><kbd>Shift</kbd> + <kbd>+</kbd> / <kbd>-</kbd> with boxes or texts selected</td><td>Step font size by ±1 (wraps <kbd>1</kbd>↔<kbd>9</kbd>)</td></tr>
       <tr><td><kbd>A</kbd> with one box selected</td><td>Toggle anchor — the map centers on this box on load (one anchor per map)</td></tr>
+      <tr><td><kbd>E</kbd> with one box selected</td><td>Toggle resize mode — drag the orange corner grips to resize · <kbd>E</kbd> or <kbd>Escape</kbd> to finish</td></tr>
+      <tr><td><kbd>Shift</kbd> + <kbd>E</kbd> with one box selected</td><td>Reset the box to auto-size (hug its label)</td></tr>
       <tr><td><kbd>1</kbd>–<kbd>9</kbd> with anything selected</td><td>Recolor boxes, texts, lines, strokes, and the selected edge: <kbd>1</kbd> default · <kbd>2</kbd> inverted (text: bold black) · <kbd>3</kbd>–<kbd>9</kbd> red, orange, yellow, green, blue, purple, gray</td></tr>
       <tr><td><kbd>Shift</kbd> + <kbd>1</kbd>–<kbd>9</kbd> with boxes or texts selected</td><td>Font size: <kbd>1</kbd> default (14px) → <kbd>9</kbd> largest (56px)</td></tr>
       <tr><td><kbd>Delete</kbd> / <kbd>Backspace</kbd></td><td>Remove all selected boxes (and their submap subtrees)</td></tr>

@@ -15,6 +15,7 @@ import {
 import { mutatedLine } from "./mutations.ts";
 import {
   makeBoxMover,
+  makeBoxResizeMover,
   makeImageMover,
   makeImageResizeMover,
   makeLineEndpointMover,
@@ -22,6 +23,7 @@ import {
   makeStrokeMover,
   makeTextMover,
   type Mover,
+  type ResizeCorner,
 } from "./movers.ts";
 import { handleAnchor, nearestHandle } from "./anchors.ts";
 import { startEdit, startTextEdit } from "./edit.ts";
@@ -33,6 +35,8 @@ interface BoxLike {
   label: string;
   x: number;
   y: number;
+  w?: number;
+  h?: number;
 }
 interface TextLike { id: string; label: string; x: number; y: number }
 interface LineLike {
@@ -457,6 +461,24 @@ export const attachBoxHandlers = (
     if (e.button !== 0) return;
 
     const target = e.target as HTMLElement;
+    // Resize grip? Single-mover resize drag through the shared drag
+    // machinery — mouseup's drag branch commits + snapshots undo like
+    // any other move. Grips only exist as event targets while the box
+    // is in resize mode (display:none otherwise).
+    if (target.classList.contains("resize-grip")) {
+      e.preventDefault();
+      e.stopPropagation();
+      const corner = target.dataset["corner"] as ResizeCorner | undefined;
+      if (!corner) return;
+      w.setDrag({
+        movers: [makeBoxResizeMover(b, el, corner)],
+        primaryId: b.id,
+        downX: e.clientX,
+        downY: e.clientY,
+        active: false,
+      });
+      return;
+    }
     // Handle click? Start a link-drag (new edge, or re-route an existing edge).
     if (target.classList.contains("handle")) {
       e.preventDefault();

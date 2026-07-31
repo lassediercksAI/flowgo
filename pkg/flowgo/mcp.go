@@ -451,8 +451,54 @@ func actAddBox(g *Graph, args map[string]any) (any, error) {
 			clearOtherAnchors(m, id)
 		}
 	}
+	w, err := boxSizeArgs(args)
+	if err != nil {
+		return nil, err
+	}
+	if w != nil {
+		box.W, box.H = w[0], w[1]
+	}
 	m.Boxes = append(m.Boxes, box)
 	return mcpToolText(id), nil
+}
+
+// Explicit-size floor, mirroring MIN_BOX_W / MIN_BOX_H in the editor's
+// movers.ts (and the CSS min-width on .box). Clamping here keeps
+// MCP-written sizes inside the same envelope the GUI can produce.
+const (
+	minBoxW = 80
+	minBoxH = 36
+)
+
+// boxSizeArgs validates the w/h pair on add_box / update_box.
+// Returns nil when neither is present, [2]float64{0,0} when both are
+// zero (the "restore auto-size" sentinel, only meaningful on update),
+// or the clamped size when both are positive. One-sided input is an
+// error — a half-specified size has no sensible meaning.
+func boxSizeArgs(args map[string]any) (*[2]float64, error) {
+	_, hasW := args["w"]
+	_, hasH := args["h"]
+	if !hasW && !hasH {
+		return nil, nil
+	}
+	if hasW != hasH {
+		return nil, fmt.Errorf("w and h must be given together")
+	}
+	w := numArg(args, "w", 0)
+	h := numArg(args, "h", 0)
+	if w == 0 && h == 0 {
+		return &[2]float64{0, 0}, nil
+	}
+	if w <= 0 || h <= 0 {
+		return nil, fmt.Errorf("w and h must both be positive (or both 0 to restore auto-size)")
+	}
+	if w < minBoxW {
+		w = minBoxW
+	}
+	if h < minBoxH {
+		h = minBoxH
+	}
+	return &[2]float64{w, h}, nil
 }
 
 func actUpdateBox(g *Graph, args map[string]any) (any, error) {
@@ -508,6 +554,12 @@ func actUpdateBox(g *Graph, args map[string]any) (any, error) {
 			} else {
 				m.Boxes[i].Anchor = false
 			}
+		}
+		if size, err := boxSizeArgs(args); err != nil {
+			return nil, err
+		} else if size != nil {
+			// {0,0} restores auto-size; anything else pins the size.
+			m.Boxes[i].W, m.Boxes[i].H = size[0], size[1]
 		}
 		return mcpToolText("ok"), nil
 	}
@@ -1076,10 +1128,12 @@ func mcpTools() []mcpToolDef {
 			"palette": paletteSchema,
 			"font":    fontSchema,
 			"anchor":  map[string]any{"type": "boolean", "description": "Set true to make this box the map's recenter anchor (clears any prior anchor on the same map). At most one anchor per map."},
+			"w":       schemaNumber("Optional explicit width in data px (min 80). Both w and h must be given to pin the size; omit both for auto-size (box hugs its label)."),
+			"h":       schemaNumber("Optional explicit height in data px (min 36). Both w and h must be given to pin the size; omit both for auto-size."),
 		}, []string{"label", "x", "y"})
 
 	addTool("update_box",
-		"Update a box's label, position, color, font size, or anchor flag. Pass 1 for palette or font to reset to default.",
+		"Update a box's label, position, color, font size, anchor flag, or explicit size. Pass 1 for palette or font to reset to default. Pass w=0 and h=0 to restore auto-sizing.",
 		map[string]any{
 			"path":    schemaString("Map path: '/' for root, '/<box_id>' for a box's submap, '/<box_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
 			"id":      schemaString("Box id."),
@@ -1089,6 +1143,8 @@ func mcpTools() []mcpToolDef {
 			"palette": schemaNumber("Optional palette index 1..9."),
 			"font":    schemaNumber("Optional font-size step 1..9."),
 			"anchor":  map[string]any{"type": "boolean", "description": "true sets this box as the map's anchor (clears any prior); false clears the anchor flag on this box."},
+			"w":       schemaNumber("New explicit width in data px, min 80 (optional; set both w and h). 0 together with h=0 restores auto-size."),
+			"h":       schemaNumber("New explicit height in data px, min 36 (optional; set both w and h). 0 together with w=0 restores auto-size."),
 		}, []string{"id"})
 
 	addTool("delete_box",

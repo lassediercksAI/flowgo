@@ -15,6 +15,9 @@ export const snap = (v: number): number => Math.round(v / GRID) * GRID;
 export interface BoxLike {
   x: number;
   y: number;
+  // Explicit size (resize feature). Absent = auto-size to the label.
+  w?: number;
+  h?: number;
 }
 
 export interface TextLike {
@@ -96,6 +99,63 @@ export const makeBoxMover = (b: BoxLike, el: HTMLElement): Mover => {
       b.y = ny;
       el.style.left = b.x + "px";
       el.style.top = b.y + "px";
+    },
+  };
+};
+
+// Which corner grip a box-resize drag started from. Determines which
+// edges follow the pointer and which stay pinned.
+export type ResizeCorner = "tl" | "tr" | "bl" | "br";
+
+// Floor for explicit box sizes. Width matches the CSS `min-width: 80px`
+// on .box so the stored value never diverges from what actually renders;
+// height covers one line of 16px text plus padding.
+export const MIN_BOX_W = 80;
+export const MIN_BOX_H = 36;
+
+// Resize a box by dragging one of its corner grips. The opposite
+// corner stays pinned: dragging `br` grows width/height directly,
+// dragging `tl` moves x/y while the far edge holds still, and the
+// mixed corners pin one axis each. Sizes are rounded to whole pixels
+// — sub-pixel box sizes serialize noisily (Go's %g truncates to 6
+// significant digits) and are visually meaningless. Shift snaps the
+// dragged edges to the 20px grid. An auto-sized box materializes its
+// current rendered size at drag start, so the first grip-pull feels
+// like adjusting from "what I see", not from zero.
+export const makeBoxResizeMover = (
+  b: BoxLike,
+  el: HTMLElement,
+  corner: ResizeCorner,
+): Mover => {
+  const startX = b.x;
+  const startY = b.y;
+  const startW = b.w ?? el.offsetWidth;
+  const startH = b.h ?? el.offsetHeight;
+  const fromLeft = corner === "tl" || corner === "bl";
+  const fromTop = corner === "tl" || corner === "tr";
+  return {
+    el,
+    apply(dx, dy, ev) {
+      let nw = fromLeft ? startW - dx : startW + dx;
+      let nh = fromTop ? startH - dy : startH + dy;
+      if (ev?.shiftKey) {
+        nw = snap(nw);
+        nh = snap(nh);
+      }
+      nw = Math.max(MIN_BOX_W, Math.round(nw));
+      nh = Math.max(MIN_BOX_H, Math.round(nh));
+      b.w = nw;
+      b.h = nh;
+      // Left/top-anchored drags reposition so the opposite edge pins.
+      // Deriving x from the clamped width (rather than raw dx) keeps
+      // the pinned edge exactly still when the min-size clamp kicks in.
+      if (fromLeft) b.x = startX + (startW - nw);
+      if (fromTop) b.y = startY + (startH - nh);
+      el.style.width = nw + "px";
+      el.style.height = nh + "px";
+      el.style.left = b.x + "px";
+      el.style.top = b.y + "px";
+      el.classList.add("sized");
     },
   };
 };

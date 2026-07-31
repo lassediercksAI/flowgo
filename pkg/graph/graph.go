@@ -35,6 +35,13 @@ type Box struct {
 	// the invariant. Persisted in the .flowgo text format as a separate
 	// per-map `anchor <id>` directive rather than a positional token.
 	Anchor bool `json:"anchor,omitempty"`
+	// W/H, when both > 0, pin the box to an explicit on-canvas size in
+	// data pixels (the user resized it in the editor). Zero means
+	// auto-size: the box hugs its label like it always has. Persisted
+	// as a separate `boxsize <id> <w> <h>` directive — the positional
+	// slots on the `box` line are all claimed by back-compat baggage.
+	W float64 `json:"w,omitempty"`
+	H float64 `json:"h,omitempty"`
 }
 
 // Edge connects two boxes within the same map.
@@ -322,6 +329,35 @@ func Parse(s string) (Graph, error) {
 			if !found {
 				return g, fmt.Errorf("line %d: linestyle refers to unknown line %q", lineNo, toks[1])
 			}
+		case "boxsize":
+			if len(toks) < 4 {
+				return g, fmt.Errorf("line %d: boxsize needs id, width, and height", lineNo)
+			}
+			bw, err := strconv.ParseFloat(toks[2], 64)
+			if err != nil {
+				return g, fmt.Errorf("line %d: bad boxsize width: %v", lineNo, err)
+			}
+			bh, err := strconv.ParseFloat(toks[3], 64)
+			if err != nil {
+				return g, fmt.Errorf("line %d: bad boxsize height: %v", lineNo, err)
+			}
+			if bw <= 0 || bh <= 0 {
+				// Non-positive dims mean auto-size; ignore rather than
+				// carry garbage (mirrors linestyle's out-of-range skip).
+				break
+			}
+			foundBox := false
+			for i := range g.Maps[cur].Boxes {
+				if g.Maps[cur].Boxes[i].ID == toks[1] {
+					g.Maps[cur].Boxes[i].W = bw
+					g.Maps[cur].Boxes[i].H = bh
+					foundBox = true
+					break
+				}
+			}
+			if !foundBox {
+				return g, fmt.Errorf("line %d: boxsize refers to unknown box %q", lineNo, toks[1])
+			}
 		case "anchor":
 			if len(toks) < 2 {
 				return g, fmt.Errorf("line %d: anchor needs id", lineNo)
@@ -491,6 +527,13 @@ func Serialize(g Graph) string {
 				fmt.Fprintf(&b, " %d", box.Font)
 			}
 			b.WriteString("\n")
+		}
+		// boxsize directives follow the box block (like linestyle after
+		// lines) so parsers see the box before its size annotation.
+		for _, box := range m.Boxes {
+			if box.W > 0 && box.H > 0 {
+				fmt.Fprintf(&b, "boxsize %s %g %g\n", box.ID, box.W, box.H)
+			}
 		}
 		// Single-anchor invariant: emit at most one `anchor <id>` line.
 		// First Anchor=true wins; later occurrences are ignored.

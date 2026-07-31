@@ -16,6 +16,12 @@ import { hasSubmapContent } from "../graph/submap.ts";
 import { resolveFont, resolvePalette } from "../graph/palette.ts";
 import { endpointAnchor } from "./anchors.ts";
 import { updateSelectionToolbar } from "./align.ts";
+import { clearBoxResize, resizingBoxId } from "./resize.ts";
+
+// Corner codes for the resize grips, clockwise from top-left. Matches
+// the ResizeCorner type in movers.ts; the code doubles as the CSS
+// position class (rg-tl etc.) and the dataset key attach.ts reads.
+const RESIZE_CORNERS = ["tl", "tr", "bl", "br"] as const;
 
 interface BoxData {
   id: string;
@@ -25,6 +31,8 @@ interface BoxData {
   palette?: number;
   font?: number;
   anchor?: boolean;
+  w?: number;
+  h?: number;
 }
 
 interface TextData {
@@ -193,6 +201,14 @@ export const renderAll = (): void => {
     el.dataset["id"] = b.id;
     el.style.left = b.x + "px";
     el.style.top = b.y + "px";
+    // Explicit size (resize feature): pin width/height and switch on
+    // the `sized` class so CSS centers the label inside the fixed
+    // frame instead of the box hugging its content.
+    if (b.w && b.h) {
+      el.style.width = b.w + "px";
+      el.style.height = b.h + "px";
+      el.classList.add("sized");
+    }
     const label = document.createElement("span");
     label.className = "box-label";
     label.textContent = b.label;
@@ -202,6 +218,14 @@ export const renderAll = (): void => {
       h.className = "handle h-" + code;
       h.dataset["handle"] = code;
       el.appendChild(h);
+    }
+    // Resize grips, one per corner. Hidden until the box enters
+    // resize mode (E key → `.resizing` class via applyClasses).
+    for (const corner of RESIZE_CORNERS) {
+      const grip = document.createElement("div");
+      grip.className = "resize-grip rg-" + corner;
+      grip.dataset["corner"] = corner;
+      el.appendChild(grip);
     }
     w.canvas.appendChild(el);
     w.attachBoxHandlers(el, b);
@@ -366,11 +390,19 @@ export const applyClasses = (): void => {
   const dropId = w.dropTargetId();
   const dropHandle = w.dropTargetHandle();
   const nearId = w.nearTargetId();
+  // Resize mode only survives while its box stays selected. Selection
+  // moved / cleared / box deleted → the mode drops here, which is the
+  // one funnel every selection change already flows through.
+  const resizeId = resizingBoxId();
+  if (resizeId !== null && !w.selected.has(resizeId)) {
+    clearBoxResize();
+  }
   for (const el of w.canvas.querySelectorAll<HTMLElement>(".box")) {
     const isDrop = el.dataset["id"] === dropId;
     el.classList.toggle("selected", w.selected.has(el.dataset["id"] ?? ""));
     el.classList.toggle("drop-target", isDrop);
     el.classList.toggle("proximity-target", el.dataset["id"] === nearId);
+    el.classList.toggle("resizing", el.dataset["id"] === resizingBoxId());
     // Mark the specific handle on the drop target that would be used
     // if the link drag ended right now. Cleared on every box that
     // isn't the current drop target so a stale `.target` can't

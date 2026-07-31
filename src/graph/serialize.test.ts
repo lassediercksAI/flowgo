@@ -362,4 +362,46 @@ describe("serializeGraph", () => {
       ].join("\n"),
     );
   });
+
+  it("emits boxsize after the box block for explicitly sized boxes", () => {
+    // Mirrors pkg/graph: boxsize directives follow the box lines and
+    // precede the anchor directive; auto-sized boxes emit nothing.
+    expect(
+      serializeGraph({
+        maps: [
+          {
+            path: "/",
+            boxes: [
+              { id: "b1", label: "sized", x: 1, y: 2, w: 180, h: 90, anchor: true },
+              { id: "b2", label: "auto", x: 3, y: 4 },
+            ],
+          },
+        ],
+      }),
+    ).toBe(
+      [
+        "box b1 sized 1 2",
+        "box b2 auto 3 4",
+        "boxsize b1 180 90",
+        "anchor b1",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("skips boxsize when either dimension is missing or non-positive", () => {
+    expect(
+      serializeGraph({
+        maps: [
+          {
+            path: "/",
+            boxes: [
+              { id: "b1", label: "half", x: 0, y: 0, w: 100 },
+              { id: "b2", label: "zero", x: 0, y: 0, w: 0, h: 50 },
+            ],
+          },
+        ],
+      }),
+    ).toBe(["box b1 half 0 0", "box b2 zero 0 0", ""].join("\n"));
+  });
 });

@@ -42,6 +42,7 @@ import {
   renderEdges,
 } from "./render.ts";
 import { flashZoomIndicator, recenter, toDataX, toDataY, viewport } from "./viewport.ts";
+import { clearBoxResize, resizingBoxId, toggleBoxResize } from "./resize.ts";
 
 interface BoxLike {
   id: string;
@@ -51,6 +52,8 @@ interface BoxLike {
   palette?: number;
   font?: number;
   anchor?: boolean;
+  w?: number;
+  h?: number;
 }
 
 interface TextLike {
@@ -391,6 +394,43 @@ export const attachKeyboardListener = (): void => {
       return;
     }
 
+    // E — toggle resize mode on the single selected box (grips appear;
+    // drag a corner to resize). Shift+E resets the box to auto-size.
+    if (!mod && !e.altKey && (e.key === "e" || e.key === "E")) {
+      e.preventDefault();
+      if (w.selected.size !== 1) {
+        w.setStatus("resize needs exactly one selected box");
+        return;
+      }
+      const id = w.selected.values().next().value as string;
+      const box = w.currentMap().boxes.find((b) => b.id === id);
+      if (!box) {
+        w.setStatus("resize only applies to boxes");
+        return;
+      }
+      if (e.shiftKey) {
+        // Back to auto-size: drop the explicit dims and re-render so
+        // the box snaps to hugging its label again.
+        if (box.w !== undefined || box.h !== undefined) {
+          delete box.w;
+          delete box.h;
+          clearBoxResize();
+          mutatedBox();
+          renderAll();
+          w.setStatus("auto-size restored for " + id);
+        }
+        return;
+      }
+      const on = toggleBoxResize(id);
+      applyClasses();
+      w.setStatus(
+        on
+          ? "resize mode — drag a corner grip; E or Escape to finish"
+          : "resize mode off",
+      );
+      return;
+    }
+
     // Palette (1-9) and font scale (Shift + 1-9). Use e.code for the
     // shifted variant so non-US layouts where Shift+digit produces a
     // glyph still work.
@@ -494,6 +534,14 @@ export const attachKeyboardListener = (): void => {
 
     // Escape
     if (e.key === "Escape") {
+      // Resize mode exits first and eats the keypress — so the first
+      // Escape drops the grips but keeps the box selected, and a
+      // second Escape clears the selection as usual.
+      if (resizingBoxId() !== null) {
+        clearBoxResize();
+        applyClasses();
+        return;
+      }
       if (isBrushMode()) {
         setBrushMode(false);
         return;

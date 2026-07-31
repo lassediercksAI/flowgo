@@ -13,6 +13,11 @@ export interface BoxData {
   readonly palette?: number | undefined;
   readonly font?: number | undefined;
   readonly anchor?: boolean | undefined;
+  // Explicit on-canvas size in data px (both set = user resized the
+  // box; absent = auto-size to the label). Serialized as a separate
+  // `boxsize <id> <w> <h>` directive, mirroring pkg/graph.
+  readonly w?: number | undefined;
+  readonly h?: number | undefined;
 }
 
 export interface EdgeData {
@@ -129,6 +134,14 @@ export const serializeGraph = (g: ConcreteGraph): string => {
       if (paletteTok || fontTok) line += " " + (paletteTok || 1);
       if (fontTok) line += " " + fontTok;
       out += line + "\n";
+    }
+
+    // boxsize directives follow the box block (like linestyle after
+    // lines) so parsers see the box before its size annotation.
+    for (const b of m.boxes ?? []) {
+      if (b.w !== undefined && b.h !== undefined && b.w > 0 && b.h > 0) {
+        out += `boxsize ${b.id} ${flowgoNum(b.w)} ${flowgoNum(b.h)}\n`;
+      }
     }
 
     // Single-anchor invariant: emit at most one `anchor <id>` line.
