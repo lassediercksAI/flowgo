@@ -137,9 +137,15 @@ export const makeBoxResizeMover = (
   const startH = b.h ?? el.offsetHeight;
   const fromLeft = corner === "tl" || corner === "bl";
   const fromTop = corner === "tl" || corner === "tr";
+  console.log("[resize] mover constructed", { corner, startW, startH });
+  let loggedFirstApply = false;
   return {
     el,
     apply(dx, dy, ev) {
+      if (!loggedFirstApply) {
+        loggedFirstApply = true;
+        console.log("[resize] mover first apply", { dx, dy });
+      }
       let nw = fromLeft ? startW - dx : startW + dx;
       let nh = fromTop ? startH - dy : startH + dy;
       if (ev?.shiftKey) {
