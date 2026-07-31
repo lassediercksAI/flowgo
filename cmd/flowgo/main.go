@@ -151,6 +151,13 @@ func main() {
 	})
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// No-store: the editor bundle is embedded at build time, so a
+		// browser that heuristically caches this page (no cache headers
+		// = cache at the browser's discretion) keeps serving the OLD
+		// editor after the binary is upgraded or the dev loop restarts
+		// — new features then look broken until a hard reload. The
+		// page is served from memory; re-sending it costs nothing.
+		w.Header().Set("Cache-Control", "no-store, must-revalidate")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(flowgo.IndexHTML))
 	})
