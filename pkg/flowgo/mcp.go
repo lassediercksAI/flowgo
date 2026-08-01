@@ -45,7 +45,7 @@ STYLING (1-9 SCALES)
 - palette: 1=default (white box, black text), 2=inverted (black bg, white text), 3=red, 4=orange, 5=yellow, 6=green, 7=blue, 8=purple, 9=gray. Applies to boxes, edges, texts, lines, strokes.
 - font (boxes, texts): 1=default 14px, scales up to 9 ≈ 56px.
 - style (lines only): 1=straight, 2=smooth bezier, 3=orthogonal right-angle elbows.
-- shape (boxes only): 0=rectangle (default), 1=hexagon. Hexagons render at a fixed 120x104 size in the GUI and snap onto a hex lattice near other hexagons — they never overlap and are not resizable.
+- shape (boxes only): 0=rectangle (default), 1=hexagon. Hexagons render at a fixed 240x208 size in the GUI and snap onto a hex lattice near other hexagons — they never overlap and are not resizable.
 
 EDGE HANDLES
 fromHandle/toHandle pin the connection to a specific side or corner of the source/target box: t (top), r (right), b (bottom), l (left), tl, tr, bl, br. Omit both to let the renderer auto-pick the nearest pair. Edges are undirected — add_edge from A to B is the same edge as B to A; update_edge / delete_edge match in either order.
@@ -100,7 +100,7 @@ Notes:
 - 'map <path>' switches the current map. Paths look like /, /b1,
   /b1/c2. Each path is "the inside of" the box at that path.
 - 'boxshape <id> <shape>' tags a box with a non-default silhouette:
-  1 = hexagon (fixed 120x104, lattice-snapped, not resizable in the
+  1 = hexagon (fixed 240x208, lattice-snapped, not resizable in the
   GUI); 2-9 reserved. Omitted or 0 = rectangle. Emitted after the box
   block so older binaries still parse the geometry.
 - 'anchor <id>' is at most once per map — the per-map recenter target.
@@ -1173,7 +1173,7 @@ func mcpTools() []mcpToolDef {
 			"anchor":  map[string]any{"type": "boolean", "description": "Set true to make this box the map's recenter anchor (clears any prior anchor on the same map). At most one anchor per map."},
 			"w":       schemaNumber("Optional explicit width in data px (min 80). Both w and h must be given to pin the size; omit both for auto-size (box hugs its label). Ignored for hexagons."),
 			"h":       schemaNumber("Optional explicit height in data px (min 36). Both w and h must be given to pin the size; omit both for auto-size. Ignored for hexagons."),
-			"shape":   schemaNumber("Optional shape: 0=rectangle (default), 1=hexagon. Hexagons render at a fixed 120x104 size, snap onto a hex lattice near other hexagons, never overlap, and are not resizable."),
+			"shape":   schemaNumber("Optional shape: 0=rectangle (default), 1=hexagon. Hexagons render at a fixed 240x208 size, snap onto a hex lattice near other hexagons, never overlap, and are not resizable."),
 		}, []string{"label", "x", "y"})
 
 	addTool("update_box",
@@ -1189,7 +1189,7 @@ func mcpTools() []mcpToolDef {
 			"anchor":  map[string]any{"type": "boolean", "description": "true sets this box as the map's anchor (clears any prior); false clears the anchor flag on this box."},
 			"w":       schemaNumber("New explicit width in data px, min 80 (optional; set both w and h). 0 together with h=0 restores auto-size. Ignored for hexagons."),
 			"h":       schemaNumber("New explicit height in data px, min 36 (optional; set both w and h). 0 together with w=0 restores auto-size. Ignored for hexagons."),
-			"shape":   schemaNumber("Optional shape: 0=rectangle (default), 1=hexagon (fixed 120x104, lattice-snapped, not resizable). Combining shape=1 with w/h is an error; becoming a hexagon clears any previously pinned size."),
+			"shape":   schemaNumber("Optional shape: 0=rectangle (default), 1=hexagon (fixed 240x208, lattice-snapped, not resizable). Combining shape=1 with w/h is an error; becoming a hexagon clears any previously pinned size."),
 		}, []string{"id"})
 
 	addTool("delete_box",

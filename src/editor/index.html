@@ -296,8 +296,9 @@
      outline keep rendering outside the hexagon silhouette — the
      shape is painted by two clipped pseudo-elements instead:
      ::before is the border colour at full size, ::after is the fill
-     inset by the border width. Size is fixed at 120x104 (a regular
-     flat-top hexagon, height = width * sqrt(3)/2) and set inline by
+     inset by the border width. Size is fixed at 240x208 (a regular
+     flat-top hexagon, height = width * sqrt(3)/2, sized to hold
+     ~120 characters of wrapped 16px label text) and set inline by
      render.ts — hexes are never resizable; the lattice snap math in
      src/graph/hex.ts depends on the uniform size. */
   .box.hex {
@@ -327,7 +328,12 @@
   .box.hex .box-label {
     position: relative;
     z-index: 2;
-    max-width: 100%;
+    /* 68% of the hex width: with the text block vertically centred,
+       every wrapped line then stays inside the slanted silhouette
+       (the hexagon is narrower than its bounding box away from the
+       middle). Together with the 240x208 size this yields the ~120
+       character capacity documented in src/graph/hex.ts. */
+    max-width: 68%;
     overflow: hidden;
     /* Keep text off the slanted corners. */
     padding: 0 14px;

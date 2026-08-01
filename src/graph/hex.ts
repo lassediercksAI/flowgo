@@ -22,22 +22,28 @@
 // width away from every other centre, which makes overlap physically
 // impossible. Either way two hexagons never overlap.
 
-export const HEX_W = 120;
-// Regular flat-top hexagon height = W·√3/2 = 103.92…, rounded to 104.
-// The 0.08px theoretical overlap between rows is invisible and keeps
-// every cell centre on integer offsets.
-export const HEX_H = 104;
+// Sized so a hexagon holds ~120 characters of wrapped 16px label
+// text. The label is a centred rectangle capped at 68% of the hex
+// width (CSS in index.html) so every line stays inside the slanted
+// silhouette: (0.68·240 − 28px padding) / ~7.7px per char ≈ 17
+// chars per line, × 7 lines of 19.2px within the inscribed height
+// ≈ 120 characters.
+export const HEX_W = 240;
+// Regular flat-top hexagon height = W·√3/2 = 207.85…, rounded to 208.
+// The sub-pixel theoretical overlap between rows is invisible and
+// keeps every cell centre on integer offsets.
+export const HEX_H = 208;
 
 // Centre-to-centre steps of the lattice: a +q neighbour sits 0.75·W
 // to the right and half a row down; a +r neighbour sits one full row
 // straight down.
-export const HEX_COL = HEX_W * 0.75; // 90
-export const HEX_ROW = HEX_H; // 104
+export const HEX_COL = HEX_W * 0.75; // 180
+export const HEX_ROW = HEX_H; // 208
 
 // Magnetic range: snapping engages when the dragged/created hex
 // centre comes within 1.5 rows (~half a cell of edge gap) of another
 // hexagon's centre. Must stay > HEX_W — see the invariant above.
-export const HEX_SNAP_RADIUS = HEX_ROW * 1.5; // 156
+export const HEX_SNAP_RADIUS = HEX_ROW * 1.5; // 312
 
 // How far (in rings) nearestFreeCell searches before giving up. Ring
 // n holds 6·n cells, so 6 rings cover 127 cells — far beyond any
