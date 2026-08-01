@@ -1,0 +1,11 @@
+version v0.1.8
+text t1 Commodity 600 420
+text t2 Product/Rental 295 419.5
+text t3 Custom -40 420
+text t4 Emerging -440 420
+
+line l1 -601.5 -401 799.5 399 1 -600.5 401
+line l2 -198.5 401 -200.5 -396 7
+line l3 797.5 402 795.5 -395 7
+line l4 201.5 396 199.5 -401 7
+line l5 502.5 397 500.5 -400 7
