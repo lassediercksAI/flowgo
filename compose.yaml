@@ -32,6 +32,10 @@ services:
       # URL reachable from other devices. Overrides the image's default
       # (localhost). Defaults to localhost for a bare `docker compose up`.
       FLOWGO_DISPLAY_HOST: ${FLOWGO_DISPLAY_HOST:-localhost}
+      # "1" when the host ran `just hexagon` — _dev-inside adds
+      # --hexagon to the server invocation so the editor starts with
+      # the hexagon setting enabled. Empty for plain `just dev`.
+      FLOWGO_HEXAGON: ${FLOWGO_HEXAGON:-}
     # tini PID 1 — ensures SIGINT from `docker compose up` reaches the
     # bash polling loop so its trap can tear down vite + go cleanly.
     init: true

@@ -18,6 +18,10 @@
 #                 sudo chown -R $(id -u):$(id -g) pkg/flowgo/dist
 #               after the container exits.
 #
+# `just hexagon` — same as `just dev` but the served editor starts
+#               with the hexagon setting on (double-click adds
+#               fixed-size, edge-snapping hexagons; see --hexagon).
+#
 # `just build` / `just test` / `just typecheck` still run on the host
 # and need local pnpm + go. To run them inside the dev container
 # instead, use `docker compose exec dev just <target>`.
@@ -63,7 +67,13 @@ dev file=default_file:
         lan_ip=localhost
         echo "── no LAN IP found — advertising localhost only ──"
     fi
-    FLOWGO_FILE="{{file}}" FLOWGO_DISPLAY_HOST="$lan_ip" docker compose up --build
+    FLOWGO_FILE="{{file}}" FLOWGO_DISPLAY_HOST="$lan_ip" FLOWGO_HEXAGON="${FLOWGO_HEXAGON:-}" docker compose up --build
+
+# Re-enters `dev` with FLOWGO_HEXAGON exported so the LAN-IP detection
+# and compose wiring stay in one place.
+# Dev stack with the hexagon setting on (double-click adds hexagons).
+hexagon file=default_file:
+    FLOWGO_HEXAGON=1 just dev "{{file}}"
 
 # Stop the dev container and free its forwarded ports.
 dev-down:
@@ -173,9 +183,13 @@ _dev-inside:
         fi
         echo "── restarting flowgo ──────────────────────────────────"
         # --host (bind 0.0.0.0) so the forwarded host port reaches us.
+        # --hexagon when the host invoked `just hexagon` (flag travels
+        # via the FLOWGO_HEXAGON env through compose).
         # FLOWGO_NO_OPEN is baked into the image so the binary doesn't
         # try to xdg-open from a container that has no browser.
-        "$BIN" "$file" --host &
+        flags=(--host)
+        [[ "${FLOWGO_HEXAGON:-}" == "1" ]] && flags+=(--hexagon)
+        "$BIN" "$file" "${flags[@]}" &
         GO_PID=$!
         touch "$marker"
     }
