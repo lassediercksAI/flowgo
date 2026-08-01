@@ -24,3 +24,9 @@ node_modules
 # Anchored to the repo root so pkg/graph/map.flowgo stays tracked.
 /map.flowgo
 /flowgo-media/
+
+# Local preset-authoring sandbox. The CANONICAL, shipped presets live
+# in pkg/flowgo/presets/ (go:embed). Author here with `flowgo
+# presets/<name>`, then copy the .flowgo into pkg/flowgo/presets/
+# when it should ship in the binary.
+/presets/
