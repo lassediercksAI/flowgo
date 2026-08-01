@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.1.9](https://github.com/lassediercks/flowgo/compare/v0.1.8...v0.1.9) (2026-08-01)
+
+
+### Features
+
+* **cli:** embedded presets — flowgo &lt;name&gt; --preset &lt;preset&gt; ([395ab38](https://github.com/lassediercks/flowgo/commit/395ab38f1b616fa39ec7db56ed39cce3eb415b93))
+* **cli:** ship the wardley preset ([957de40](https://github.com/lassediercks/flowgo/commit/957de40a52571d0a06a51dc1789650a636ce3345))
+* **dev:** just hexagon — dev stack with the hexagon setting on ([6bb3ca6](https://github.com/lassediercks/flowgo/commit/6bb3ca64732bb551ce393aa688ec524e95cc40aa))
+* **editor:** box resizing via E-key resize mode ([#1](https://github.com/lassediercks/flowgo/issues/1)f2) ([25a6bc9](https://github.com/lassediercks/flowgo/commit/25a6bc9f702c08a76490e331a86589ff27ff2843))
+* **editor:** engage hexagon snap only when edges are nearly touching ([8080125](https://github.com/lassediercks/flowgo/commit/8080125f110adad55f18c0ebde84848e5a088e30))
+* **editor:** hexagon setting — double-click spawns snapping hexagons ([#1](https://github.com/lassediercks/flowgo/issues/1)f3) ([7b1efbc](https://github.com/lassediercks/flowgo/commit/7b1efbc19bbee1a34916c1b81e11547ab0f28ad2))
+* **editor:** hexagon-aware link drops and vertex edge anchors ([da65a6e](https://github.com/lassediercks/flowgo/commit/da65a6ed84869c42222ed3c96b5bce921a77cf62))
+* **editor:** maps can declare they open in hexagon mode ([9dfa797](https://github.com/lassediercks/flowgo/commit/9dfa797a8e41d0ee16ddddec844c83be64f3a2cd))
+* **editor:** size hexagons to hold ~120 characters of label text ([a8824cf](https://github.com/lassediercks/flowgo/commit/a8824cf3a11cb5e3ade6d3be4300377b2507b24e))
+* **editor:** sized-box labels wrap to the frame and ellipsise overflow ([b778836](https://github.com/lassediercks/flowgo/commit/b77883691286a880d56c45b9c6c5cb2dcebb24bf))
+* **editor:** T arms text mode; double-click places a text label ([ac5174e](https://github.com/lassediercks/flowgo/commit/ac5174ecd8bbae96c1c254c436d4fd8fd7d9673e))
+
+
+### Bug Fixes
+
+* **server:** no-store on the editor page so upgrades aren't served stale ([d67eb3a](https://github.com/lassediercks/flowgo/commit/d67eb3a559662bb2b44b31b0ab9f33657b678c3a))
+* three-points map ([e0b447d](https://github.com/lassediercks/flowgo/commit/e0b447d875384b2e1f1c9dfcca1919b766a5172a))
+
 ## [0.1.8](https://github.com/lassediercks/flowgo/compare/v0.1.7...v0.1.8) (2026-07-22)
 
 
