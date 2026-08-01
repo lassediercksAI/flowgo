@@ -482,7 +482,6 @@ export const attachBoxHandlers = (
       e.preventDefault();
       e.stopPropagation();
       const corner = target.dataset["corner"] as ResizeCorner | undefined;
-      console.log("[resize] grip mousedown", { boxId: b.id, corner });
       if (!corner) return;
       w.setDrag({
         movers: [makeBoxResizeMover(b, el, corner)],

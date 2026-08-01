@@ -296,18 +296,6 @@ const applyLineStyle = (style: number): boolean => {
 export const attachKeyboardListener = (): void => {
   document.addEventListener("keydown", (e) => {
     const w = must();
-    // [resize] debug probe — logs BEFORE any gate so we can tell
-    // "handler not installed" from "gate ate the keypress". Remove
-    // once the resize investigation (#1f2 follow-up) is closed.
-    if (e.key === "e" || e.key === "E") {
-      console.log("[resize] keydown E reached handler", {
-        editing: isEditing(),
-        selected: [...w.selected],
-        mod: e.metaKey || e.ctrlKey,
-        alt: e.altKey,
-        shift: e.shiftKey,
-      });
-    }
     if (e.key === "Escape" && isHelpOpen()) {
       setHelpOpen(false);
       return;
@@ -430,14 +418,12 @@ export const attachKeyboardListener = (): void => {
     if (!mod && !e.altKey && (e.key === "e" || e.key === "E")) {
       e.preventDefault();
       if (w.selected.size !== 1) {
-        console.log("[resize] blocked: need exactly 1 selected, have", w.selected.size);
         w.setStatus("resize needs exactly one selected box");
         return;
       }
       const id = w.selected.values().next().value as string;
       const box = w.currentMap().boxes.find((b) => b.id === id);
       if (!box) {
-        console.log("[resize] blocked: selected id is not a box:", id);
         w.setStatus("resize only applies to boxes");
         return;
       }
@@ -445,7 +431,6 @@ export const attachKeyboardListener = (): void => {
       // depends on every hex sharing the fixed size, so resize (and
       // auto-size reset) is refused outright.
       if (box.shape === 1) {
-        console.log("[resize] blocked: hexagons have a fixed size:", id);
         w.setStatus("hexagons have a fixed size and can't be resized");
         return;
       }
@@ -464,23 +449,6 @@ export const attachKeyboardListener = (): void => {
       }
       const on = toggleBoxResize(id);
       applyClasses();
-      // [resize] debug: confirm the class + grips actually landed in
-      // the DOM after applyClasses. If `resizingEls` is 0 while
-      // `on` is true, the class toggle is broken; if grips is 0 the
-      // render didn't create them; if gripDisplay isn't "block" the
-      // CSS didn't take.
-      const resizingEls = document.querySelectorAll(".box.resizing");
-      const grips = document.querySelectorAll(".box.resizing .resize-grip");
-      console.log("[resize] toggled", {
-        on,
-        id,
-        resizingEls: resizingEls.length,
-        grips: grips.length,
-        gripDisplay:
-          grips.length > 0
-            ? getComputedStyle(grips[0] as Element).display
-            : "n/a",
-      });
       w.setStatus(
         on
           ? "resize mode — drag a corner grip; E or Escape to finish"
