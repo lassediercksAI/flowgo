@@ -154,6 +154,48 @@ const createHexBoxAt = (center: { x: number; y: number }): void => {
   }
 };
 
+// Spawn a new box centred on a link-drop point (releasing a
+// connection drag over empty space). Hex-aware: with the hexagon
+// setting on, the spawned box is a hexagon snapped onto the lattice
+// near its neighbours, exactly like a double-click spawn. Unlike
+// createBoxAt this does NOT select, edit, or record the mutation —
+// the caller still has to attach the edge and owns the commit, so
+// undo captures box + edge as one step.
+//
+// Returns null when the rendered element can't be found (render
+// failed); callers skip the edge in that case.
+export const spawnBoxForLinkDrop = (
+  dropX: number,
+  dropY: number,
+): { box: BoxLike; el: HTMLElement } | null => {
+  const w = must();
+  const id = w.mintId();
+  const boxes = w.currentMap().boxes;
+  let b: BoxLike;
+  if (isHexMode()) {
+    const c = snapHexCenter({ x: dropX, y: dropY }, hexCenters(boxes)) ??
+      { x: dropX, y: dropY };
+    b = { id, label: "new", x: c.x - HEX_W / 2, y: c.y - HEX_H / 2, shape: 1 };
+    boxes.push(b);
+    renderAll();
+  } else {
+    b = { id, label: "new", x: dropX, y: dropY };
+    boxes.push(b);
+    renderAll();
+    // Rectangles auto-size to their label, so centre on the drop
+    // point only after the element exists and can be measured.
+    const el = w.canvas.querySelector<HTMLElement>(`.box[data-id="${id}"]`);
+    if (el) {
+      b.x = dropX - el.offsetWidth / 2;
+      b.y = dropY - el.offsetHeight / 2;
+      el.style.left = b.x + "px";
+      el.style.top = b.y + "px";
+    }
+  }
+  const el = w.canvas.querySelector<HTMLElement>(`.box[data-id="${id}"]`);
+  return el ? { box: b, el } : null;
+};
+
 export const createTextAt = (cx: number, cy: number): void => {
   const w = must();
   const id = w.mintId("t");

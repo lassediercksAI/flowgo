@@ -17,6 +17,9 @@ import type { Box2D, Vec2 } from "../graph/types.ts";
 interface BoxLike {
   readonly x: number;
   readonly y: number;
+  // Silhouette selector (0/undefined rect, 1 hexagon) — forwarded to
+  // the pure layer so hexagon corners anchor at the true vertices.
+  readonly shape?: number | undefined;
 }
 
 const boxFor = (el: HTMLElement, b: BoxLike): Box2D => ({
@@ -30,14 +33,14 @@ export const handleAnchor = (
   el: HTMLElement,
   b: BoxLike,
   code: HandleCode,
-): Vec2 => handleAnchorPure(boxFor(el, b), code);
+): Vec2 => handleAnchorPure(boxFor(el, b), code, b.shape);
 
 export const nearestHandle = (
   b: BoxLike,
   el: HTMLElement,
   fx: number,
   fy: number,
-): HandleCode => nearestHandlePure(boxFor(el, b), [fx, fy]);
+): HandleCode => nearestHandlePure(boxFor(el, b), [fx, fy], b.shape);
 
 // Decide which handle on a target box would receive a connection if
 // the link drag ended right now. Used by both the move handlers
@@ -67,13 +70,13 @@ export const pickTargetHandle = (
   return nearestHandle(targetBox, targetEl, fromX, fromY);
 };
 
-// Resolve an edge endpoint to a screen-space point. All boxes are
-// rectangles now; use the named handle if stored, or fall back to the
-// nearest one.
+// Resolve an edge endpoint to a screen-space point. Uses the named
+// handle if stored, or falls back to the nearest one; shape-aware so
+// hexagon endpoints land on the silhouette.
 export const endpointAnchor = (
   b: BoxLike,
   el: HTMLElement,
   code: string | null | undefined,
   towardX: number,
   towardY: number,
-): Vec2 => rectAnchor(boxFor(el, b), code, [towardX, towardY]);
+): Vec2 => rectAnchor(boxFor(el, b), code, [towardX, towardY], b.shape);

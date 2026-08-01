@@ -23,7 +23,7 @@ import { startEdit } from "./edit.ts";
 import { settleHexBoxes } from "./hex.ts";
 import { nearestHandle, pickTargetHandle } from "./anchors.ts";
 import { addOrReplaceEdge as addOrReplaceEdgePure } from "../graph/edge.ts";
-import { createBoxAt } from "./factories.ts";
+import { createBoxAt, spawnBoxForLinkDrop } from "./factories.ts";
 import {
   mutatedCurrentMap,
   mutatedEdge,
@@ -358,29 +358,22 @@ const onMouseUp = (e: MouseEvent): void => {
       mutatedEdge();
       renderEdges();
     } else {
-      // Dropped in empty space: spawn a new box at the cursor and
-      // connect to it.
-      const newId = w.mintId();
-      const dropX = toDataX(e.clientX);
-      const dropY = toDataY(e.clientY);
-      const newBox: BoxLike = { id: newId, label: "new", x: dropX, y: dropY };
-      const map = w.currentMap();
-      map.boxes.push(newBox);
-      renderAll();
-      const newEl = w.canvas.querySelector<HTMLElement>(`.box[data-id="${newId}"]`);
-      if (newEl) {
-        newBox.x = dropX - newEl.offsetWidth / 2;
-        newBox.y = dropY - newEl.offsetHeight / 2;
-        newEl.style.left = newBox.x + "px";
-        newEl.style.top = newBox.y + "px";
+      // Dropped in empty space: spawn a new box at the cursor (a
+      // lattice-snapped hexagon when the hexagon setting is on) and
+      // connect to it. spawnBoxForLinkDrop leaves the commit to us
+      // so box + edge land as one undo step.
+      const spawned = spawnBoxForLinkDrop(toDataX(e.clientX), toDataY(e.clientY));
+      if (spawned) {
+        const { box: newBox, el: newEl } = spawned;
+        const map = w.currentMap();
         const toCode = nearestHandle(newBox, newEl, link.startX, link.startY);
-        const newEdge: EdgeLike = { from: link.fromId, to: newId };
+        const newEdge: EdgeLike = { from: link.fromId, to: newBox.id };
         if (link.fromHandle) newEdge.fromHandle = link.fromHandle;
         if (toCode) newEdge.toHandle = toCode;
         map.edges = addOrReplaceEdgePure(map.edges, newEdge);
         renderEdges();
         w.selected.clear();
-        w.selected.add(newId);
+        w.selected.add(newBox.id);
         applyClasses();
         startEdit(newEl, newBox, { cancelDeletes: true });
       }

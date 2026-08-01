@@ -339,6 +339,23 @@
     padding: 0 14px;
   }
   .box.hex .handle { z-index: 3; }
+  /* Corner handle dots move to the hexagon's actual top/bottom
+     vertices (25% / 75% of the width) instead of the bounding-box
+     corners, matching the shape-aware anchor math in
+     src/graph/handle.ts — the dot sits where the edge will connect.
+     Sides (l/r) and top/bottom midpoints already lie on the
+     silhouette and keep their rectangle positions. `right: auto`
+     neutralises the right-anchored rectangle rules for tr/br. */
+  .box.hex .h-tl { top: -20px;    left: 25%;  right: auto; transform: translateX(-50%); }
+  .box.hex .h-tr { top: -20px;    left: 75%;  right: auto; transform: translateX(-50%); }
+  .box.hex .h-bl { bottom: -20px; left: 25%;  right: auto; transform: translateX(-50%); }
+  .box.hex .h-br { bottom: -20px; left: 75%;  right: auto; transform: translateX(-50%); }
+  @media (pointer: coarse) {
+    .box.hex .h-tl { top: -28px; }
+    .box.hex .h-tr { top: -28px; }
+    .box.hex .h-bl { bottom: -28px; }
+    .box.hex .h-br { bottom: -28px; }
+  }
   /* State overrides: the rectangle rules above set background /
      box-shadow / outline on .box directly; hexes translate each cue
      into the pseudo-element border + a drop-shadow, which follows the

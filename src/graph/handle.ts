@@ -1,6 +1,15 @@
-// Edge-anchor math for rectangular boxes. Each of the eight handle
-// codes (top, right, bottom, left, four corners) maps to a fixed point
-// on the box outline. Pure functions over Box2D — no DOM access.
+// Edge-anchor math for boxes. Each of the eight handle codes (top,
+// right, bottom, left, four corners) maps to a fixed point on the box
+// outline. Pure functions over Box2D — no DOM access.
+//
+// Shape-aware: rectangles (shape 0 / undefined) anchor corners at the
+// bounding-box vertices; hexagons (shape 1, flat-top silhouette
+// polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%)) anchor
+// the diagonal codes at the hexagon's actual top/bottom vertices —
+// 25% / 75% of the width — so edges visually touch the shape instead
+// of floating at the clipped-off bounding-box corners. t/b stay at
+// the top/bottom edge midpoints and l/r at the side vertices, all of
+// which lie exactly on the hexagon outline already.
 
 import type { Box2D, Vec2 } from "./types";
 
@@ -10,35 +19,57 @@ export const HANDLE_CODES: readonly HandleCode[] = [
   "t", "r", "b", "l", "tl", "tr", "bl", "br",
 ];
 
+// Box shape identifiers, mirroring graph.Box.Shape (Go) and the
+// BoxData.shape wire field. Only these two exist today; 2-9 reserved.
+export const SHAPE_RECT = 0;
+export const SHAPE_HEX = 1;
+
 const isHandleCode = (s: string): s is HandleCode =>
   s === "t" || s === "r" || s === "b" || s === "l" ||
   s === "tl" || s === "tr" || s === "bl" || s === "br";
 
-// Anchor point for a handle code on a rectangle. Corners sit at the
-// box vertices; edge handles sit at the midpoints of each side.
-export const handleAnchor = (box: Box2D, code: HandleCode): Vec2 => {
+// Horizontal inset factor for a flat-top hexagon's top/bottom
+// vertices: they sit at 25% and 75% of the width.
+const HEX_CORNER = 0.25;
+
+// Anchor point for a handle code on a box outline. `shape` selects
+// the silhouette; omitted / unknown values fall back to rectangle.
+export const handleAnchor = (
+  box: Box2D,
+  code: HandleCode,
+  shape?: number,
+): Vec2 => {
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;
+  const hex = shape === SHAPE_HEX;
+  // Corner x-positions: bounding-box vertices for rectangles, the
+  // 25% / 75% hexagon vertices for hexes.
+  const leftX = hex ? box.x + box.width * HEX_CORNER : box.x;
+  const rightX = hex ? box.x + box.width * (1 - HEX_CORNER) : box.x + box.width;
   switch (code) {
     case "t":  return [cx, box.y];
     case "b":  return [cx, box.y + box.height];
     case "l":  return [box.x, cy];
     case "r":  return [box.x + box.width, cy];
-    case "tl": return [box.x, box.y];
-    case "tr": return [box.x + box.width, box.y];
-    case "bl": return [box.x, box.y + box.height];
-    case "br": return [box.x + box.width, box.y + box.height];
+    case "tl": return [leftX, box.y];
+    case "tr": return [rightX, box.y];
+    case "bl": return [leftX, box.y + box.height];
+    case "br": return [rightX, box.y + box.height];
   }
 };
 
 // Pick the handle whose anchor is closest to (fx, fy). Used when an
 // edge has no stored handle preference and we need to pick one that
 // looks reasonable for the geometry.
-export const nearestHandle = (box: Box2D, target: Vec2): HandleCode => {
+export const nearestHandle = (
+  box: Box2D,
+  target: Vec2,
+  shape?: number,
+): HandleCode => {
   let best: HandleCode = "r";
   let bestD = Infinity;
   for (const code of HANDLE_CODES) {
-    const [hx, hy] = handleAnchor(box, code);
+    const [hx, hy] = handleAnchor(box, code, shape);
     const d = Math.hypot(hx - target[0], hy - target[1]);
     if (d < bestD) {
       bestD = d;
@@ -55,7 +86,8 @@ export const rectAnchor = (
   box: Box2D,
   code: string | null | undefined,
   target: Vec2,
+  shape?: number,
 ): Vec2 => {
-  const c = code && isHandleCode(code) ? code : nearestHandle(box, target);
-  return handleAnchor(box, c);
+  const c = code && isHandleCode(code) ? code : nearestHandle(box, target, shape);
+  return handleAnchor(box, c, shape);
 };
