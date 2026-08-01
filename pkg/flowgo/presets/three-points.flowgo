@@ -1,16 +1,7 @@
-version v0.1.8
-box b1 new 75.75 -319.75
-box b2 new -174.25 -504.25
-box b3 e -77.5 -587.5
-box b4 eeenew 456.5 -469.5
-box b5 new -288.5 -666.5
-
-edge b2:tr b3:bl
-edge b3:b b4:t
-edge b3:tl b5:br
-
-text t1 Time 728 311.5 1 6
-text t2 Energy -709 -406.5 1 6
-
-line l1 -601.5 -400 801.5 300.98 1 -602.5 301
-line l2 -602.5 277 -602.5 437
+version 0.1.9-0.20260801120705-8edae7d0c33d+dirty
+box b1 "\"It doesn't matter too much what we do, as long as we act decisively, no time for investigateion or hypothesis testing" 1436 828.5
+box b2 "We would all know what to do with the benefit of hindsight, but couldn't\nknow in advance - there are multiple coherent ideas about what to do" 770 11.5
+box b3 "It doesn't matter too much what we do, as long as we act decisively, no time for investigateion or hypothesis testing" 40 831.5
+boxsize b1 303 132
+boxsize b2 266 170
+boxsize b3 268 130
