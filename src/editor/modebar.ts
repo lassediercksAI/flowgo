@@ -1,36 +1,41 @@
 // Touch-only mode bar: pinned to the right edge so coarse-pointer
-// users can switch between cursor / brush / line modes that desktop
-// users hit with the V / B / L keys, plus a latch for the persistent
-// hexagon setting (double-click spawns hexagons) that desktop users
-// flip in the ⚙ settings popover. Visibility is controlled by CSS
-// (`body.touch-input #modeBar`) so the bar simply doesn't render on
-// fine-pointer devices.
+// users can switch between cursor / brush / line / text modes that
+// desktop users hit with the V / B / L / T keys, plus a latch for the
+// persistent hexagon setting (double-click spawns hexagons) that
+// desktop users flip in the ⚙ settings popover. Visibility is
+// controlled by CSS (`body.touch-input #modeBar`) so the bar simply
+// doesn't render on fine-pointer devices.
 //
 // The bar reads current state from body class flags (`.brush-mode` /
-// `.line-mode` / `.hex-mode`, owned by brush.ts / line.ts / hex.ts)
-// and keeps its highlights in sync via a MutationObserver, so
-// keyboard toggles, the settings popover, and button taps all land
-// on the same source of truth.
+// `.line-mode` / `.text-mode` / `.hex-mode`, owned by brush.ts /
+// line.ts / text-mode.ts / hex.ts) and keeps its highlights in sync
+// via a MutationObserver, so keyboard toggles, the settings popover,
+// and button taps all land on the same source of truth. Text mode is
+// single-shot (placing a text item exits it), and the observer means
+// the highlight falls back to cursor automatically when that happens.
 //
-// Mode buttons (cursor/brush/line) are mutually exclusive; the hex
-// latch is independent — it changes what a double-click creates, not
-// which tool is active, so it can be on in any mode.
+// Mode buttons (cursor/brush/line/text) are mutually exclusive; the
+// hex latch is independent — it changes what a double-click creates,
+// not which tool is active, so it can be on in any mode.
 
 import { isBrushMode, setBrushMode } from "./brush.ts";
 import { isHexMode, setHexMode } from "./hex.ts";
 import { isLineMode, setLineMode } from "./line.ts";
+import { isTextMode, setTextMode } from "./text-mode.ts";
 
-type Mode = "cursor" | "brush" | "line";
+type Mode = "cursor" | "brush" | "line" | "text";
 
 const currentMode = (): Mode => {
   if (isBrushMode()) return "brush";
   if (isLineMode()) return "line";
+  if (isTextMode()) return "text";
   return "cursor";
 };
 
 const setMode = (m: Mode): void => {
   setBrushMode(m === "brush");
   setLineMode(m === "line");
+  setTextMode(m === "text");
 };
 
 const ns = "http://www.w3.org/2000/svg";
@@ -83,6 +88,18 @@ const iconHex = (): SVGSVGElement => svgEl(20, (svg) => {
     "M17 10 L13.5 16.06 L6.5 16.06 L3 10 L6.5 3.94 L13.5 3.94 Z",
   );
   svg.appendChild(p);
+});
+
+// Capital "T" glyph — text mode places a text label on double-tap.
+const iconText = (): SVGSVGElement => svgEl(20, (svg) => {
+  const bar = document.createElementNS(ns, "line");
+  bar.setAttribute("x1", "4");  bar.setAttribute("y1", "4");
+  bar.setAttribute("x2", "16"); bar.setAttribute("y2", "4");
+  svg.appendChild(bar);
+  const stem = document.createElementNS(ns, "line");
+  stem.setAttribute("x1", "10"); stem.setAttribute("y1", "4");
+  stem.setAttribute("x2", "10"); stem.setAttribute("y2", "16");
+  svg.appendChild(stem);
 });
 
 // Diagonal segment with two endpoint dots.
@@ -147,6 +164,7 @@ export const attachModeBar = (): void => {
   make("cursor", "Cursor",  iconCursor());
   make("brush",  "Brush",   iconBrush());
   make("line",   "Line",    iconLine());
+  make("text",   "Text",    iconText());
 
   // Hexagon latch — independent of the exclusive mode cycle above.
   // Toggles the persistent setting; highlight mirrors isHexMode().
@@ -183,9 +201,10 @@ export const attachModeBar = (): void => {
   };
   sync();
 
-  // Keyboard shortcuts (V / B / L) toggle the modes by flipping body
-  // class flags in brush.ts / line.ts. Watch those flags so the active
-  // highlight stays in sync without polling.
+  // Keyboard shortcuts (V / B / L / T) toggle the modes by flipping
+  // body class flags in brush.ts / line.ts / text-mode.ts. Watch those
+  // flags so the active highlight stays in sync without polling (this
+  // also catches text mode's self-exit after placing a text item).
   const mo = new MutationObserver(sync);
   mo.observe(document.body, { attributes: true, attributeFilter: ["class"] });
 

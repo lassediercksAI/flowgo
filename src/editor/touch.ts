@@ -52,7 +52,8 @@ import { enterSubmap } from "./navigation.ts";
 import { handleAnchor, nearestHandle, pickTargetHandle } from "./anchors.ts";
 import { addOrReplaceEdge as addOrReplaceEdgePure } from "../graph/edge.ts";
 import { findBoxAt } from "./mouse.ts";
-import { createBoxAt, deleteSelection } from "./factories.ts";
+import { createBoxAt, createTextAt, deleteSelection } from "./factories.ts";
+import { isTextMode, setTextMode } from "./text-mode.ts";
 import { settleHexBoxes } from "./hex.ts";
 import { mutatedCurrentMap, mutatedEdge } from "./mutations.ts";
 import { classifyTap, movedBeyond, type TapRecord } from "./gestures.ts";
@@ -723,7 +724,16 @@ const onTouchEnd = (e: TouchEvent): void => {
       if (tap.kind === "double") {
         const dx = toDataX(t.clientX);
         const dy = toDataY(t.clientY);
-        createBoxAt(dx, dy, { x: dx, y: dy });
+        if (isTextMode()) {
+          // Text mode (armed from the mode bar): the double-tap places
+          // a text item instead of a box. Single-shot, mirroring the
+          // dblclick path in mouse.ts — the mode exits before the spawn
+          // so the next double-tap creates a box again.
+          setTextMode(false);
+          createTextAt(dx, dy);
+        } else {
+          createBoxAt(dx, dy, { x: dx, y: dy });
+        }
       } else if (w.selected.size > 0 || w.selectedEdge()) {
         w.selected.clear();
         if (w.selectedEdge()) {
