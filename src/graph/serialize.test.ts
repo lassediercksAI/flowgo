@@ -435,3 +435,23 @@ describe("serializeGraph", () => {
     ).toBe(["box b1 half 0 0", "box b2 zero 0 0", ""].join("\n"));
   });
 });
+
+describe("hexagons document directive", () => {
+  it("emits `hexagons on` after version when the flag is set", () => {
+    expect(
+      serializeGraph({
+        version: "1.2.3",
+        hexagons: true,
+        maps: [{ path: "/", boxes: [{ id: "b1", label: "x", x: 0, y: 0 }] }],
+      }),
+    ).toBe(["version 1.2.3", "hexagons on", "box b1 x 0 0", ""].join("\n"));
+  });
+
+  it("emits nothing when the flag is absent or false", () => {
+    const out = serializeGraph({
+      hexagons: false,
+      maps: [{ path: "/", boxes: [{ id: "b1", label: "x", x: 0, y: 0 }] }],
+    });
+    expect(out).not.toContain("hexagons");
+  });
+});

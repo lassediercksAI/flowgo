@@ -32,6 +32,11 @@ interface HexBoxLike {
 
 interface HexBindings {
   readonly setStatus: (s: string) => void;
+  // Persist the preference into the open document (graph.hexagons +
+  // schedule a save) so the map itself remembers it — the format's
+  // `hexagons on` directive. Called on explicit user toggles only,
+  // never when the document's own flag is being applied at load.
+  readonly writeDocumentFlag?: (on: boolean) => void;
 }
 
 let bindings: HexBindings | null = null;
@@ -85,12 +90,29 @@ export const setHexMode = (on: boolean): void => {
   } catch {
     // Setting persists for the session only; still fully functional.
   }
+  // An explicit toggle is also the document's preference from now on
+  // — write it into the graph so the map reopens the same way
+  // everywhere (the `hexagons on` directive).
+  must().writeDocumentFlag?.(on);
   document.body.classList.toggle("hex-mode", hexMode);
   must().setStatus(
     hexMode
       ? "hexagons on — double-click adds a hexagon"
       : "hexagons off — double-click adds a box",
   );
+};
+
+// Apply the freshly loaded document's own preference. Only an
+// explicit `hexagons on` forces anything — it enables the setting
+// for this session WITHOUT touching localStorage (opening someone
+// else's hexagon map shouldn't rewrite your browser default) and
+// without writing back to the document (it already says so). An
+// absent / false flag leaves the browser preference in charge.
+export const applyDocumentHexPreference = (on: boolean): void => {
+  if (!on || hexMode) return;
+  hexMode = true;
+  document.body.classList.toggle("hex-mode", true);
+  must().setStatus("hexagons on — this map opens in hexagon mode");
 };
 
 // Centres of every hexagon box, minus any excluded ids (the dragged

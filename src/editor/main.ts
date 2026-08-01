@@ -25,7 +25,7 @@ import {
   withSuppressedViewSync,
 } from "./viewport.ts";
 import { isBrushMode, wireBrush } from "./brush.ts";
-import { isHexMode, setHexMode, wireHex } from "./hex.ts";
+import { applyDocumentHexPreference, isHexMode, setHexMode, wireHex } from "./hex.ts";
 import { wireLine } from "./line.ts";
 import { wireTextMode } from "./text-mode.ts";
 import { wireClipboard } from "./clipboard.ts";
@@ -235,7 +235,13 @@ wireEdit({
 
 wirePersistence({
   getGraph: () => graph,
-  setGraph: (g) => { graph = g; },
+  setGraph: (g) => {
+    graph = g;
+    // A loaded document that carries `hexagons on` switches the
+    // session into hexagon mode (load / import / undo / redo all
+    // funnel through here). Absent flag = browser preference rules.
+    applyDocumentHexPreference(!!g.hexagons);
+  },
   serializeGraph: serializeGraphPure,
   setCurrentPath: (p, opts) => navigateTo(p, opts),
   getCurrentPath: () => currentPath,
@@ -309,6 +315,14 @@ wireTextMode({
 
 wireHex({
   setStatus,
+  // Explicit toggles become the document's preference: stamp the
+  // graph and save, so this map reopens in the same mode anywhere
+  // (the format's `hexagons on` directive).
+  writeDocumentFlag: (on) => {
+    if (on) graph.hexagons = true;
+    else delete graph.hexagons;
+    scheduleSave();
+  },
 });
 
 wireMedia({

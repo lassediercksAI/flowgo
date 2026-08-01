@@ -148,3 +148,25 @@ func TestActUpdateBox_RejectsNegativeSize(t *testing.T) {
 		t.Fatalf("expected positive-dims error, got %v", err)
 	}
 }
+
+func TestActSetHexagons(t *testing.T) {
+	g := freshGraph()
+	if _, err := actSetHexagons(g, map[string]any{"on": true}); err != nil {
+		t.Fatalf("set on: %v", err)
+	}
+	if !g.Hexagons {
+		t.Fatal("flag not set")
+	}
+	if _, err := actSetHexagons(g, map[string]any{"on": false}); err != nil {
+		t.Fatalf("set off: %v", err)
+	}
+	if g.Hexagons {
+		t.Fatal("flag not cleared")
+	}
+	if _, err := actSetHexagons(g, map[string]any{"on": "yes"}); err == nil {
+		t.Fatal("non-boolean must error")
+	}
+	if _, err := actSetHexagons(g, map[string]any{}); err == nil {
+		t.Fatal("missing arg must error")
+	}
+}

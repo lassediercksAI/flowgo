@@ -130,6 +130,14 @@ type NamedMap struct {
 type Graph struct {
 	Version string     `json:"version,omitempty"`
 	Maps    []NamedMap `json:"maps"`
+	// Hexagons records the document's wish to open in hexagon mode:
+	// when true, the editor enables the hexagon setting for the
+	// session (double-click adds hexagons) regardless of the
+	// browser-local preference. Persisted as a document-level
+	// `hexagons on` directive right after `version`. False is the
+	// zero value and is not emitted — an absent directive means "no
+	// preference, use the browser default".
+	Hexagons bool `json:"hexagons,omitempty"`
 }
 
 // Parse reads the .flowgo text format and returns the resulting Graph.
@@ -170,6 +178,24 @@ func Parse(s string) (Graph, error) {
 				return g, fmt.Errorf("line %d: version needs a value", lineNo)
 			}
 			g.Version = toks[1]
+		case "hexagons":
+			// Document-level preference: `hexagons on` asks the editor
+			// to enable the hexagon setting when this file is opened.
+			// Bare `hexagons` counts as on; explicit off tokens parse
+			// but leave the zero value (so a hand-written `hexagons
+			// off` round-trips to an absent directive — same meaning).
+			if len(toks) < 2 {
+				g.Hexagons = true
+				break
+			}
+			switch toks[1] {
+			case "on", "1", "true":
+				g.Hexagons = true
+			case "off", "0", "false":
+				g.Hexagons = false
+			default:
+				return g, fmt.Errorf("line %d: hexagons wants on or off, got %q", lineNo, toks[1])
+			}
 		case "map":
 			if len(toks) < 2 {
 				return g, fmt.Errorf("line %d: map needs path", lineNo)
@@ -483,6 +509,11 @@ func Serialize(g Graph) string {
 	var b strings.Builder
 	if g.Version != "" {
 		fmt.Fprintf(&b, "version %s\n", g.Version)
+	}
+	// Document preference: emitted only when set, directly after
+	// version. Part of the byte-parity contract with the TS serializer.
+	if g.Hexagons {
+		b.WriteString("hexagons on\n")
 	}
 	var nonEmpty []NamedMap
 	for _, m := range g.Maps {

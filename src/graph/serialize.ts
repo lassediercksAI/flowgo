@@ -84,6 +84,10 @@ export interface ConcreteMap extends MapLike {
 
 export interface ConcreteGraph extends GraphLike {
   readonly maps?: ReadonlyArray<ConcreteMap>;
+  // Document-level preference: true asks the editor to open with the
+  // hexagon setting enabled. Serialized as `hexagons on` after the
+  // version directive, mirroring pkg/graph.
+  readonly hexagons?: boolean | undefined;
 }
 
 // Quote a label only when it would otherwise tokenise wrong (contains
@@ -123,6 +127,9 @@ export const serializeGraph = (g: ConcreteGraph): string => {
   const multi = maps.length > 1;
   let out = "";
   if (g.version) out += `version ${g.version}\n`;
+  // Document preference: emitted only when set, directly after
+  // version. Part of the byte-parity contract with pkg/graph.
+  if (g.hexagons) out += "hexagons on\n";
 
   maps.forEach((m, i) => {
     if (i > 0) out += "\n";

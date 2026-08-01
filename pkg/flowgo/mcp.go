@@ -85,8 +85,10 @@ UTF-8 text, one directive per line, '#' for comments.
     line   <id> <x1> <y1> <x2> <y2> [palette] [mid <x>,<y> ...]
     stroke <id> <x>,<y> <x>,<y> ... [palette]
     linestyle <id> <style>
+    boxsize <id> <w> <h>
     boxshape <id> <shape>
     anchor <id>
+    hexagons on
 
 Notes:
 - 'id' is alphanumeric and unique within its map. Granular MCP tools
@@ -103,7 +105,13 @@ Notes:
   1 = hexagon (fixed 240x208, lattice-snapped, not resizable in the
   GUI); 2-9 reserved. Omitted or 0 = rectangle. Emitted after the box
   block so older binaries still parse the geometry.
+- 'boxsize <id> <w> <h>' pins a box to an explicit size in data px
+  (the GUI's resize feature). Omitted = auto-size to the label.
+  Never combined with boxshape 1 — hexagons are not resizable.
 - 'anchor <id>' is at most once per map — the per-map recenter target.
+- 'hexagons on' is a document-level preference (before any map):
+  the GUI opens this file with the hexagon setting enabled, so
+  double-click adds hexagons. Set/cleared via the set_hexagons tool.
 
 ## Coordinate system
 
@@ -374,12 +382,28 @@ var toolActions = map[string]toolAction{
 	"add_stroke":    actAddStroke,
 	"update_stroke": actUpdateStroke,
 	"delete_stroke": actDeleteStroke,
+	"set_hexagons":  actSetHexagons,
 }
 
 func isReadOnlyTool(name string) bool { return name == "get_state" }
 
 func actGetState(g *Graph, args map[string]any) (any, error) {
 	return mcpToolJSON(*g), nil
+}
+
+// actSetHexagons flips the document-level "open in hexagon mode"
+// preference (the `hexagons on` directive). Doc-scoped, not per-map.
+func actSetHexagons(g *Graph, args map[string]any) (any, error) {
+	v, ok := args["on"]
+	if !ok {
+		return nil, fmt.Errorf("on is required")
+	}
+	b, ok := v.(bool)
+	if !ok {
+		return nil, fmt.Errorf("on must be a boolean")
+	}
+	g.Hexagons = b
+	return mcpToolText("ok"), nil
 }
 
 func actSetState(g *Graph, args map[string]any) (any, error) {
@@ -1191,6 +1215,12 @@ func mcpTools() []mcpToolDef {
 			"h":       schemaNumber("New explicit height in data px, min 36 (optional; set both w and h). 0 together with w=0 restores auto-size. Ignored for hexagons."),
 			"shape":   schemaNumber("Optional shape: 0=rectangle (default), 1=hexagon (fixed 240x208, lattice-snapped, not resizable). Combining shape=1 with w/h is an error; becoming a hexagon clears any previously pinned size."),
 		}, []string{"id"})
+
+	addTool("set_hexagons",
+		"Set the document-level hexagon preference (the `hexagons on` directive): when true, the GUI opens this file with the hexagon setting enabled so double-click adds fixed-size, lattice-snapping hexagons. Document-scoped — there is no path parameter.",
+		map[string]any{
+			"on": map[string]any{"type": "boolean", "description": "true to open in hexagon mode; false to clear the preference (browser default rules)."},
+		}, []string{"on"})
 
 	addTool("delete_box",
 		"Delete a box (and all incident edges plus its submap subtree).",
