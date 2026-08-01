@@ -1,0 +1,15 @@
+version v0.1.8
+text t1 Complicated 650.2131162584747 -312.04400766774205 1 6
+text t2 Complex 220 -320 1 6
+text t3 Complex 194 80 1 6
+text t4 Clear 672 78 1 6
+text t5 A/C 450.25 -56 1 4
+
+line l1 500 -400 100 0 1 595 65
+line l2 460.5 -84.83082968927657 949.5 -43 1 658.75 82
+line l3 422.5 -46 536.5 388 1 543.75 56 442.75 488
+line l4 496.81 71.81 593 -8.34 1 459.4086616795874 -53.38012754085325
+linestyle l1 2
+linestyle l2 2
+linestyle l3 2
+linestyle l4 2

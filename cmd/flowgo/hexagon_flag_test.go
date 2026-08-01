@@ -42,3 +42,39 @@ func TestEmbeddedBundleHasHeadMarker(t *testing.T) {
 		t.Fatal("embedded editor bundle has no </head> marker")
 	}
 }
+
+// --preset seeding: every embedded preset must parse and re-serialize
+// with the running version stamped; unknown names error.
+func TestPresetSeedAllEmbedded(t *testing.T) {
+	names := flowgo.PresetNames()
+	if len(names) == 0 {
+		t.Fatal("no embedded presets found")
+	}
+	for _, name := range names {
+		out, err := presetSeed(name, "9.9.9")
+		if err != nil {
+			t.Fatalf("preset %s: %v", name, err)
+		}
+		if !strings.HasPrefix(out, "version 9.9.9\n") {
+			t.Fatalf("preset %s: version not stamped:\n%s", name, out[:60])
+		}
+	}
+}
+
+func TestPresetSeedUnknown(t *testing.T) {
+	if _, err := presetSeed("nope", "1.0.0"); err == nil {
+		t.Fatal("unknown preset must error")
+	}
+}
+
+func TestPresetEstuaryKeepsHexagons(t *testing.T) {
+	// The estuary preset declares `hexagons on`; seeding must carry
+	// the document flag through the parse/stamp/serialize round-trip.
+	out, err := presetSeed("estuary-mapping", "1.0.0")
+	if err != nil {
+		t.Fatalf("presetSeed: %v", err)
+	}
+	if !strings.Contains(out, "hexagons on\n") {
+		t.Fatalf("hexagons directive lost:\n%s", out)
+	}
+}

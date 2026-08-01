@@ -86,8 +86,12 @@ func main() {
 	bindHost := "127.0.0.1"
 	useRandomName := false
 	hexagonMode := false
+	presetName := ""
 	var positional []string
-	for _, a := range os.Args[1:] {
+	// Index-based loop because --preset consumes the following token
+	// as its value.
+	for i := 1; i < len(os.Args); i++ {
+		a := os.Args[i]
 		switch a {
 		case "version", "-v", "--version":
 			printVersion(os.Stdout)
@@ -101,6 +105,15 @@ func main() {
 			bindHost = "0.0.0.0"
 		case "--hexagon":
 			hexagonMode = true
+		case "--preset":
+			if i+1 >= len(os.Args) {
+				die("--preset needs a name (available: %s)", strings.Join(flowgo.PresetNames(), ", "))
+			}
+			i++
+			presetName = os.Args[i]
+			if _, ok := flowgo.Preset(presetName); !ok {
+				die("unknown preset %q (available: %s)", presetName, strings.Join(flowgo.PresetNames(), ", "))
+			}
 		default:
 			if strings.HasPrefix(a, "-") {
 				fmt.Fprintf(os.Stderr, "unknown flag: %s\n", a)
@@ -130,20 +143,38 @@ func main() {
 
 	createdFile := false
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		seed := graph.Serialize(graph.Graph{
-			Version: resolveVersionString(),
-			Maps: []graph.NamedMap{{
-				Path:  "/",
-				Boxes: []graph.Box{{ID: "b1", Label: seedBoxLabel(filePath)}},
-			}},
-		})
+		var seed string
+		if presetName != "" {
+			s, err := presetSeed(presetName, resolveVersionString())
+			if err != nil {
+				die("preset %s: %v", presetName, err)
+			}
+			seed = s
+		} else {
+			seed = graph.Serialize(graph.Graph{
+				Version: resolveVersionString(),
+				Maps: []graph.NamedMap{{
+					Path:  "/",
+					Boxes: []graph.Box{{ID: "b1", Label: seedBoxLabel(filePath)}},
+				}},
+			})
+		}
 		if err := os.WriteFile(filePath, []byte(seed), 0644); err != nil {
 			die("create file: %v", err)
 		}
 		createdFile = true
+	} else if presetName != "" {
+		// A preset is a seed, not a merge — silently ignoring it on an
+		// existing map would surprise; refusing keeps the contract
+		// crisp: presets apply to NEW maps only.
+		die("%s already exists — --preset only applies to new maps", filePath)
 	}
 	if createdFile {
-		fmt.Printf("initialised the flowgo interface on a new file %s\n", filePath)
+		if presetName != "" {
+			fmt.Printf("initialised %s from preset %s\n", filePath, presetName)
+		} else {
+			fmt.Printf("initialised the flowgo interface on a new file %s\n", filePath)
+		}
 	}
 
 	flowgo.Configure(flowgo.Config{
@@ -405,6 +436,24 @@ func handleMediaGet(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, rest, info.ModTime(), f)
 }
 
+// presetSeed renders the named embedded preset as the initial file
+// content for a new map: parse (so a malformed preset fails loudly
+// here, not with a broken editor), stamp the running binary's version
+// over whatever version the preset was authored with, and re-serialize
+// so the on-disk file is byte-normal for this binary.
+func presetSeed(name, version string) (string, error) {
+	raw, ok := flowgo.Preset(name)
+	if !ok {
+		return "", fmt.Errorf("unknown preset")
+	}
+	g, err := graph.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("embedded preset failed to parse: %v", err)
+	}
+	g.Version = version
+	return graph.Serialize(g), nil
+}
+
 // injectHexagonFlag marks the served editor page so hex.ts boots with
 // the hexagon setting enabled (the `flowgo --hexagon` CLI opt-in).
 // The script tag lands just before </head>; module scripts execute
@@ -451,12 +500,14 @@ Usage:
   flowgo <name|new> --host         bind 0.0.0.0 (reach from outside this machine/container)
   flowgo <name|new> --hexagon      start with the hexagon setting on: double-click adds
                                    fixed-size, edge-snapping hexagons instead of boxes
+  flowgo <name|new> --preset <p>   seed a NEW map from an embedded preset (errors if the
+                                   file already exists). Available: %s
   flowgo serve [flags]             public mode: multi-workspace MCP + share-via-webhook
                                    (run 'flowgo serve --help' for flags)
   flowgo upgrade                   download the latest release and replace this binary
   flowgo version                   print version info
   flowgo help                      show this message
-`)
+`, strings.Join(flowgo.PresetNames(), ", "))
 }
 
 func resolveVersionString() string {
