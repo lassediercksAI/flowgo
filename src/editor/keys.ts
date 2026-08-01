@@ -27,7 +27,6 @@ import {
   cutSelection,
 } from "./clipboard.ts";
 import {
-  createTextAt,
   deleteSelection,
 } from "./factories.ts";
 import {
@@ -36,12 +35,13 @@ import {
   isLineMode,
   setLineMode,
 } from "./line.ts";
+import { isTextMode, setTextMode } from "./text-mode.ts";
 import {
   applyClasses,
   renderAll,
   renderEdges,
 } from "./render.ts";
-import { flashZoomIndicator, recenter, toDataX, toDataY, viewport } from "./viewport.ts";
+import { flashZoomIndicator, recenter, viewport } from "./viewport.ts";
 import { clearBoxResize, resizingBoxId, toggleBoxResize } from "./resize.ts";
 
 interface BoxLike {
@@ -109,7 +109,6 @@ interface KeysBindings {
   readonly setDropTargetId: (id: string | null) => void;
   readonly setDropTargetHandle: (h: string | null) => void;
   readonly clearProximity: () => void;
-  readonly lastCursor: { x: number; y: number };
   readonly setStatus: (s: string) => void;
 }
 
@@ -379,29 +378,45 @@ export const attachKeyboardListener = (): void => {
       return;
     }
 
-    // Single-letter shortcuts
+    // Single-letter shortcuts. The transient tool modes (text / line /
+    // brush) are mutually exclusive — arming one disarms the others so
+    // the cursor and the bg-click behaviour always agree on a single
+    // active tool.
     if (!mod && !e.altKey && (e.key === "t" || e.key === "T")) {
       e.preventDefault();
-      createTextAt(toDataX(w.lastCursor.x), toDataY(w.lastCursor.y));
+      const on = !isTextMode();
+      if (on) {
+        setBrushMode(false);
+        setLineMode(false);
+      }
+      setTextMode(on);
       return;
     }
     if (!mod && !e.altKey && (e.key === "l" || e.key === "L")) {
       e.preventDefault();
-      setLineMode(!isLineMode());
+      const on = !isLineMode();
+      if (on) {
+        setBrushMode(false);
+        setTextMode(false);
+      }
+      setLineMode(on);
       return;
     }
     if (!mod && !e.altKey && (e.key === "b" || e.key === "B")) {
       e.preventDefault();
+      setLineMode(false);
+      setTextMode(false);
       setBrushMode(true);
       return;
     }
-    // V exits the transient tool modes (brush / line). The hexagon
-    // preference is deliberately NOT touched here — it's a persistent
-    // setting (⚙ popover / mode-bar latch), not a tool mode.
+    // V exits the transient tool modes (brush / line / text). The
+    // hexagon preference is deliberately NOT touched here — it's a
+    // persistent setting (⚙ popover / mode-bar latch), not a tool mode.
     if (!mod && !e.altKey && (e.key === "v" || e.key === "V")) {
       e.preventDefault();
       setBrushMode(false);
       setLineMode(false);
+      setTextMode(false);
       return;
     }
     if (!mod && !e.altKey && (e.key === "a" || e.key === "A")) {
@@ -592,6 +607,10 @@ export const attachKeyboardListener = (): void => {
       if (isLineMode()) {
         if (isDrawingLine()) cancelPendingLine();
         else setLineMode(false);
+        return;
+      }
+      if (isTextMode()) {
+        setTextMode(false);
         return;
       }
       const link = w.link();

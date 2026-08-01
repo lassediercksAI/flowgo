@@ -19,11 +19,12 @@ import {
 } from "./render.ts";
 import { extendStroke, finishStroke, isPainting, isBrushMode, startStroke } from "./brush.ts";
 import { cancelPendingLine, commitLineOnRelease, isLineMode, placeLinePoint, updateLinePreview } from "./line.ts";
+import { isTextMode, setTextMode } from "./text-mode.ts";
 import { startEdit } from "./edit.ts";
 import { settleHexBoxes } from "./hex.ts";
 import { nearestHandle, pickTargetHandle } from "./anchors.ts";
 import { addOrReplaceEdge as addOrReplaceEdgePure } from "../graph/edge.ts";
-import { createBoxAt, spawnBoxForLinkDrop } from "./factories.ts";
+import { createBoxAt, createTextAt, spawnBoxForLinkDrop } from "./factories.ts";
 import {
   mutatedCurrentMap,
   mutatedEdge,
@@ -562,6 +563,15 @@ const onBgDblClick = (e: MouseEvent): void => {
   }
   const dx = toDataX(e.clientX);
   const dy = toDataY(e.clientY);
+  if (isTextMode()) {
+    // Text mode: the dblclick places a free-floating text item (and
+    // auto-edits it) instead of spawning a box. Single-shot — the mode
+    // exits first so the "select mode" status doesn't clobber the edit
+    // flow and the next dblclick is back to normal box creation.
+    setTextMode(false);
+    createTextAt(dx, dy);
+    return;
+  }
   createBoxAt(dx, dy, { x: dx, y: dy });
 };
 

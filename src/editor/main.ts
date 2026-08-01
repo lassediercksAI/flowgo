@@ -27,6 +27,7 @@ import {
 import { isBrushMode, wireBrush } from "./brush.ts";
 import { isHexMode, setHexMode, wireHex } from "./hex.ts";
 import { wireLine } from "./line.ts";
+import { wireTextMode } from "./text-mode.ts";
 import { wireClipboard } from "./clipboard.ts";
 import {
   applyURLView,
@@ -302,6 +303,10 @@ wireLine({
   setStatus,
 });
 
+wireTextMode({
+  setStatus,
+});
+
 wireHex({
   setStatus,
 });
@@ -377,7 +382,6 @@ wireKeys({
   setDropTargetId: (id) => { dropTargetId = id; },
   setDropTargetHandle: (h) => { dropTargetHandle = h; },
   clearProximity: () => clearProximity(),
-  lastCursor,
   setStatus,
 });
 attachKeyboardListener();
