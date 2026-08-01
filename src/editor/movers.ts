@@ -9,6 +9,7 @@
 import type { HandleCode } from "../graph/handle.ts";
 import { HEX_H, HEX_W, snapHexCenter } from "../graph/hex.ts";
 import { strokePathD } from "../graph/stroke.ts";
+import { updateSizedLabelClamp } from "./label-clamp.ts";
 
 export const GRID = 20;
 export const snap = (v: number): number => Math.round(v / GRID) * GRID;
@@ -137,15 +138,9 @@ export const makeBoxResizeMover = (
   const startH = b.h ?? el.offsetHeight;
   const fromLeft = corner === "tl" || corner === "bl";
   const fromTop = corner === "tl" || corner === "tr";
-  console.log("[resize] mover constructed", { corner, startW, startH });
-  let loggedFirstApply = false;
   return {
     el,
     apply(dx, dy, ev) {
-      if (!loggedFirstApply) {
-        loggedFirstApply = true;
-        console.log("[resize] mover first apply", { dx, dy });
-      }
       let nw = fromLeft ? startW - dx : startW + dx;
       let nh = fromTop ? startH - dy : startH + dy;
       if (ev?.shiftKey) {
@@ -166,6 +161,9 @@ export const makeBoxResizeMover = (
       el.style.left = b.x + "px";
       el.style.top = b.y + "px";
       el.classList.add("sized");
+      // Re-budget the label's line clamp for the new frame so text
+      // wraps / ellipsises live while the grip is being dragged.
+      updateSizedLabelClamp(el);
     },
   };
 };

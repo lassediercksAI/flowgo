@@ -18,6 +18,7 @@ import { resolveFont, resolvePalette } from "../graph/palette.ts";
 import { endpointAnchor } from "./anchors.ts";
 import { updateSelectionToolbar } from "./align.ts";
 import { clearBoxResize, resizingBoxId } from "./resize.ts";
+import { updateSizedLabelClamp } from "./label-clamp.ts";
 
 // Corner codes for the resize grips, clockwise from top-left. Matches
 // the ResizeCorner type in movers.ts; the code doubles as the CSS
@@ -245,6 +246,9 @@ export const renderAll = (): void => {
     }
     w.canvas.appendChild(el);
     w.attachBoxHandlers(el, b);
+    // Sized boxes clamp their label to the lines that fit the fixed
+    // frame — must run after append so the measurements are live.
+    if (el.classList.contains("sized")) updateSizedLabelClamp(el);
   }
   for (const t of map.texts) {
     const el = document.createElement("div");

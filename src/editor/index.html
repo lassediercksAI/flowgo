@@ -231,6 +231,30 @@
      the box doesn't disturb the absolutely-positioned handle / grip
      children. */
   .box.sized { display: flex; align-items: center; justify-content: center; }
+  /* Inside a fixed frame the label adapts to the box, not the other
+     way round: wrap at the frame width (keeping explicit Shift+Enter
+     breaks), break over-long words, and ellipsise whatever exceeds
+     the line budget. The budget (--label-clamp) is measured per box
+     by label-clamp.ts — CSS line-clamp needs a count and can't derive
+     "however many fit" on its own. */
+  .box.sized .box-label {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: var(--label-clamp, 1);
+    overflow: hidden;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    max-width: 100%;
+    max-height: 100%;
+  }
+  /* While the label is being edited the user needs the caret and the
+     full text, ellipsis-free; the clamp comes back on commit via the
+     re-render. */
+  .box.sized[contenteditable="true"] .box-label {
+    display: inline-block;
+    -webkit-line-clamp: unset;
+    max-height: none;
+  }
 
   /* Resize grips: square corner handles shown only in resize mode
      (E key toggles `.resizing`). Orange to read as a different verb
