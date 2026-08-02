@@ -243,41 +243,50 @@ export const renderPath = (): void => {
     if (upBtn) upBtn.style.display = "none";
     return;
   }
-  const root = document.createElement("span");
-  root.className = "seg";
-  root.textContent = "/";
-  root.addEventListener("click", () => navigateTo("/"));
-  el.appendChild(root);
+  // Resolve every segment id to its label by walking the parent maps
+  // (labels come from the box in the level above; raw id for orphans).
   let acc = "";
   let parentPath = "/";
-  segs.forEach((s, i) => {
-    if (i > 0) {
-      const sep = document.createElement("span");
-      sep.className = "sep";
-      sep.textContent = "/";
-      el.appendChild(sep);
-    }
+  const resolved = segs.map((s) => {
     acc += "/" + s;
-    const path = acc;
-    // Resolve the segment id to its label by looking it up in the
-    // parent map. Falls back to the raw id for orphans.
     const parentMap = (graph.maps || []).find((m) => m.path === parentPath);
     const parentBoxes = (parentMap?.boxes ?? []) as BoxWithLabel[];
     const parentBox = parentBoxes.find((bx) => bx.id === s);
     const label = (parentBox?.label && parentBox.label.trim()) || s;
-    parentPath = path;
-    const seg = document.createElement("span");
-    seg.className = "seg";
-    seg.textContent = label;
-    seg.title = s;
-    if (i < segs.length - 1) {
-      seg.addEventListener("click", () => navigateTo(path));
-    } else {
-      seg.style.fontWeight = "bold";
-      seg.style.cursor = "default";
-    }
-    el.appendChild(seg);
+    parentPath = acc;
+    return { id: s, label };
   });
+
+  // Compressed trail: root and the current level only. Intermediate
+  // levels collapse into a non-interactive "…" — deep paths would
+  // otherwise crowd the centered toolbar, and the Up button already
+  // walks the hierarchy one level at a time.
+  const root = document.createElement("span");
+  root.className = "seg";
+  root.textContent = "/";
+  root.title = "Back to the root map";
+  root.addEventListener("click", () => navigateTo("/"));
+  el.appendChild(root);
+
+  if (resolved.length > 1) {
+    const skip = document.createElement("span");
+    skip.className = "sep";
+    skip.textContent = " … / ";
+    skip.title = resolved
+      .slice(0, -1)
+      .map((r) => r.label)
+      .join(" / ");
+    el.appendChild(skip);
+  }
+
+  const last = resolved[resolved.length - 1]!;
+  const seg = document.createElement("span");
+  seg.className = "seg";
+  seg.textContent = last.label;
+  seg.title = last.id;
+  seg.style.fontWeight = "bold";
+  seg.style.cursor = "default";
+  el.appendChild(seg);
   const upBtn = document.getElementById("upBtn");
   if (upBtn) upBtn.style.display = currentPath === "/" ? "none" : "";
 };

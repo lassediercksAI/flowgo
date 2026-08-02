@@ -108,7 +108,13 @@
   #toolbar {
     position: absolute; z-index: 10;
     top: calc(8px + env(safe-area-inset-top, 0px));
-    left: calc(8px + env(safe-area-inset-left, 0px));
+    /* Centered over the canvas: the breadcrumb is orientation chrome,
+       not a corner control, and the corners are already claimed (mode
+       bar / settings right, host-page chrome left). */
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: min(80vw, 560px);
+    white-space: nowrap;
     background: #fff; border: 1px solid #ccc; border-radius: 6px;
     padding: 6px 10px; box-shadow: 0 1px 3px rgba(0,0,0,.1);
   }
@@ -130,7 +136,15 @@
     text-decoration: none; box-shadow: 0 1px 3px rgba(0,0,0,.1);
   }
   #feedbackBtn:hover { background: #f0f0f0; color: #222; }
-  #path { margin-left: 12px; color: #444; font-family: ui-monospace, monospace; font-size: 12px; }
+  #path {
+    margin-left: 12px; color: #444;
+    font-family: ui-monospace, monospace; font-size: 12px;
+    /* Long current-segment labels ellipsise instead of widening the
+       centered toolbar off the canvas. */
+    display: inline-block; max-width: 60vw;
+    overflow: hidden; text-overflow: ellipsis;
+    vertical-align: bottom;
+  }
   #path .seg { cursor: pointer; }
   #path .seg:hover { text-decoration: underline; }
   #path .sep { color: #aaa; }
