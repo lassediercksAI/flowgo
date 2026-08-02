@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ANCHOR_INSET,
   HANDLE_CODES,
   SHAPE_HEX,
   SHAPE_RECT,
@@ -10,20 +11,24 @@ import {
 import type { Box2D } from "./types";
 
 const box: Box2D = { x: 100, y: 100, width: 100, height: 50 };
+const IN = ANCHOR_INSET;
 
 describe("handleAnchor", () => {
-  it("corners sit at box vertices", () => {
-    expect(handleAnchor(box, "tl")).toEqual([100, 100]);
-    expect(handleAnchor(box, "tr")).toEqual([200, 100]);
-    expect(handleAnchor(box, "bl")).toEqual([100, 150]);
-    expect(handleAnchor(box, "br")).toEqual([200, 150]);
+  // Anchors sit ANCHOR_INSET inside the outline along every axis the
+  // handle touches, so line ends tuck underneath the box (edges render
+  // below boxes) instead of leaving a gap at the rounded corners.
+  it("corners sit inset inside the box vertices", () => {
+    expect(handleAnchor(box, "tl")).toEqual([100 + IN, 100 + IN]);
+    expect(handleAnchor(box, "tr")).toEqual([200 - IN, 100 + IN]);
+    expect(handleAnchor(box, "bl")).toEqual([100 + IN, 150 - IN]);
+    expect(handleAnchor(box, "br")).toEqual([200 - IN, 150 - IN]);
   });
 
-  it("edge handles sit at side midpoints", () => {
-    expect(handleAnchor(box, "t")).toEqual([150, 100]);
-    expect(handleAnchor(box, "r")).toEqual([200, 125]);
-    expect(handleAnchor(box, "b")).toEqual([150, 150]);
-    expect(handleAnchor(box, "l")).toEqual([100, 125]);
+  it("edge handles sit inset from the side midpoints", () => {
+    expect(handleAnchor(box, "t")).toEqual([150, 100 + IN]);
+    expect(handleAnchor(box, "r")).toEqual([200 - IN, 125]);
+    expect(handleAnchor(box, "b")).toEqual([150, 150 - IN]);
+    expect(handleAnchor(box, "l")).toEqual([100 + IN, 125]);
   });
 });
 
@@ -52,30 +57,31 @@ describe("nearestHandle", () => {
 
 describe("rectAnchor", () => {
   it("uses the supplied handle code when valid", () => {
-    expect(rectAnchor(box, "tl", [0, 0])).toEqual([100, 100]);
-    expect(rectAnchor(box, "br", [0, 0])).toEqual([200, 150]);
+    expect(rectAnchor(box, "tl", [0, 0])).toEqual([100 + IN, 100 + IN]);
+    expect(rectAnchor(box, "br", [0, 0])).toEqual([200 - IN, 150 - IN]);
   });
 
   it("falls back to nearestHandle when the code is null/undefined/empty", () => {
-    expect(rectAnchor(box, null, [10000, 125])).toEqual([200, 125]); // r
-    expect(rectAnchor(box, undefined, [10000, 125])).toEqual([200, 125]);
-    expect(rectAnchor(box, "", [10000, 125])).toEqual([200, 125]);
+    expect(rectAnchor(box, null, [10000, 125])).toEqual([200 - IN, 125]); // r
+    expect(rectAnchor(box, undefined, [10000, 125])).toEqual([200 - IN, 125]);
+    expect(rectAnchor(box, "", [10000, 125])).toEqual([200 - IN, 125]);
   });
 
   it("falls back to nearestHandle when the code is unrecognised", () => {
-    expect(rectAnchor(box, "garbage", [10000, 125])).toEqual([200, 125]);
+    expect(rectAnchor(box, "garbage", [10000, 125])).toEqual([200 - IN, 125]);
   });
 });
 
 describe("hexagon anchors (shape = 1)", () => {
   // Flat-top hexagon: diagonal codes anchor at the true top/bottom
-  // vertices (25% / 75% of the width); t/b/l/r stay where they were
-  // (all four already lie on the hexagon outline).
+  // vertices (25% / 75% of the width, plus the inset — +x from the
+  // top-left vertex walks along the flat top edge, so inset anchors
+  // stay inside the polygon); t/b/l/r mirror the rectangle insets.
   it("moves corner anchors to the 25% / 75% vertices", () => {
-    expect(handleAnchor(box, "tl", SHAPE_HEX)).toEqual([125, 100]);
-    expect(handleAnchor(box, "tr", SHAPE_HEX)).toEqual([175, 100]);
-    expect(handleAnchor(box, "bl", SHAPE_HEX)).toEqual([125, 150]);
-    expect(handleAnchor(box, "br", SHAPE_HEX)).toEqual([175, 150]);
+    expect(handleAnchor(box, "tl", SHAPE_HEX)).toEqual([125 + IN, 100 + IN]);
+    expect(handleAnchor(box, "tr", SHAPE_HEX)).toEqual([175 - IN, 100 + IN]);
+    expect(handleAnchor(box, "bl", SHAPE_HEX)).toEqual([125 + IN, 150 - IN]);
+    expect(handleAnchor(box, "br", SHAPE_HEX)).toEqual([175 - IN, 150 - IN]);
   });
 
   it("keeps side and midpoint anchors unchanged", () => {
@@ -107,7 +113,7 @@ describe("hexagon anchors (shape = 1)", () => {
   });
 
   it("rectAnchor forwards the shape", () => {
-    expect(rectAnchor(box, "tr", [0, 0], SHAPE_HEX)).toEqual([175, 100]);
-    expect(rectAnchor(box, null, [175, 60], SHAPE_HEX)).toEqual([175, 100]);
+    expect(rectAnchor(box, "tr", [0, 0], SHAPE_HEX)).toEqual([175 - IN, 100 + IN]);
+    expect(rectAnchor(box, null, [175, 60], SHAPE_HEX)).toEqual([175 - IN, 100 + IN]);
   });
 });

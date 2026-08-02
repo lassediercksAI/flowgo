@@ -32,6 +32,14 @@ const isHandleCode = (s: string): s is HandleCode =>
 // vertices: they sit at 25% and 75% of the width.
 const HEX_CORNER = 0.25;
 
+// How far anchors sit INSIDE the box outline, along every axis the
+// handle touches. Edges render below boxes (svg z-index 1, .box 6),
+// so the tucked-in line end disappears under the box and the line
+// visually plugs into it. Without the inset, corner anchors sit on
+// the bounding-box vertex — outside the 6px border-radius curve —
+// which reads as a gap between line tip and box.
+export const ANCHOR_INSET = 3;
+
 // Anchor point for a handle code on a box outline. `shape` selects
 // the silhouette; omitted / unknown values fall back to rectangle.
 export const handleAnchor = (
@@ -42,19 +50,26 @@ export const handleAnchor = (
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;
   const hex = shape === SHAPE_HEX;
+  const inset = ANCHOR_INSET;
+  const topY = box.y + inset;
+  const bottomY = box.y + box.height - inset;
   // Corner x-positions: bounding-box vertices for rectangles, the
-  // 25% / 75% hexagon vertices for hexes.
-  const leftX = hex ? box.x + box.width * HEX_CORNER : box.x;
-  const rightX = hex ? box.x + box.width * (1 - HEX_CORNER) : box.x + box.width;
+  // 25% / 75% hexagon vertices for hexes — pulled inward so the
+  // anchor lands inside the silhouette (for hexes, +x from the top-
+  // left vertex walks along the flat top edge, so inset points stay
+  // inside the polygon there too).
+  const leftX = (hex ? box.x + box.width * HEX_CORNER : box.x) + inset;
+  const rightX =
+    (hex ? box.x + box.width * (1 - HEX_CORNER) : box.x + box.width) - inset;
   switch (code) {
-    case "t":  return [cx, box.y];
-    case "b":  return [cx, box.y + box.height];
-    case "l":  return [box.x, cy];
-    case "r":  return [box.x + box.width, cy];
-    case "tl": return [leftX, box.y];
-    case "tr": return [rightX, box.y];
-    case "bl": return [leftX, box.y + box.height];
-    case "br": return [rightX, box.y + box.height];
+    case "t":  return [cx, topY];
+    case "b":  return [cx, bottomY];
+    case "l":  return [box.x + inset, cy];
+    case "r":  return [box.x + box.width - inset, cy];
+    case "tl": return [leftX, topY];
+    case "tr": return [rightX, topY];
+    case "bl": return [leftX, bottomY];
+    case "br": return [rightX, bottomY];
   }
 };
 
