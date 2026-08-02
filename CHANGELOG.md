@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.10](https://github.com/lassediercks/flowgo/compare/v0.1.9...v0.1.10) (2026-08-02)
+
+
+### Features
+
+* **editor:** center the breadcrumb toolbar and compress the trail to root … current ([969fc6c](https://github.com/lassediercks/flowgo/commit/969fc6c7cf1b9be7e9c1ad32ed9f0cfad3661f92))
+* **editor:** tuck edge anchors 3px inside the box outline ([addbb20](https://github.com/lassediercks/flowgo/commit/addbb2012bd084791cc185ecb3d8d8c6d7e0c510))
+
 ## [0.1.9](https://github.com/lassediercks/flowgo/compare/v0.1.8...v0.1.9) (2026-08-01)
 
 
