@@ -30,6 +30,29 @@ jobs:
           # is more than enough headroom.
           release-search-depth: 5
 
+  # Tell flowgo-website a new flowgo exists. Its flowgo-bump workflow
+  # (repository_dispatch "flowgo-release") opens an auto-merging PR
+  # bumping .flowgo-version + go.mod, which rolls through its release
+  # automation into a fresh website image — no human in the loop. The
+  # website also polls daily as a fallback, so a failed dispatch only
+  # delays the bump, never loses it.
+  #
+  # Needs a PAT that can write to ExaptationGmbH/flowgo-website:
+  # WEBSITE_DISPATCH_TOKEN, falling back to the RELEASE_PLEASE PAT.
+  notify-website:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch flowgo-release to flowgo-website
+        env:
+          GH_TOKEN: ${{ secrets.WEBSITE_DISPATCH_TOKEN || secrets.RELEASE_PLEASE }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          gh api repos/ExaptationGmbH/flowgo-website/dispatches \
+            -f event_type=flowgo-release \
+            -f "client_payload[version]=${TAG}"
+
   build:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
