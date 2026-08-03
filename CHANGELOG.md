@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.2](https://github.com/lassediercks/flowgo/compare/v0.3.1...v0.3.2) (2026-08-03)
+
+
+### Features
+
+* **editor:** touch shape-setting via the context bar's shape row ([8b76476](https://github.com/lassediercks/flowgo/commit/8b76476799641e8891c3683a1c7dcf2589c54974))
+* **mcp:** add create_map — one-shot .flowgo text to share URL ([6eb172f](https://github.com/lassediercks/flowgo/commit/6eb172fe1c4833a35237aa1f7ff0941812c5ac0a))
+
 ## [0.3.1](https://github.com/lassediercks/flowgo/compare/v0.3.0...v0.3.1) (2026-08-03)
 
 
