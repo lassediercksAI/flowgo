@@ -515,7 +515,14 @@
     border-radius: 0;
     box-shadow: none;
     min-width: 0;
-    padding: 30% 0 0;
+    /* Bias the label into the lower band where the silhouette is
+       widest. MUST be absolute px: percentage padding on an
+       absolutely-positioned box resolves against the CONTAINING
+       BLOCK's width (the whole canvas), not the box's own — 30% was
+       shoving the label hundreds of px down and out of the shape.
+       64px starts the label band at y=64 of 208, centring a full
+       4-line clamp block on the centroid (y≈139). */
+    padding: 64px 0 0;
     display: flex;
     align-items: center;
     justify-content: center;
