@@ -115,16 +115,19 @@
     transform: translateX(-50%);
     max-width: min(80vw, 560px);
     white-space: nowrap;
+    /* Flex keeps the Up button and the breadcrumb text on one
+       vertical centre line regardless of their differing heights. */
+    display: flex;
+    align-items: center;
     background: #fff; border: 1px solid #ccc; border-radius: 6px;
     padding: 6px 10px; box-shadow: 0 1px 3px rgba(0,0,0,.1);
   }
-  #toolbar button { margin-right: 6px; }
+  #toolbar button { margin-right: 6px; flex: none; }
   #version {
     position: absolute;
     bottom: calc(6px + env(safe-area-inset-bottom, 0px));
     left: calc(8px + env(safe-area-inset-left, 0px));
     color: #999; font-size: 11px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     pointer-events: none;
   }
   #feedbackBtn {
@@ -138,12 +141,14 @@
   #feedbackBtn:hover { background: #f0f0f0; color: #222; }
   #path {
     margin-left: 12px; color: #444;
-    font-family: ui-monospace, monospace; font-size: 12px;
+    /* Default sans stack (inherited from body) — the breadcrumb is
+       ordinary UI text, not code. */
+    font-size: 12px;
     /* Long current-segment labels ellipsise instead of widening the
-       centered toolbar off the canvas. */
-    display: inline-block; max-width: 60vw;
+       centered toolbar off the canvas. min-width lets the flex item
+       actually shrink below its content width. */
+    min-width: 0; max-width: 60vw;
     overflow: hidden; text-overflow: ellipsis;
-    vertical-align: bottom;
   }
   #path .seg { cursor: pointer; }
   #path .seg:hover { text-decoration: underline; }
@@ -706,7 +711,7 @@
     transform: translateX(-50%);
     background: rgba(0, 0, 0, 0.72); color: #fff;
     padding: 6px 12px; border-radius: 6px;
-    font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 13px system-ui, sans-serif;
     pointer-events: none; user-select: none;
     opacity: 0;
     /* opacity-only transition so layout never thrashes during fade. */
@@ -763,6 +768,11 @@
     background: #fff; border: 1px solid #ccc;
     font-size: 15px; color: #555;
     cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,.1);
+    /* Flex-center the ⚙ glyph: button default centering leans on the
+       text baseline, which sits gear glyphs visibly off-centre in the
+       circle. padding: 0 kills the UA's asymmetric button padding. */
+    padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
     line-height: 1;
   }
   #settingsBtn:hover { background: #f0f0f0; }
@@ -924,7 +934,7 @@
 
     <h3>Annotations</h3>
     <table>
-      <tr><td><kbd>T</kbd></td><td>Enter text mode: double-click places a text label (auto-edits) and exits the mode · <kbd>T</kbd> or <kbd>Escape</kbd> to exit without placing</td></tr>
+      <tr><td><kbd>T</kbd></td><td>Enter text mode: a single click places a text label (auto-edits) and exits the mode · <kbd>T</kbd> or <kbd>Escape</kbd> to exit without placing</td></tr>
       <tr><td><kbd>L</kbd></td><td>Enter line-draw mode: click start, click end · <kbd>L</kbd> or <kbd>Escape</kbd> to exit</td></tr>
       <tr><td><kbd>B</kbd> / <kbd>V</kbd></td><td>Enter brush mode (drag to paint freehand) / leave any tool mode (brush, line, text)</td></tr>
       <tr><td><kbd>⚙</kbd> settings → "Double-click creates hexagons"</td><td>Persistent setting: double-click adds a fixed-size hexagon — hexagons snap edge-to-edge near other hexagons and never overlap · also <code>flowgo --hexagon</code> from the CLI</td></tr>
@@ -1012,7 +1022,7 @@
       <tr><td>Drag</td><td>Pan the viewport</td></tr>
       <tr><td>Tap</td><td>Clear the current selection</td></tr>
       <tr><td>Double-tap</td><td>Add a new box at the tap point (auto-edits)</td></tr>
-      <tr><td>T button in the mode bar</td><td>Text mode: the next double-tap places a text label (auto-edits) instead of a box, then the bar returns to cursor mode</td></tr>
+      <tr><td>T button in the mode bar</td><td>Text mode: the next tap places a text label (auto-edits) instead of a box, then the bar returns to cursor mode</td></tr>
       <tr><td>⬡ latch in the mode bar</td><td>Toggle the hexagon setting: while on, double-tap adds a fixed-size hexagon — hexagons snap edge-to-edge near other hexagons and never overlap</td></tr>
       <tr><td>Pinch with two fingers</td><td>Browser zoom in / out</td></tr>
     </table>

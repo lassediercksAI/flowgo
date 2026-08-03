@@ -710,6 +710,15 @@ const onTouchEnd = (e: TouchEvent): void => {
     w.setPan(null);
     document.body.classList.remove("panning");
     if (!moved && t) {
+      // Text mode (armed from the mode bar): a SINGLE tap places the
+      // text item, mirroring the single-click path in mouse.ts
+      // onBgMouseDown. Single-shot — the mode exits before the spawn.
+      if (isTextMode()) {
+        setTextMode(false);
+        createTextAt(toDataX(t.clientX), toDataY(t.clientY));
+        lastTap = null;
+        return;
+      }
       // Tap on empty canvas. Single tap clears the current selection
       // (touch parallel of mouse.ts onBgMouseDown) so the user can
       // get out of "this box is selected" without dragging away.
@@ -724,16 +733,7 @@ const onTouchEnd = (e: TouchEvent): void => {
       if (tap.kind === "double") {
         const dx = toDataX(t.clientX);
         const dy = toDataY(t.clientY);
-        if (isTextMode()) {
-          // Text mode (armed from the mode bar): the double-tap places
-          // a text item instead of a box. Single-shot, mirroring the
-          // dblclick path in mouse.ts — the mode exits before the spawn
-          // so the next double-tap creates a box again.
-          setTextMode(false);
-          createTextAt(dx, dy);
-        } else {
-          createBoxAt(dx, dy, { x: dx, y: dy });
-        }
+        createBoxAt(dx, dy, { x: dx, y: dy });
       } else if (w.selected.size > 0 || w.selectedEdge()) {
         w.selected.clear();
         if (w.selectedEdge()) {

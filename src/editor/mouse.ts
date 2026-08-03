@@ -24,6 +24,7 @@ import { startEdit } from "./edit.ts";
 import { settleHexBoxes } from "./hex.ts";
 import { nearestHandle, pickTargetHandle } from "./anchors.ts";
 import { addOrReplaceEdge as addOrReplaceEdgePure } from "../graph/edge.ts";
+import { polylineIntersectsRect } from "../graph/segrect.ts";
 import { createBoxAt, createTextAt, spawnBoxForLinkDrop } from "./factories.ts";
 import {
   mutatedCurrentMap,
@@ -340,17 +341,17 @@ const onMouseUp = (e: MouseEvent): void => {
         }
       }
       for (const l of map.lines) {
-        const xs = [l.x1, l.x2];
-        const ys = [l.y1, l.y2];
-        for (const [mx, my] of l.mids ?? []) {
-          xs.push(mx);
-          ys.push(my);
-        }
-        const lx1 = Math.min(...xs);
-        const ly1 = Math.min(...ys);
-        const lx2 = Math.max(...xs);
-        const ly2 = Math.max(...ys);
-        if (lx1 < x2 && lx2 > x1 && ly1 < y2 && ly2 > y1) {
+        // Test the line's actual segments, not its bounding box — an
+        // L-shaped polyline must not be selectable from the empty
+        // corner of its bbox (#1f8). Smooth/orthogonal render styles
+        // are approximated by their straight control polyline, which
+        // stays within a visually forgivable margin of the ink.
+        const pts: Array<readonly [number, number]> = [
+          [l.x1, l.y1],
+          ...(l.mids ?? []).map(([mx, my]) => [mx, my] as const),
+          [l.x2, l.y2],
+        ];
+        if (polylineIntersectsRect(pts, x1, y1, x2, y2)) {
           w.selected.add(l.id);
         }
       }
@@ -491,6 +492,18 @@ const onBgMouseDown = (e: MouseEvent): void => {
     placeLinePoint(e.clientX, e.clientY, e.shiftKey);
     return;
   }
+  if (isTextMode()) {
+    // A single click places the text — like brush and line, the armed
+    // tool claims the pointer-down. preventDefault keeps the browser
+    // from fighting the focus createTextAt hands to the new item's
+    // inline editor. Single-shot: exit the mode before the spawn so
+    // the status line doesn't clobber the edit flow.
+    e.preventDefault();
+    e.stopPropagation();
+    setTextMode(false);
+    createTextAt(toDataX(e.clientX), toDataY(e.clientY));
+    return;
+  }
   if (!e.shiftKey) w.selected.clear();
   if (w.selectedEdge()) {
     w.setSelectedEdge(null);
@@ -589,15 +602,8 @@ const onBgDblClick = (e: MouseEvent): void => {
   }
   const dx = toDataX(e.clientX);
   const dy = toDataY(e.clientY);
-  if (isTextMode()) {
-    // Text mode: the dblclick places a free-floating text item (and
-    // auto-edits it) instead of spawning a box. Single-shot — the mode
-    // exits first so the "select mode" status doesn't clobber the edit
-    // flow and the next dblclick is back to normal box creation.
-    setTextMode(false);
-    createTextAt(dx, dy);
-    return;
-  }
+  // (Text mode never reaches here: onBgMouseDown places the text on
+  // the FIRST click and exits the mode.)
   createBoxAt(dx, dy, { x: dx, y: dy });
 };
 

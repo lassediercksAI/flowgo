@@ -90,7 +90,7 @@ const iconHex = (): SVGSVGElement => svgEl(20, (svg) => {
   svg.appendChild(p);
 });
 
-// Capital "T" glyph — text mode places a text label on double-tap.
+// Capital "T" glyph — text mode places a text label on the next tap.
 const iconText = (): SVGSVGElement => svgEl(20, (svg) => {
   const bar = document.createElementNS(ns, "line");
   bar.setAttribute("x1", "4");  bar.setAttribute("y1", "4");
