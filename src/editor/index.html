@@ -388,9 +388,26 @@
        middle). Together with the 240x208 size this yields the ~120
        character capacity documented in src/graph/hex.ts. */
     max-width: 68%;
+    /* Fixed silhouette = fixed line budget: wrap inside the 68% band
+       and ellipsise everything past the lines that fit the inscribed
+       height. The count is measured per font size by
+       updateHexLabelClamp in label-clamp.ts; 7 is the default-font
+       fallback (~120 chars, see src/graph/hex.ts). */
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: var(--label-clamp, 7);
     overflow: hidden;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
     /* Keep text off the slanted corners. */
     padding: 0 14px;
+  }
+  /* While editing the user needs the caret and the full text,
+     ellipsis-free; the clamp comes back on commit via the re-render
+     (same trade as .box.sized above). */
+  .box.hex[contenteditable="true"] .box-label {
+    display: inline-block;
+    -webkit-line-clamp: unset;
   }
   .box.hex .handle { z-index: 3; }
   /* Corner handle dots move to the hexagon's actual top/bottom
