@@ -202,6 +202,22 @@ func main() {
 		}
 	}
 
+	// Opening an existing file normalizes it to the current format:
+	// legacy directive spellings (box/boxsize/boxshape → node forms)
+	// and legacy settings (`hexagons on` → `defaultshape 1`) are
+	// rewritten once, up front, so every later save diffs cleanly
+	// against a canonical baseline. A file that fails to parse is left
+	// byte-for-byte untouched — same behaviour the editor would hit on
+	// /state, just surfaced earlier and without bricking the map.
+	if !createdFile {
+		migrated, err := migrateFileToCurrentFormat(filePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: %s not migrated: %v\n", filePath, err)
+		} else if migrated {
+			fmt.Printf("migrated %s to the current format (box→node / defaultshape)\n", filePath)
+		}
+	}
+
 	flowgo.Configure(flowgo.Config{
 		ServeMode:   false,
 		LocalFile:   filePath,
@@ -452,6 +468,33 @@ func handleMediaGet(w http.ResponseWriter, r *http.Request) {
 	// Content-addressed names are immutable, so caching is safe and cheap.
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	http.ServeContent(w, r, rest, info.ModTime(), f)
+}
+
+// migrateFileToCurrentFormat parses the file and, when its canonical
+// serialization differs from the bytes on disk (legacy box/boxsize/
+// boxshape spellings, `hexagons on`, formatting drift), rewrites it
+// once with the current binary's version stamped. Returns whether a
+// rewrite happened. Runs before the HTTP server starts, so no file
+// mutex is needed (mirrors the --hexagon seeding block above).
+func migrateFileToCurrentFormat(path string) (bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	g, err := graph.Parse(string(data))
+	if err != nil {
+		return false, err
+	}
+	if graph.Serialize(g) == string(data) {
+		return false, nil
+	}
+	// Rewriting anyway — stamp the writer honestly, exactly like a
+	// normal /save would.
+	g.Version = resolveVersionString()
+	if err := os.WriteFile(path, []byte(graph.Serialize(g)), 0644); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // presetSeed renders the named embedded preset as the initial file
