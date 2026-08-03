@@ -177,6 +177,31 @@ func main() {
 		}
 	}
 
+	// --hexagon seeds the FILE's default shape (the `defaultshape 1`
+	// directive): double-click creates hexagons in this map, wherever
+	// it opens. This replaced the old browser-preference injection
+	// (window.FLOWGO_HEXAGON) — the flag now writes through to the
+	// document, once, and only upgrades a rectangle default so it
+	// can't clobber an explicit circle/triangle choice.
+	if hexagonMode {
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			die("--hexagon: read %s: %v", filePath, err)
+		}
+		g, err := graph.Parse(string(data))
+		if err != nil {
+			die("--hexagon: parse %s: %v", filePath, err)
+		}
+		if g.DefaultShape == 0 {
+			g.DefaultShape = 1
+			g.Version = resolveVersionString()
+			if err := os.WriteFile(filePath, []byte(graph.Serialize(g)), 0644); err != nil {
+				die("--hexagon: write %s: %v", filePath, err)
+			}
+			fmt.Printf("default shape of %s set to hexagon (defaultshape 1)\n", filePath)
+		}
+	}
+
 	flowgo.Configure(flowgo.Config{
 		ServeMode:   false,
 		LocalFile:   filePath,
@@ -184,14 +209,7 @@ func main() {
 		Version:     resolveVersionString,
 	})
 
-	// Compute the served page once: with --hexagon, inject the flag the
-	// editor's hex.ts reads at boot so double-click spawns hexagons
-	// from the first interaction (and the preference persists in the
-	// browser from there).
 	editorHTML := []byte(flowgo.IndexHTML)
-	if hexagonMode {
-		editorHTML = injectHexagonFlag(editorHTML)
-	}
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// No-store: the editor bundle is embedded at build time, so a
 		// browser that heuristically caches this page (no cache headers
@@ -454,24 +472,6 @@ func presetSeed(name, version string) (string, error) {
 	return graph.Serialize(g), nil
 }
 
-// injectHexagonFlag marks the served editor page so hex.ts boots with
-// the hexagon setting enabled (the `flowgo --hexagon` CLI opt-in).
-// The script tag lands just before </head>; module scripts execute
-// after HTML parsing, so the flag is always set before the editor
-// reads it. If the marker is ever missing from the bundle we fall
-// back to prepending — functional, if inelegant.
-func injectHexagonFlag(html []byte) []byte {
-	const tag = "<script>window.FLOWGO_HEXAGON = true</script>"
-	if idx := strings.Index(string(html), "</head>"); idx >= 0 {
-		out := make([]byte, 0, len(html)+len(tag))
-		out = append(out, html[:idx]...)
-		out = append(out, tag...)
-		out = append(out, html[idx:]...)
-		return out
-	}
-	return append([]byte(tag), html...)
-}
-
 func openBrowser(url string) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
@@ -498,8 +498,8 @@ Usage:
   flowgo <name>                    open <name>.flowgo, creating it if missing
   flowgo new                       create a map with a random humanized name (e.g. solid_frontend.flowgo)
   flowgo <name|new> --host         bind 0.0.0.0 (reach from outside this machine/container)
-  flowgo <name|new> --hexagon      start with the hexagon setting on: double-click adds
-                                   fixed-size, edge-snapping hexagons instead of boxes
+  flowgo <name|new> --hexagon      set the FILE's default shape to hexagon (defaultshape 1):
+                                   double-click adds fixed-size, edge-snapping hexagons
   flowgo <name|new> --preset <p>   seed a NEW map from an embedded preset (errors if the
                                    file already exists). Available: %s
   flowgo serve [flags]             public mode: multi-workspace MCP + share-via-webhook
