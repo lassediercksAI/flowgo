@@ -43,6 +43,9 @@ import {
 } from "./render.ts";
 import { flashZoomIndicator, recenter, viewport } from "./viewport.ts";
 import { clearBoxResize, resizingBoxId, toggleBoxResize } from "./resize.ts";
+import { SHAPE_FOR_KEY, SHAPE_HEX, SHAPE_NAMES } from "../graph/shape.ts";
+import { setDefaultShape } from "./default-shape.ts";
+import { settleHexBoxes } from "./hex.ts";
 
 interface BoxLike {
   id: string;
@@ -427,11 +430,12 @@ export const attachKeyboardListener = (): void => {
         w.setStatus("resize only applies to boxes");
         return;
       }
-      // Hexagons are uniform by contract — the lattice snap math
-      // depends on every hex sharing the fixed size, so resize (and
+      // Special shapes are uniform by contract — hexagons because the
+      // lattice snap math depends on every hex sharing the fixed
+      // size, circles and triangles by design — so resize (and
       // auto-size reset) is refused outright.
-      if (box.shape === 1) {
-        w.setStatus("hexagons have a fixed size and can't be resized");
+      if (box.shape) {
+        w.setStatus("this shape has a fixed size and can't be resized");
         return;
       }
       if (e.shiftKey) {
@@ -454,6 +458,44 @@ export const attachKeyboardListener = (): void => {
           ? "resize mode — drag a corner grip; E or Escape to finish"
           : "resize mode off",
       );
+      return;
+    }
+
+    // Shape keys (Alt/⌥ + 1-4) with a selection: set the shape of
+    // every selected box — 1 rect, 2 circle, 3 triangle, 4 hexagon
+    // (user-facing key order; the persisted ids differ, see
+    // SHAPE_FOR_KEY). e.code because Alt+digit types symbols on
+    // macOS layouts. Non-boxes in the selection are skipped, the
+    // palette-key precedent. Becoming a special shape drops any
+    // pinned size (fixed footprint); becoming a hexagon settles the
+    // lattice so the no-overlap invariant holds immediately.
+    if (!mod && e.altKey && !e.shiftKey && /^Digit[1-4]$/.test(e.code)) {
+      if (w.selected.size === 0) return;
+      const shape = SHAPE_FOR_KEY[parseInt(e.code.slice(5), 10)]!;
+      const map = w.currentMap();
+      let changed = false;
+      let anyHex = false;
+      for (const id of w.selected) {
+        const box = map.boxes.find((b) => b.id === id);
+        if (!box) continue;
+        if ((box.shape ?? 0) === shape) continue;
+        if (shape === 0) delete box.shape;
+        else box.shape = shape;
+        if (shape !== 0) {
+          delete box.w;
+          delete box.h;
+        }
+        if (shape === SHAPE_HEX) anyHex = true;
+        changed = true;
+      }
+      if (changed) {
+        e.preventDefault();
+        if (anyHex) settleHexBoxes(map.boxes);
+        clearBoxResize();
+        mutatedCurrentMap();
+        renderAll();
+        w.setStatus("shape: " + (SHAPE_NAMES[shape] ?? "rectangle"));
+      }
       return;
     }
 
@@ -480,7 +522,22 @@ export const attachKeyboardListener = (): void => {
       return;
     }
     if (!mod && !e.altKey && e.shiftKey && /^Digit[1-9]$/.test(e.code)) {
-      if (w.selected.size === 0) return;
+      if (w.selected.size === 0) {
+        // Nothing selected: Shift+1..4 in plain cursor mode sets the
+        // FILE's default shape — what a double-click creates. Tool
+        // modes keep their own digit semantics (brush pre-colour), so
+        // they bail out here.
+        if (
+          /^Digit[1-4]$/.test(e.code) &&
+          !isBrushMode() &&
+          !isLineMode() &&
+          !isTextMode()
+        ) {
+          e.preventDefault();
+          setDefaultShape(SHAPE_FOR_KEY[parseInt(e.code.slice(5), 10)]!);
+        }
+        return;
+      }
       const n = parseInt(e.code.slice(5), 10);
       // Apply both: font on boxes/texts, style on lines. A mixed
       // selection gets both effects from the same key.

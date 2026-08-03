@@ -10,21 +10,43 @@
 // resize mover on every drag tick (cheap: two getComputedStyle reads).
 // Deliberately dependency-free so both can import it without cycles.
 
-// Hexagons: the frame is fixed (HEX_W × HEX_H) but the line budget
-// still depends on the label's font size (font-2..9 scale it up).
-// The label block is capped at 68% of the hex width; at that band's
-// horizontal extremes the slanted edges cut the usable height to
-// ~64% of the hex height (the 68%-wide inscribed rectangle of a
-// flat-top hexagon). Everything past the lines that fit is
-// ellipsised by the same --label-clamp CSS the sized boxes use.
-const HEX_LABEL_HEIGHT_FRAC = 0.64;
+// Special shapes: the frame is fixed but the line budget still
+// depends on the label's font size (font-2..9 scale it up). Each
+// shape caps its label width in CSS and exposes a usable-height
+// fraction here — the part of the frame the label block may fill
+// before the silhouette cuts it off. Everything past the lines that
+// fit is ellipsised by the same --label-clamp CSS the sized boxes
+// use.
+//
+//   hexagon  0.64 — the 68%-wide inscribed rectangle of a flat-top
+//                   hexagon (label capped at 68% width in CSS);
+//   circle   0.62 — a 64%-wide chord band of the circle;
+//   triangle 0.40 — the lower band where a 50%-wide block fits the
+//                   narrowing silhouette (label biased low in CSS).
+export const shapeLabelClampFrac = (
+  shape: number | undefined,
+): number | null => {
+  switch (shape) {
+    case 1:
+      return 0.64;
+    case 2:
+      return 0.62;
+    case 3:
+      return 0.4;
+    default:
+      return null;
+  }
+};
 
-export const updateHexLabelClamp = (el: HTMLElement): void => {
+export const updateFixedShapeLabelClamp = (
+  el: HTMLElement,
+  frac: number,
+): void => {
   const label = el.querySelector<HTMLElement>(".box-label");
   if (!label) return;
   const lineH = parseFloat(getComputedStyle(label).lineHeight);
   if (!Number.isFinite(lineH) || lineH <= 0) return;
-  const avail = el.clientHeight * HEX_LABEL_HEIGHT_FRAC;
+  const avail = el.clientHeight * frac;
   const lines = Math.max(1, Math.floor(avail / lineH));
   el.style.setProperty("--label-clamp", String(lines));
 };

@@ -390,8 +390,8 @@ const onMouseUp = (e: MouseEvent): void => {
       mutatedEdge();
       renderEdges();
     } else {
-      // Dropped in empty space: spawn a new box at the cursor (a
-      // lattice-snapped hexagon when the hexagon setting is on) and
+      // Dropped in empty space: spawn a new box of the file's
+      // default shape at the cursor (hexagons lattice-snap) and
       // connect to it. spawnBoxForLinkDrop leaves the commit to us
       // so box + edge land as one undo step.
       const spawned = spawnBoxForLinkDrop(toDataX(e.clientX), toDataY(e.clientY));

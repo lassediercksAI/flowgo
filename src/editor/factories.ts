@@ -15,8 +15,10 @@
 // the removed boxes).
 
 import { HEX_H, HEX_W, snapHexCenter } from "../graph/hex.ts";
+import { SHAPE_HEX, fixedShapeSize } from "../graph/shape.ts";
 import { startEdit, startTextEdit } from "./edit.ts";
-import { hexCenters, isHexMode } from "./hex.ts";
+import { getDefaultShape } from "./default-shape.ts";
+import { hexCenters } from "./hex.ts";
 import {
   mutatedBox,
   mutatedDoc,
@@ -88,11 +90,19 @@ export const createBoxAt = (
   y: number,
   centerOn?: { x: number; y: number },
 ): void => {
-  // Hexagon mode hijacks every box-creation path (mouse dblclick,
-  // touch double-tap, future callers) right here so no caller needs
-  // to know about hexagons.
-  if (isHexMode()) {
+  // The file's default shape hijacks every box-creation path (mouse
+  // dblclick, touch double-tap, future callers) right here so no
+  // caller needs to know about shapes. Hexagons additionally snap
+  // onto the lattice; circles and triangles just take their fixed
+  // footprint at the click point.
+  const defShape = getDefaultShape();
+  if (defShape === SHAPE_HEX) {
     createHexBoxAt(centerOn ?? { x, y });
+    return;
+  }
+  const defSize = fixedShapeSize(defShape);
+  if (defSize) {
+    createFixedShapeBoxAt(centerOn ?? { x, y }, defShape, defSize);
     return;
   }
   const w = must();
@@ -154,10 +164,44 @@ const createHexBoxAt = (center: { x: number; y: number }): void => {
   }
 };
 
+// Fixed-shape variant of createBoxAt for circles and triangles: the
+// new box carries its shape id and known footprint, so no post-render
+// recentring is needed — and unlike hexagons there is no lattice, so
+// the click point is used as-is (overlaps allowed, like rectangles).
+const createFixedShapeBoxAt = (
+  center: { x: number; y: number },
+  shape: number,
+  size: { w: number; h: number },
+): void => {
+  const w = must();
+  const id = w.mintId();
+  const b: BoxLike = {
+    id,
+    label: "new",
+    x: center.x - size.w / 2,
+    y: center.y - size.h / 2,
+    shape,
+  };
+  w.currentMap().boxes.push(b);
+  renderAll();
+  mutatedBox();
+  const el = w.canvas.querySelector<HTMLElement>(`.box[data-id="${id}"]`);
+  if (el) {
+    w.selected.clear();
+    w.selected.add(id);
+    if (w.selectedEdge()) {
+      w.clearSelectedEdge();
+      renderEdges();
+    }
+    applyClasses();
+    startEdit(el, b);
+  }
+};
+
 // Spawn a new box centred on a link-drop point (releasing a
-// connection drag over empty space). Hex-aware: with the hexagon
-// setting on, the spawned box is a hexagon snapped onto the lattice
-// near its neighbours, exactly like a double-click spawn. Unlike
+// connection drag over empty space). Shape-aware: the spawned box
+// takes the file's default shape — hexagons snap onto the lattice
+// near their neighbours, exactly like a double-click spawn. Unlike
 // createBoxAt this does NOT select, edit, or record the mutation —
 // the caller still has to attach the edge and owns the commit, so
 // undo captures box + edge as one step.
@@ -172,10 +216,22 @@ export const spawnBoxForLinkDrop = (
   const id = w.mintId();
   const boxes = w.currentMap().boxes;
   let b: BoxLike;
-  if (isHexMode()) {
+  const defShape = getDefaultShape();
+  const defSize = fixedShapeSize(defShape);
+  if (defShape === SHAPE_HEX) {
     const c = snapHexCenter({ x: dropX, y: dropY }, hexCenters(boxes)) ??
       { x: dropX, y: dropY };
     b = { id, label: "new", x: c.x - HEX_W / 2, y: c.y - HEX_H / 2, shape: 1 };
+    boxes.push(b);
+    renderAll();
+  } else if (defSize) {
+    b = {
+      id,
+      label: "new",
+      x: dropX - defSize.w / 2,
+      y: dropY - defSize.h / 2,
+      shape: defShape,
+    };
     boxes.push(b);
     renderAll();
   } else {

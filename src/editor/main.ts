@@ -25,7 +25,7 @@ import {
   withSuppressedViewSync,
 } from "./viewport.ts";
 import { isBrushMode, wireBrush } from "./brush.ts";
-import { applyDocumentHexPreference, isHexMode, setHexMode, wireHex } from "./hex.ts";
+import { wireDefaultShape } from "./default-shape.ts";
 import { wireLine } from "./line.ts";
 import { wireTextMode } from "./text-mode.ts";
 import { wireClipboard } from "./clipboard.ts";
@@ -239,10 +239,10 @@ wirePersistence({
   getGraph: () => graph,
   setGraph: (g) => {
     graph = g;
-    // A loaded document that carries `hexagons on` switches the
-    // session into hexagon mode (load / import / undo / redo all
-    // funnel through here). Absent flag = browser preference rules.
-    applyDocumentHexPreference(!!g.hexagons);
+    // The document's default shape (graph.defaultShape) needs no
+    // boot-time projection: default-shape.ts reads it live through
+    // its getGraph binding, so load / import / undo / redo are
+    // covered by this assignment alone.
   },
   serializeGraph: serializeGraphPure,
   setCurrentPath: (p, opts) => navigateTo(p, opts),
@@ -315,16 +315,9 @@ wireTextMode({
   setStatus,
 });
 
-wireHex({
+wireDefaultShape({
+  getGraph: () => graph,
   setStatus,
-  // Explicit toggles become the document's preference: stamp the
-  // graph and save, so this map reopens in the same mode anywhere
-  // (the format's `hexagons on` directive).
-  writeDocumentFlag: (on) => {
-    if (on) graph.hexagons = true;
-    else delete graph.hexagons;
-    scheduleSave();
-  },
 });
 
 wireMedia({
@@ -427,30 +420,6 @@ attachModeBar();
 document.getElementById("upBtn").addEventListener("click", goUp);
 document.getElementById("downloadBtn").addEventListener("click", downloadFlowgo);
 document.getElementById("reshareBtn").addEventListener("click", reshare);
-
-// Settings popover (⚙): hosts persistent per-browser preferences.
-// The checkbox mirrors the hexagon setting on every open (the mode
-// bar or a CLI flag may have changed it since), so no live observer
-// is needed.
-{
-  const btn = document.getElementById("settingsBtn");
-  const pop = document.getElementById("settingsPop");
-  const check = document.getElementById("hexSettingCheck") as HTMLInputElement | null;
-  if (btn && pop && check) {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const open = pop.classList.toggle("open");
-      if (open) check.checked = isHexMode();
-    });
-    check.addEventListener("change", () => setHexMode(check.checked));
-    // Click-away closes; clicks inside the popover stay inside.
-    pop.addEventListener("click", (e) => e.stopPropagation());
-    document.addEventListener("click", () => pop.classList.remove("open"));
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") pop.classList.remove("open");
-    });
-  }
-}
 
 // Suppress middle-click autoscroll/paste so we can use it for navigation.
 // (auxclick is suppressed inside attachMouseListeners.)

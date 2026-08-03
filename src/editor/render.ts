@@ -18,7 +18,8 @@ import { resolveFont, resolvePalette } from "../graph/palette.ts";
 import { endpointAnchor } from "./anchors.ts";
 import { updateSelectionToolbar } from "./align.ts";
 import { clearBoxResize, resizingBoxId } from "./resize.ts";
-import { updateHexLabelClamp, updateSizedLabelClamp } from "./label-clamp.ts";
+import { shapeLabelClampFrac, updateFixedShapeLabelClamp, updateSizedLabelClamp } from "./label-clamp.ts";
+import { fixedShapeSize } from "../graph/shape.ts";
 
 // Corner codes for the resize grips, clockwise from top-left. Matches
 // the ResizeCorner type in movers.ts; the code doubles as the CSS
@@ -199,21 +200,22 @@ export const renderAll = (): void => {
     const palette = resolvePalette(b.palette);
     const font = resolveFont(b.font);
     el.className = "box"
-      + (b.shape === 1 ? " hex" : "")
+      + (b.shape === 1 ? " hex" : b.shape === 2 ? " circle" : b.shape === 3 ? " tri" : "")
       + (hasSubmapContent(g, cur, b.id) ? " has-submap" : "")
       + (palette !== 1 ? " palette-" + palette : "")
       + (font !== 1 ? " font-" + font : "");
     el.dataset["id"] = b.id;
     el.style.left = b.x + "px";
     el.style.top = b.y + "px";
-    if (b.shape === 1) {
-      // Hexagons are uniform and never resizable: always the fixed
-      // HEX_W × HEX_H — the lattice snap math in ../graph/hex.ts
-      // depends on every hexagon sharing exactly this size, so no
-      // explicit sizing (present or future) may override it. Takes
-      // precedence over any stray w/h from the resize feature.
-      el.style.width = HEX_W + "px";
-      el.style.height = HEX_H + "px";
+    const fixed = fixedShapeSize(b.shape);
+    if (fixed) {
+      // Special shapes are uniform and never resizable: always their
+      // fixed footprint (for hexagons the lattice snap math in
+      // ../graph/hex.ts depends on every hexagon sharing exactly this
+      // size). Takes precedence over any stray w/h from the resize
+      // feature.
+      el.style.width = fixed.w + "px";
+      el.style.height = fixed.h + "px";
     } else if (b.w && b.h) {
       // Explicit size (resize feature): pin width/height and switch on
       // the `sized` class so CSS centers the label inside the fixed
@@ -237,7 +239,7 @@ export const renderAll = (): void => {
     // Hexagons get none: their size is fixed by the lattice contract,
     // and the E handler refuses them anyway — no grips means no
     // misleading affordance even if that guard ever regresses.
-    if (b.shape !== 1) {
+    if (!fixed) {
       for (const corner of RESIZE_CORNERS) {
         const grip = document.createElement("div");
         grip.className = "resize-grip rg-" + corner;
@@ -250,9 +252,13 @@ export const renderAll = (): void => {
     // Sized boxes clamp their label to the lines that fit the fixed
     // frame — must run after append so the measurements are live.
     if (el.classList.contains("sized")) updateSizedLabelClamp(el);
-    // Hexagons clamp too: fixed silhouette, so overflow would spill
-    // past the slanted edges rather than grow the box.
-    else if (b.shape === 1) updateHexLabelClamp(el);
+    // Special shapes clamp too: fixed silhouette, so overflow would
+    // spill past the edges rather than grow the box. Each shape has
+    // its own usable-height fraction (hexagon vs circle vs triangle).
+    else {
+      const frac = shapeLabelClampFrac(b.shape);
+      if (frac) updateFixedShapeLabelClamp(el, frac);
+    }
   }
   for (const t of map.texts) {
     const el = document.createElement("div");
