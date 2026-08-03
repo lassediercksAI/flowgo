@@ -162,6 +162,12 @@ All tools take an optional `path` (defaults to `/`) so AI can target submaps.
 The transport is JSON-RPC 2.0 over POST (streamable-HTTP, simple form — no
 sessions or SSE).
 
+**Hosted, zero-install:** [flowgo-map.com](https://flowgo-map.com) also runs
+a remote MCP at `https://flowgo-map.com/api/mcp` with a `create_map(flowgo_text)`
+tool — one call, no local binary, returns a public share URL. See
+[`agent-skill/`](agent-skill/) for a ready-to-install Claude Code Skill
+(`/map`) and Cursor command wired up to it.
+
 ### Releases
 
 Releases are managed by [release-please](https://github.com/googleapis/release-please).
