@@ -42,6 +42,23 @@ export interface FlowgoBox {
   palette?: number;
   font?: number;
   anchor?: boolean;
+  // Explicit on-canvas size in data px (both set = user resized the
+  // box). Omitted/0 = auto-size. Mirrors pkg/graph.Box.W/H.
+  w?: number;
+  h?: number;
+  // Render silhouette: 0/unset rectangle, 1 hexagon, 2 circle,
+  // 3 triangle. Mirrors pkg/graph.Box.Shape.
+  shape?: number;
+}
+
+export interface FlowgoImage {
+  id: string;
+  // Path relative to the .flowgo file (mirrors pkg/graph.Image.Src).
+  src: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 export interface FlowgoEdge {
@@ -85,11 +102,16 @@ export interface FlowgoMap {
   texts?: FlowgoText[];
   lines?: FlowgoLine[];
   strokes?: FlowgoStroke[];
+  images?: FlowgoImage[];
 }
 
 export interface FlowgoGraph {
   version?: string;
   maps: FlowgoMap[];
+  // Document-level default shape for new boxes: 1 hexagon, 2 circle,
+  // 3 triangle; 0/unset rectangle. Mirrors pkg/graph.Graph.DefaultShape
+  // (replaced the old per-browser hexagon toggle — see #208).
+  defaultShape?: number;
 }
 
 // ---------------------------------------------------------------
