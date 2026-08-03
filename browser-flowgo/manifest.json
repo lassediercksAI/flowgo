@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "flowgo renderer",
+  "version": "0.1.0",
+  "description": "Renders ```flowgo fenced code blocks inline, in place, on any page — including chatgpt.com and claude.ai. Read-only: view/pan/zoom the map, no editing.",
+  "permissions": ["storage"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "exclude_matches": ["*://*/*.pdf"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "flowgo renderer"
+  },
+  "icons": {
+    "16": "icon-16.png",
+    "48": "icon-48.png",
+    "128": "icon-128.png"
+  }
+}

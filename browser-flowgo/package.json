@@ -1,0 +1,32 @@
+{
+  "name": "browser-flowgo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chrome/Firefox extension: render ```flowgo fenced code blocks in-page on any site (chatgpt.com, claude.ai, docs, GitHub, ...) using flowgo's shared, read-only inline renderer (../src/render/inline.ts).",
+  "type": "module",
+  "license": "AGPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lassediercks/flowgo.git",
+    "directory": "browser-flowgo"
+  },
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "node esbuild.config.mjs production",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.268",
+    "@types/node": "^20.11.0",
+    "esbuild": "^0.21.0",
+    "jsdom": "^24.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.4.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
