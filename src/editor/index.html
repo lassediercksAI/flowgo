@@ -909,7 +909,7 @@
     line-height: 1;
   }
   #helpBtn:hover { background: #f0f0f0; }
-  /* Same override as #alignToolbar / #modeBar: chrome icon buttons
+  /* Same override as #alignToolbar / #contextBar: chrome icon buttons
      must not inherit the full-canvas overlay `svg` rule further down
      (position: absolute + 100% size). width/height: auto defers to
      each icon's own width= / height= attributes. */
@@ -968,39 +968,61 @@
   #helpClose:hover { color: #333; }
   .help { color: #666; font-size: 12px; margin-left: 8px; }
 
-  /* Touch-only mode switcher (cursor / brush / line / text). Vertical stack
-     pinned to the right edge so it sits opposite the breadcrumb /
-     download chrome on the top-left. Hidden by default; revealed only
-     when body.touch-input is set from a coarse pointer media match. */
-  #modeBar { display: none; }
-  body.touch-input #modeBar {
-    display: flex; flex-direction: column; gap: 4px;
+  /* Touch-only context bar (cursor / brush / line / text + contextual
+     controls for whichever mode is active — see contextbar.ts).
+     Pinned to the bottom-centre of the canvas. Hidden by default;
+     revealed only when body.touch-input is set from a coarse pointer
+     media match. */
+  #contextBar { display: none; }
+  body.touch-input #contextBar {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
     position: absolute; z-index: 10;
-    top: 50%; transform: translateY(-50%);
-    right: calc(8px + env(safe-area-inset-right, 0px));
-    background: #fff; border: 1px solid #ccc; border-radius: 6px;
+    left: 50%; transform: translateX(-50%);
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    background: #fff; border: 1px solid #ccc; border-radius: 10px;
     padding: 4px; box-shadow: 0 1px 3px rgba(0,0,0,.1);
     user-select: none; -webkit-user-select: none;
     touch-action: manipulation;
+    max-width: calc(100vw - 16px);
   }
-  #modeBar button {
+  #contextBar .ctx-row {
+    display: flex; align-items: center; gap: 4px;
+  }
+  #contextBar .ctx-cluster {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    border-top: 1px solid #eee; padding-top: 4px; margin-top: 2px;
+  }
+  #contextBar button {
     width: 36px; height: 36px;
     display: inline-flex; align-items: center; justify-content: center;
     background: transparent; border: 0; padding: 0;
     color: #444; cursor: pointer; border-radius: 4px;
+    font-size: 16px;
     /* touch-action is not inherited — set on the button itself so iOS
        Safari treats a tap as a fast-click without a 300ms delay. */
     touch-action: manipulation;
   }
   /* Same override as #alignToolbar: keep inline icon SVGs from
      inheriting the full-canvas overlay svg rule further down. */
-  #modeBar button svg {
+  #contextBar button svg {
     position: static; inset: auto; z-index: auto;
     width: 20px; height: 20px;
   }
-  #modeBar button:hover { background: #f0f0f0; color: #222; }
-  #modeBar button.active {
+  #contextBar button:hover { background: #f0f0f0; color: #222; }
+  #contextBar .ctx-modes button.active,
+  #contextBar .ctx-line-styles button.active {
     background: #eef4ff; color: #07f;
+  }
+  #contextBar .ctx-stepper-value {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 20px; font-size: 13px; color: #444;
+  }
+  #contextBar .ctx-swatch {
+    width: 24px; height: 24px; border-radius: 50%;
+    border: 1px solid #ccc;
+  }
+  #contextBar .ctx-swatch.active {
+    box-shadow: 0 0 0 2px #07f;
   }
 </style>
 </head>
@@ -1141,7 +1163,7 @@
       <tr><td>Drag</td><td>Pan the viewport</td></tr>
       <tr><td>Tap</td><td>Clear the current selection</td></tr>
       <tr><td>Double-tap</td><td>Add a new node of the file's default shape at the tap point (auto-edits)</td></tr>
-      <tr><td>T button in the mode bar</td><td>Text mode: the next tap places a text label (auto-edits) instead of a node, then the bar returns to cursor mode</td></tr>
+      <tr><td>T button in the bottom bar</td><td>Text mode: the next tap places a text label (auto-edits) instead of a node, then the bar returns to cursor mode</td></tr>
 
       <tr><td>Pinch with two fingers</td><td>Browser zoom in / out</td></tr>
     </table>

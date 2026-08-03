@@ -75,7 +75,7 @@ import {
 } from "./attach.ts";
 import { attachMediaListeners, wireMedia } from "./media.ts";
 import { attachAlignToolbar, wireAlign } from "./align.ts";
-import { attachModeBar } from "./modebar.ts";
+import { attachContextBar } from "./contextbar.ts";
 
 // ---------------------------------------------------------------
 // Module-level state. Every feature module reaches these through its
@@ -415,7 +415,7 @@ applyTouchClass();
 
 // The bar itself is CSS-gated on `body.touch-input`, so attaching it
 // unconditionally is safe — fine-pointer devices never see it.
-attachModeBar();
+attachContextBar();
 
 document.getElementById("upBtn").addEventListener("click", goUp);
 document.getElementById("downloadBtn").addEventListener("click", downloadFlowgo);

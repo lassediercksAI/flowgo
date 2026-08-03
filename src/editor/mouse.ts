@@ -20,7 +20,7 @@ import {
 } from "./render.ts";
 import { extendStroke, finishStroke, isPainting, isBrushMode, startStroke } from "./brush.ts";
 import { cancelPendingLine, commitLineOnRelease, isLineMode, placeLinePoint, updateLinePreview } from "./line.ts";
-import { isTextMode, setTextMode } from "./text-mode.ts";
+import { getTextFont, getTextPalette, isTextMode, setTextMode } from "./text-mode.ts";
 import { startEdit } from "./edit.ts";
 import { settleHexBoxes } from "./hex.ts";
 import { nearestHandle, pickTargetHandle } from "./anchors.ts";
@@ -544,7 +544,7 @@ const onBgMouseDown = (e: MouseEvent): void => {
     e.preventDefault();
     e.stopPropagation();
     setTextMode(false);
-    createTextAt(toDataX(e.clientX), toDataY(e.clientY));
+    createTextAt(toDataX(e.clientX), toDataY(e.clientY), getTextPalette(), getTextFont());
     return;
   }
   if (!e.shiftKey) w.selected.clear();

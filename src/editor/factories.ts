@@ -40,6 +40,8 @@ interface TextLike {
   label: string;
   x: number;
   y: number;
+  palette?: number;
+  font?: number;
 }
 
 interface LineLike {
@@ -49,6 +51,8 @@ interface LineLike {
   x2: number;
   y2: number;
   mids?: Array<[number, number]>;
+  palette?: number;
+  style?: number;
 }
 
 interface CurrentMap {
@@ -252,10 +256,17 @@ export const spawnBoxForLinkDrop = (
   return el ? { box: b, el } : null;
 };
 
-export const createTextAt = (cx: number, cy: number): void => {
+export const createTextAt = (
+  cx: number,
+  cy: number,
+  palette?: number,
+  font?: number,
+): void => {
   const w = must();
   const id = w.mintId("t");
   const t: TextLike = { id, label: "text", x: cx, y: cy };
+  if (palette && palette >= 2 && palette <= 9) t.palette = palette;
+  if (font && font >= 2 && font <= 9) t.font = font;
   w.currentMap().texts.push(t);
   renderAll();
   const el = w.canvas.querySelector<HTMLElement>(`.text-item[data-id="${id}"]`);
@@ -281,10 +292,14 @@ export const createLineSegment = (
   y1: number,
   x2: number,
   y2: number,
+  palette?: number,
+  style?: number,
 ): void => {
   const w = must();
   const id = w.mintId("l");
   const l: LineLike = { id, x1, y1, x2, y2 };
+  if (palette && palette >= 2 && palette <= 9) l.palette = palette;
+  if (style && style >= 2 && style <= 9) l.style = style;
   w.currentMap().lines.push(l);
   w.selected.clear();
   w.selected.add(id);

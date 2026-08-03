@@ -53,7 +53,7 @@ import { handleAnchor, nearestHandle, pickTargetHandle } from "./anchors.ts";
 import { addOrReplaceEdge as addOrReplaceEdgePure } from "../graph/edge.ts";
 import { findBoxAt } from "./mouse.ts";
 import { createBoxAt, createTextAt, deleteSelection, spawnBoxForLinkDrop } from "./factories.ts";
-import { isTextMode, setTextMode } from "./text-mode.ts";
+import { getTextFont, getTextPalette, isTextMode, setTextMode } from "./text-mode.ts";
 import { settleHexBoxes } from "./hex.ts";
 import { mutatedCurrentMap, mutatedEdge } from "./mutations.ts";
 import { classifyTap, movedBeyond, type TapRecord } from "./gestures.ts";
@@ -713,7 +713,7 @@ const onTouchEnd = (e: TouchEvent): void => {
       // onBgMouseDown. Single-shot — the mode exits before the spawn.
       if (isTextMode()) {
         setTextMode(false);
-        createTextAt(toDataX(t.clientX), toDataY(t.clientY));
+        createTextAt(toDataX(t.clientX), toDataY(t.clientY), getTextPalette(), getTextFont());
         lastTap = null;
         return;
       }

@@ -24,6 +24,24 @@ export const wireLine = (b: LineBindings): void => {
 };
 
 let lineMode = false;
+
+// Pending style for the NEXT drawn line — mirrors brush.ts's palette.
+// Surfaced in the touch context bar (contextbar.ts).
+let pendingPalette = 1;
+let pendingStyle = 1;
+
+export const getLinePalette = (): number => pendingPalette;
+export const setLinePalette = (p: number): void => {
+  if (p < 1 || p > 9) return;
+  pendingPalette = p;
+};
+
+export const getLineStyle = (): number => pendingStyle;
+export const setLineStyle = (s: number): void => {
+  if (s < 1 || s > 9) return;
+  pendingStyle = s;
+};
+
 let pending: { x: number; y: number } | null = null;
 // Client-coord snapshot of the mousedown that set `pending`, used to
 // distinguish a click (release near the down point → keep pending,
@@ -125,7 +143,7 @@ export const placeLinePoint = (
     // Treat a near-zero-length click as a cancel rather than a 0px line.
     return;
   }
-  createLineSegment(start.x, start.y, end.x, end.y);
+  createLineSegment(start.x, start.y, end.x, end.y, pendingPalette, pendingStyle);
 };
 
 // Called from the document-level mouseup / touchend. If the user
@@ -149,7 +167,7 @@ export const commitLineOnRelease = (
   pendingDownClient = null;
   removePreview();
   if (Math.hypot(end.x - start.x, end.y - start.y) < 2) return;
-  createLineSegment(start.x, start.y, end.x, end.y);
+  createLineSegment(start.x, start.y, end.x, end.y, pendingPalette, pendingStyle);
 };
 
 export const updateLinePreview = (
