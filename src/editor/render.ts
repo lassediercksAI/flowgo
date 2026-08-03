@@ -513,8 +513,12 @@ export const renderEdges = (): void => {
 
 // Proximity highlighting: tracks which box is closest to the cursor
 // during a link drag so we can hint where a new edge will land.
-
-const PROXIMITY_PX = 60;
+//
+// Exported as THE link-targeting radius: findBoxAt in mouse.ts uses
+// the same distance (in the same data space) for the drop cue and the
+// actual drop, so the moment a box's handles appear, releasing the
+// line connects to it — one radius, three cues, no disagreement.
+export const PROXIMITY_PX = 60;
 
 interface ProximityBindings {
   readonly canvas: HTMLElement;

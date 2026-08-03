@@ -13,6 +13,7 @@ import {
 } from "../index.ts";
 import type { HandleCode } from "../graph/handle.ts";
 import type { Box2D, Vec2 } from "../graph/types.ts";
+import { toDataX, toDataY } from "./viewport.ts";
 
 interface BoxLike {
   readonly x: number;
@@ -48,14 +49,15 @@ export const nearestHandle = (
 // the visual cue and the actual drop are guaranteed to agree.
 //
 // Priority: if the cursor / finger is directly over one of the
-// target's own handle dots, use that exact code. Otherwise fall
-// back to whichever handle is closest to the *source* anchor — same
-// logic the historical mouse onMouseUp path used.
+// target's own handle dots, use that exact code. Otherwise the
+// handle whose anchor is closest to the CURSOR wins — the user aims
+// the line at a handle, so the pointer is the intent signal. (An
+// earlier version fell back to the handle nearest the *source*
+// anchor, which systematically picked the source-facing corner —
+// usually tl — no matter where on the target the user pointed.)
 export const pickTargetHandle = (
   targetEl: HTMLElement,
   targetBox: BoxLike,
-  fromX: number,
-  fromY: number,
   clientX: number,
   clientY: number,
 ): HandleCode => {
@@ -67,7 +69,7 @@ export const pickTargetHandle = (
       if (code) return code as HandleCode;
     }
   }
-  return nearestHandle(targetBox, targetEl, fromX, fromY);
+  return nearestHandle(targetBox, targetEl, toDataX(clientX), toDataY(clientY));
 };
 
 // Resolve an edge endpoint to a screen-space point. Uses the named

@@ -671,8 +671,6 @@ const onTouchMove = (e: TouchEvent): void => {
         handleCode = pickTargetHandle(
           tgt,
           tBox,
-          link.startX,
-          link.startY,
           t.clientX,
           t.clientY,
         );
@@ -866,8 +864,6 @@ const finalizeLink = (link: LinkState, t: Touch | null): void => {
     const toCode = pickTargetHandle(
       tgt,
       targetBox,
-      link.startX,
-      link.startY,
       t.clientX,
       t.clientY,
     );

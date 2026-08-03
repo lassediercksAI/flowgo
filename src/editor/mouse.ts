@@ -11,6 +11,7 @@
 
 import { GRID_MAJOR, applyViewport, toDataX, toDataY, viewport, zoomAt } from "./viewport.ts";
 import {
+  PROXIMITY_PX,
   applyClasses,
   clearProximity,
   renderAll,
@@ -131,28 +132,15 @@ export const wireMouse = (b: MouseBindings): void => {
   bindings = b;
 };
 
-// Generous drop halo for link drags: releasing within this many
-// SCREEN px of a box's edge counts as hitting it, so completing a
-// connection doesn't demand pixel-precision on the handle dots.
-// Screen px rather than data px on purpose — the required precision
-// shouldn't tighten as the user zooms out.
-//
-// Sizing: the distance is measured from the BOX RECT, but the handle
-// dots render outside it (offset -20px, 12px dot, 4px green glow ring
-// → the glow's outer edge sits ~24px beyond the rect). The halo must
-// clear all of that with real slack on top, or releasing "just past
-// the glowing handle" falls into empty space and spawns a new box —
-// the exact miss this constant exists to forgive. 48px = the handle
-// chrome (~24px) plus ~24px of genuine proximity beyond it.
-const LINK_SNAP_PX = 48;
-
 // Find the box element under (or generously near) the cursor. Exact
 // elementsFromPoint hits win — including the handle dots that stick
-// out past the outline — then the nearest box whose bounding rect is
-// within LINK_SNAP_PX takes over. Every call site is link-drag
-// targeting (mouse + touch move/up), which is what licenses the halo:
-// this is "which box is the user trying to connect to", not a
-// hit-test.
+// out past the outline — then the nearest box within PROXIMITY_PX
+// (data space) takes over: the SAME radius and distance function
+// updateProximity uses to reveal a box's handles, so "the dots are
+// showing" and "releasing connects" are one and the same state.
+// Every call site is link-drag targeting (mouse + touch move/up),
+// which is what licenses the halo: this is "which box is the user
+// trying to connect to", not a hit-test.
 const findBoxAt = (x: number, y: number): HTMLElement | null => {
   const w = must();
   const els = document.elementsFromPoint(x, y);
@@ -161,19 +149,22 @@ const findBoxAt = (x: number, y: number): HTMLElement | null => {
     const box = (el as HTMLElement).closest?.(".box");
     if (box) return box as HTMLElement;
   }
+  const cx = toDataX(x);
+  const cy = toDataY(y);
   let best: HTMLElement | null = null;
   let bestD = Infinity;
-  for (const el of document.querySelectorAll<HTMLElement>("#canvas .box")) {
-    const r = el.getBoundingClientRect();
-    const dx = Math.max(r.left - x, 0, x - r.right);
-    const dy = Math.max(r.top - y, 0, y - r.bottom);
-    const d = Math.hypot(dx, dy);
+  for (const b of w.currentMap().boxes) {
+    const el = w.canvas.querySelector<HTMLElement>(`.box[data-id="${b.id}"]`);
+    if (!el) continue;
+    const ddx = Math.max(b.x - cx, 0, cx - (b.x + el.offsetWidth));
+    const ddy = Math.max(b.y - cy, 0, cy - (b.y + el.offsetHeight));
+    const d = Math.hypot(ddx, ddy);
     if (d < bestD) {
       bestD = d;
       best = el;
     }
   }
-  return bestD <= LINK_SNAP_PX ? best : null;
+  return bestD <= PROXIMITY_PX ? best : null;
 };
 
 const onMouseMove = (e: MouseEvent): void => {
@@ -245,8 +236,6 @@ const onMouseMove = (e: MouseEvent): void => {
         handleCode = pickTargetHandle(
           target,
           tBox,
-          link.startX,
-          link.startY,
           e.clientX,
           e.clientY,
         );
@@ -380,8 +369,6 @@ const onMouseUp = (e: MouseEvent): void => {
       const toCode = pickTargetHandle(
         target,
         targetBox,
-        link.startX,
-        link.startY,
         e.clientX,
         e.clientY,
       );
