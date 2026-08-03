@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.2.0](https://github.com/lassediercks/flowgo/compare/v0.1.10...v0.2.0) (2026-08-03)
+
+
+### ⚠ BREAKING CHANGES
+
+* **editor:** palette numbers are persisted in .flowgo files, so previously saved maps that used palettes 2-9 will render in the new scheme (e.g. what was red-3 now shows as purple-3). Colour sets are unchanged — only the index order moved.
+
+### Features
+
+* **editor:** adopt Lucide icons across the chrome ([4c3abfc](https://github.com/lassediercks/flowgo/commit/4c3abfcaadf64982839e11dd3020f883af17dfe9))
+* **editor:** generous link-drop halo + tighter hexagon snap engagement ([aab0973](https://github.com/lassediercks/flowgo/commit/aab09735c16ad2dfc1daa35a8eceb9ad73b69978))
+* **editor:** mouse-wheel pan steps exactly one major grid block per notch ([afe7e96](https://github.com/lassediercks/flowgo/commit/afe7e966bae38af595f2bca84afd4e8442a31390))
+* **editor:** reorder palette keys — 2-9 now blue, purple, green, yellow, red, orange, gray, black ([#206](https://github.com/lassediercks/flowgo/issues/206)) ([26a059c](https://github.com/lassediercks/flowgo/commit/26a059caebc722d81ee706d2f0c5a645449546fb))
+* **editor:** text mode places on a single click ([8566a08](https://github.com/lassediercks/flowgo/commit/8566a0859ffe898e1714dbd55427b72a9d0a4afb))
+* **editor:** unify rectangle selection with the hexagon cue — blue border + glow ([dcb08f7](https://github.com/lassediercks/flowgo/commit/dcb08f72a5e372c5a2fdc05cf81300a15800df5c))
+
+
+### Bug Fixes
+
+* **editor:** band selection tests line segments, not bounding boxes ([#1](https://github.com/lassediercks/flowgo/issues/1)f8) ([8566a08](https://github.com/lassediercks/flowgo/commit/8566a0859ffe898e1714dbd55427b72a9d0a4afb))
+* **editor:** brush strokes are draggable ([701cd7c](https://github.com/lassediercks/flowgo/commit/701cd7c96a8f7592b7bd5dba393c5665ed32eaa1))
+* **editor:** chrome icon buttons escape the full-canvas svg overlay rule ([7f463ca](https://github.com/lassediercks/flowgo/commit/7f463ca7a7f9661992aee9d333cdfa98b9906933))
+* **editor:** hexagon labels clamp inside the silhouette and ellipsise overflow ([b944f66](https://github.com/lassediercks/flowgo/commit/b944f664e8c30b4fd57912fe8c9c9b94bbd8d900))
+* **editor:** link targeting — one proximity radius, target handle follows the cursor ([cdcb34d](https://github.com/lassediercks/flowgo/commit/cdcb34d0f68dca0ac944496e9694af329ff74508))
+* **editor:** link-drop halo clears the handle chrome — releasing near the green handle connects ([5f88f53](https://github.com/lassediercks/flowgo/commit/5f88f53cb2582e2678f6bb410fae4141a3deadea))
+* **editor:** resize mode recolors the selection border orange instead of adding a ring ([e8e6da8](https://github.com/lassediercks/flowgo/commit/e8e6da8c9dc91526b90a967989bcf8f1c4f25806))
+* **editor:** UI polish — sans-serif chrome, centered toolbar text, centered gear ([8566a08](https://github.com/lassediercks/flowgo/commit/8566a0859ffe898e1714dbd55427b72a9d0a4afb))
+
 ## [0.1.10](https://github.com/lassediercks/flowgo/compare/v0.1.9...v0.1.10) (2026-08-02)
 
 
