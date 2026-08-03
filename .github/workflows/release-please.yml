@@ -49,9 +49,12 @@ jobs:
           GH_TOKEN: ${{ secrets.WEBSITE_DISPATCH_TOKEN || secrets.RELEASE_PLEASE }}
           TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
-          gh api repos/ExaptationGmbH/flowgo-website/dispatches \
+          if ! gh api repos/ExaptationGmbH/flowgo-website/dispatches \
             -f event_type=flowgo-release \
-            -f "client_payload[version]=${TAG}"
+            -f "client_payload[version]=${TAG}"; then
+            echo "::error::repository_dispatch to ExaptationGmbH/flowgo-website failed. A 404 means the token cannot see the private repo — set the WEBSITE_DISPATCH_TOKEN secret on THIS repo to a PAT with access to ExaptationGmbH/flowgo-website (fine-grained: Contents read+write; or classic: repo scope). Not urgent: the website's daily cron fallback still picks up this release."
+            exit 1
+          fi
 
   build:
     needs: release-please
