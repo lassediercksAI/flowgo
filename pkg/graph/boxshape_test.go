@@ -43,7 +43,7 @@ func TestParseBoxshapeErrors(t *testing.T) {
 	}{
 		{"missing args", "box b1 hi 0 0\nboxshape b1\n", "boxshape needs"},
 		{"non-numeric shape", "box b1 hi 0 0\nboxshape b1 hex\n", "bad boxshape"},
-		{"unknown box", "box b1 hi 0 0\nboxshape nope 1\n", "unknown box"},
+		{"unknown node", "box b1 hi 0 0\nboxshape nope 1\n", "unknown node"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -71,9 +71,9 @@ func TestSerializeBoxshapePlacement(t *testing.T) {
 		},
 	}}}
 	got := Serialize(g)
-	want := "box b1 rect 0 0\n" +
-		"box b2 hex 10 20\n" +
-		"boxshape b2 1\n" +
+	want := "node b1 rect 0 0\n" +
+		"node b2 hex 10 20\n" +
+		"nodeshape b2 1\n" +
 		"anchor b1\n"
 	if got != want {
 		t.Fatalf("serialize:\ngot:\n%swant:\n%s", got, want)

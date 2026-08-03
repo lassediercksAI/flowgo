@@ -1,7 +1,7 @@
 version 0.1.9-0.20260801120705-8edae7d0c33d+dirty
-box b1 "\"It doesn't matter too much what we do, as long as we act decisively, no time for investigateion or hypothesis testing" 1436 828.5
-box b2 "We would all know what to do with the benefit of hindsight, but couldn't\nknow in advance - there are multiple coherent ideas about what to do" 770 11.5
-box b3 "It doesn't matter too much what we do, as long as we act decisively, no time for investigateion or hypothesis testing" 40 831.5
-boxsize b1 303 132
-boxsize b2 266 170
-boxsize b3 268 130
+node b1 "\"It doesn't matter too much what we do, as long as we act decisively, no time for investigateion or hypothesis testing" 1436 828.5
+node b2 "We would all know what to do with the benefit of hindsight, but couldn't\nknow in advance - there are multiple coherent ideas about what to do" 770 11.5
+node b3 "It doesn't matter too much what we do, as long as we act decisively, no time for investigateion or hypothesis testing" 40 831.5
+nodesize b1 303 132
+nodesize b2 266 170
+nodesize b3 268 130

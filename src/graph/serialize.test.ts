@@ -51,7 +51,7 @@ describe("serializeGraph", () => {
         },
       ],
     });
-    expect(out).toBe("box b1 hi 10 20\n");
+    expect(out).toBe("node b1 hi 10 20\n");
   });
 
   it("emits an image directive (id src x y width height)", () => {
@@ -88,7 +88,7 @@ describe("serializeGraph", () => {
       ],
     });
     expect(out).toBe(
-      ["box b1 hi 0 0", "", "image img1 flowgo-media/x.png 0 0 100 80", ""].join("\n"),
+      ["node b1 hi 0 0", "", "image img1 flowgo-media/x.png 0 0 100 80", ""].join("\n"),
     );
   });
 
@@ -106,7 +106,7 @@ describe("serializeGraph", () => {
       ],
     });
     expect(out).toBe(
-      "map /\nbox b1 a 0 0\n\nmap /b1\nbox c1 child 0 0\n",
+      "map /\nnode b1 a 0 0\n\nmap /b1\nnode c1 child 0 0\n",
     );
   });
 
@@ -120,7 +120,7 @@ describe("serializeGraph", () => {
         },
       ],
     });
-    expect(out).toBe("map /b1\nbox x kept 0 0\n");
+    expect(out).toBe("map /b1\nnode x kept 0 0\n");
   });
 
   it("emits palette/font as positional tokens with a vestigial sides placeholder", () => {
@@ -142,10 +142,10 @@ describe("serializeGraph", () => {
       }),
     ).toBe(
       [
-        "box a plain 0 0",
-        "box b coloured 0 0 4 5",
-        "box c big 0 0 4 1 6",
-        "box d coloured-big 0 0 4 5 7",
+        "node a plain 0 0",
+        "node b coloured 0 0 4 5",
+        "node c big 0 0 4 1 6",
+        "node d coloured-big 0 0 4 5 7",
         "",
       ].join("\n"),
     );
@@ -247,11 +247,11 @@ describe("serializeGraph", () => {
     );
   });
 
-  it("emits `boxshape <id> <shape>` after the box block, before anchor", () => {
+  it("emits `nodeshape <id> <shape>` after the node block, before anchor", () => {
     // Shaped boxes emit a follow-up directive (mirrors linestyle) so
     // older flowgo binaries that don't know shapes still parse the box
     // geometry cleanly. Default shape (0 or unset) is silent. The
-    // box → boxshape → anchor order must match the Go serializer in
+    // box → nodeshape → anchor order must match the Go serializer in
     // pkg/graph byte-for-byte.
     const out = serializeGraph({
       maps: [
@@ -267,10 +267,10 @@ describe("serializeGraph", () => {
     });
     expect(out).toBe(
       [
-        "box b1 rect 0 0",
-        "box b2 hex 10 20",
-        "box b3 plain 30 40",
-        "boxshape b2 1",
+        "node b1 rect 0 0",
+        "node b2 hex 10 20",
+        "node b3 plain 30 40",
+        "nodeshape b2 1",
         "anchor b1",
         "",
       ].join("\n"),
@@ -393,8 +393,8 @@ describe("serializeGraph", () => {
     );
   });
 
-  it("emits boxsize after the box block for explicitly sized boxes", () => {
-    // Mirrors pkg/graph: boxsize directives follow the box lines and
+  it("emits nodesize after the node block for explicitly sized boxes", () => {
+    // Mirrors pkg/graph: nodesize directives follow the box lines and
     // precede the anchor directive; auto-sized boxes emit nothing.
     expect(
       serializeGraph({
@@ -410,16 +410,16 @@ describe("serializeGraph", () => {
       }),
     ).toBe(
       [
-        "box b1 sized 1 2",
-        "box b2 auto 3 4",
-        "boxsize b1 180 90",
+        "node b1 sized 1 2",
+        "node b2 auto 3 4",
+        "nodesize b1 180 90",
         "anchor b1",
         "",
       ].join("\n"),
     );
   });
 
-  it("skips boxsize when either dimension is missing or non-positive", () => {
+  it("skips nodesize when either dimension is missing or non-positive", () => {
     expect(
       serializeGraph({
         maps: [
@@ -432,7 +432,7 @@ describe("serializeGraph", () => {
           },
         ],
       }),
-    ).toBe(["box b1 half 0 0", "box b2 zero 0 0", ""].join("\n"));
+    ).toBe(["node b1 half 0 0", "node b2 zero 0 0", ""].join("\n"));
   });
 });
 
@@ -444,7 +444,7 @@ describe("defaultshape document directive", () => {
         defaultShape: 3,
         maps: [{ path: "/", boxes: [{ id: "b1", label: "x", x: 0, y: 0 }] }],
       }),
-    ).toBe(["version 1.2.3", "defaultshape 3", "box b1 x 0 0", ""].join("\n"));
+    ).toBe(["version 1.2.3", "defaultshape 3", "node b1 x 0 0", ""].join("\n"));
   });
 
   it("emits nothing when absent or zero", () => {
@@ -463,5 +463,31 @@ describe("defaultshape document directive", () => {
     });
     expect(out).toContain("defaultshape 1\n");
     expect(out).not.toContain("hexagons");
+  });
+});
+
+describe("node directive migration", () => {
+  // The canonical directives are node / nodesize / nodeshape; the
+  // legacy box spellings are parse-only aliases in pkg/graph and must
+  // never appear in serializer output (serializing a legacy-parsed
+  // graph IS the migration).
+  it("never emits the legacy box spellings", () => {
+    const out = serializeGraph({
+      maps: [
+        {
+          path: "/",
+          boxes: [
+            { id: "b1", label: "sized", x: 1, y: 2, w: 120, h: 60 },
+            { id: "b2", label: "hex", x: 3, y: 4, shape: 1 },
+          ],
+        },
+      ],
+    });
+    expect(out).toContain("node b1 ");
+    expect(out).toContain("nodesize b1 120 60\n");
+    expect(out).toContain("nodeshape b2 1\n");
+    expect(out).not.toMatch(/^box /m);
+    expect(out).not.toMatch(/^boxsize /m);
+    expect(out).not.toMatch(/^boxshape /m);
   });
 });

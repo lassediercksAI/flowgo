@@ -15,7 +15,7 @@ export interface BoxData {
   readonly anchor?: boolean | undefined;
   // Explicit on-canvas size in data px (both set = user resized the
   // box; absent = auto-size to the label). Serialized as a separate
-  // `boxsize <id> <w> <h>` directive, mirroring pkg/graph. Ignored
+  // `nodesize <id> <w> <h>` directive, mirroring pkg/graph. Ignored
   // for hexagons (shape=1), which have a fixed uniform size.
   readonly w?: number | undefined;
   readonly h?: number | undefined;
@@ -143,7 +143,10 @@ export const serializeGraph = (g: ConcreteGraph): string => {
     if (multi || m.path !== "/") out += `map ${m.path}\n`;
 
     for (const b of m.boxes ?? []) {
-      let line = `box ${b.id} ${flowgoQuote(b.label)} ${flowgoNum(b.x)} ${flowgoNum(b.y)}`;
+      // `node` is the canonical directive; the legacy `box` spelling
+      // is parse-only in pkg/graph (deprecated, kept until at least
+      // v0.5.x) and never emitted.
+      let line = `node ${b.id} ${flowgoQuote(b.label)} ${flowgoNum(b.x)} ${flowgoNum(b.y)}`;
       const paletteTok = isPaletteOrFont(b.palette) ? b.palette! : 0;
       const fontTok = isPaletteOrFont(b.font) ? b.font! : 0;
       // "4" is a vestigial placeholder for the old sides slot, kept so
@@ -154,18 +157,18 @@ export const serializeGraph = (g: ConcreteGraph): string => {
       out += line + "\n";
     }
 
-    // boxsize then boxshape directives follow the box block (like
-    // linestyle after lines) so parsers see the box before its
+    // nodesize then nodeshape directives follow the node block (like
+    // linestyle after lines) so parsers see the node before its
     // annotations. Emit order is part of the byte-parity contract
     // with pkg/graph Serialize — keep the two in sync.
     for (const b of m.boxes ?? []) {
       if (b.w !== undefined && b.h !== undefined && b.w > 0 && b.h > 0) {
-        out += `boxsize ${b.id} ${flowgoNum(b.w)} ${flowgoNum(b.h)}\n`;
+        out += `nodesize ${b.id} ${flowgoNum(b.w)} ${flowgoNum(b.h)}\n`;
       }
     }
     for (const b of m.boxes ?? []) {
       if (typeof b.shape === "number" && b.shape >= 1 && b.shape <= 9) {
-        out += `boxshape ${b.id} ${b.shape}\n`;
+        out += `nodeshape ${b.id} ${b.shape}\n`;
       }
     }
 

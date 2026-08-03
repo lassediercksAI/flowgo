@@ -17,11 +17,14 @@ import (
 
 // Box is a node on a map. JSON tags are part of the public contract:
 // they're consumed by the editor and any other process that exchanges
-// graphs as JSON.
+// graphs as JSON. (The Go type keeps its historical Box name — the
+// text format's canonical directive is `node`, with `box` as the
+// deprecated legacy spelling; renaming the public type would break
+// downstream consumers for no wire-level gain.)
 //
 // The `.flowgo` text format keeps a vestigial "sides" slot between
 // the y coordinate and the palette token (always emitted as 4) so old
-// box directives like `box b1 hi 0 0 3 5` still parse positionally —
+// node directives like `node b1 hi 0 0 3 5` still parse positionally —
 // the polygon feature is gone, but the wire layout is preserved.
 type Box struct {
 	ID      string  `json:"id"`
@@ -30,30 +33,32 @@ type Box struct {
 	Y       float64 `json:"y"`
 	Palette int     `json:"palette,omitempty"`
 	Font    int     `json:"font,omitempty"`
-	// Anchor marks this box as the map-level recenter target. At most
-	// one box per map carries Anchor=true; the parser/serializer enforce
+	// Anchor marks this node as the map-level recenter target. At most
+	// one node per map carries Anchor=true; the parser/serializer enforce
 	// the invariant. Persisted in the .flowgo text format as a separate
 	// per-map `anchor <id>` directive rather than a positional token.
 	Anchor bool `json:"anchor,omitempty"`
-	// W/H, when both > 0, pin the box to an explicit on-canvas size in
+	// W/H, when both > 0, pin the node to an explicit on-canvas size in
 	// data pixels (the user resized it in the editor). Zero means
-	// auto-size: the box hugs its label like it always has. Persisted
-	// as a separate `boxsize <id> <w> <h>` directive — the positional
-	// slots on the `box` line are all claimed by back-compat baggage.
-	// Ignored for hexagons (Shape=1), which have a fixed uniform size.
+	// auto-size: the node hugs its label like it always has. Persisted
+	// as a separate `nodesize <id> <w> <h>` directive (legacy spelling
+	// `boxsize` still parses) — the positional slots on the `node`
+	// line are all claimed by back-compat baggage.
+	// Ignored for special shapes (Shape!=0), which have fixed sizes.
 	W float64 `json:"w,omitempty"`
 	H float64 `json:"h,omitempty"`
 	// Shape selects the render silhouette: 0 (default) is the classic
-	// auto-sized rectangle, 1 is a hexagon (hexagon mode in the editor:
-	// uniform fixed size, lattice-snapped, never resizable). 2-9 are
-	// reserved. Persisted as a separate `boxshape <id> <shape>`
-	// directive after the box block — the positional slots on the
-	// `box` line are all claimed by back-compat baggage (mirrors the
+	// auto-sized rectangle, 1 hexagon, 2 circle, 3 triangle (all fixed
+	// uniform size, never resizable; hexagons additionally lattice-
+	// snap). 4-9 are reserved. Persisted as a separate
+	// `nodeshape <id> <shape>` directive after the node block (legacy
+	// spelling `boxshape` still parses) — the positional slots on the
+	// `node` line are all claimed by back-compat baggage (mirrors the
 	// linestyle precedent for lines).
 	Shape int `json:"shape,omitempty"`
 }
 
-// Edge connects two boxes within the same map.
+// Edge connects two nodes within the same map.
 type Edge struct {
 	From       string `json:"from"`
 	FromHandle string `json:"fromHandle,omitempty"`
@@ -109,7 +114,7 @@ type Image struct {
 }
 
 // NamedMap is one canvas at a given path. Submap paths are slash-
-// separated box ids: "/A/B" hangs off box A on "/" and box B on "/A".
+// separated node ids: "/A/B" hangs off node A on "/" and node B on "/A".
 type NamedMap struct {
 	Path    string   `json:"path"`
 	Boxes   []Box    `json:"boxes"`
@@ -203,10 +208,10 @@ func Parse(s string) (Graph, error) {
 				return g, fmt.Errorf("line %d: hexagons wants on or off, got %q", lineNo, toks[1])
 			}
 		case "defaultshape":
-			// Document-level default shape for new boxes: 1 hexagon,
+			// Document-level default shape for new nodes: 1 hexagon,
 			// 2 circle, 3 triangle (0 / rectangle is the absent
 			// default and never emitted). Out-of-range values are
-			// ignored rather than fatal, mirroring boxshape, so a
+			// ignored rather than fatal, mirroring nodeshape, so a
 			// future shape id degrades to "rectangle" instead of
 			// locking the file out of older binaries at THIS version.
 			if len(toks) < 2 {
@@ -224,9 +229,13 @@ func Parse(s string) (Graph, error) {
 				return g, fmt.Errorf("line %d: map needs path", lineNo)
 			}
 			cur = findOrCreate(toks[1])
-		case "box":
+		case "node", "box":
+			// `node` is the canonical directive; `box` is the legacy
+			// spelling — keep parsing it until at least v0.5.x. Files
+			// may mix both forms (half-migrated files must open).
+			// Serialization always emits `node`.
 			if len(toks) < 5 {
-				return g, fmt.Errorf("line %d: box needs id label x y", lineNo)
+				return g, fmt.Errorf("line %d: %s needs id label x y", lineNo, toks[0])
 			}
 			x, err := strconv.ParseFloat(toks[3], 64)
 			if err != nil {
@@ -387,17 +396,19 @@ func Parse(s string) (Graph, error) {
 			if !found {
 				return g, fmt.Errorf("line %d: linestyle refers to unknown line %q", lineNo, toks[1])
 			}
-		case "boxsize":
+		case "nodesize", "boxsize":
+			// `boxsize` is the legacy spelling — parse-only alias, keep
+			// until at least v0.5.x. Serialization emits `nodesize`.
 			if len(toks) < 4 {
-				return g, fmt.Errorf("line %d: boxsize needs id, width, and height", lineNo)
+				return g, fmt.Errorf("line %d: %s needs id, width, and height", lineNo, toks[0])
 			}
 			bw, err := strconv.ParseFloat(toks[2], 64)
 			if err != nil {
-				return g, fmt.Errorf("line %d: bad boxsize width: %v", lineNo, err)
+				return g, fmt.Errorf("line %d: bad %s width: %v", lineNo, toks[0], err)
 			}
 			bh, err := strconv.ParseFloat(toks[3], 64)
 			if err != nil {
-				return g, fmt.Errorf("line %d: bad boxsize height: %v", lineNo, err)
+				return g, fmt.Errorf("line %d: bad %s height: %v", lineNo, toks[0], err)
 			}
 			if bw <= 0 || bh <= 0 {
 				// Non-positive dims mean auto-size; ignore rather than
@@ -414,15 +425,17 @@ func Parse(s string) (Graph, error) {
 				}
 			}
 			if !foundSizeBox {
-				return g, fmt.Errorf("line %d: boxsize refers to unknown box %q", lineNo, toks[1])
+				return g, fmt.Errorf("line %d: %s refers to unknown node %q", lineNo, toks[0], toks[1])
 			}
-		case "boxshape":
+		case "nodeshape", "boxshape":
+			// `boxshape` is the legacy spelling — parse-only alias, keep
+			// until at least v0.5.x. Serialization emits `nodeshape`.
 			if len(toks) < 3 {
-				return g, fmt.Errorf("line %d: boxshape needs id and shape", lineNo)
+				return g, fmt.Errorf("line %d: %s needs id and shape", lineNo, toks[0])
 			}
 			shapeVal, err := strconv.Atoi(toks[2])
 			if err != nil {
-				return g, fmt.Errorf("line %d: bad boxshape: %v", lineNo, err)
+				return g, fmt.Errorf("line %d: bad %s: %v", lineNo, toks[0], err)
 			}
 			if shapeVal < 1 || shapeVal > 9 {
 				// 0 means default (rectangle); ignore so the field stays
@@ -438,7 +451,7 @@ func Parse(s string) (Graph, error) {
 				}
 			}
 			if !foundBox {
-				return g, fmt.Errorf("line %d: boxshape refers to unknown box %q", lineNo, toks[1])
+				return g, fmt.Errorf("line %d: %s refers to unknown node %q", lineNo, toks[0], toks[1])
 			}
 		case "anchor":
 			if len(toks) < 2 {
@@ -456,7 +469,7 @@ func Parse(s string) (Graph, error) {
 				}
 			}
 			if !found {
-				return g, fmt.Errorf("line %d: anchor refers to unknown box %q", lineNo, id)
+				return g, fmt.Errorf("line %d: anchor refers to unknown node %q", lineNo, id)
 			}
 		case "stroke":
 			if len(toks) < 4 {
@@ -597,7 +610,7 @@ func Serialize(g Graph) string {
 		for _, box := range m.Boxes {
 			emitPalette := box.Palette >= 2 && box.Palette <= 9
 			emitFont := box.Font >= 2 && box.Font <= 9
-			fmt.Fprintf(&b, "box %s %s %g %g", box.ID, quote(box.Label), box.X, box.Y)
+			fmt.Fprintf(&b, "node %s %s %g %g", box.ID, quote(box.Label), box.X, box.Y)
 			// The "4" placeholder fills the vestigial sides slot when
 			// palette/font follow, so old files like `box b1 hi 0 0 4 5`
 			// round-trip positionally.
@@ -616,18 +629,18 @@ func Serialize(g Graph) string {
 			}
 			b.WriteString("\n")
 		}
-		// boxsize then boxshape directives follow the box block (like
-		// linestyle after lines) so parsers see the box before its
+		// nodesize then nodeshape directives follow the node block (like
+		// linestyle after lines) so parsers see the node before its
 		// annotations. Emit order is part of the byte-parity contract
 		// with src/graph/serialize.ts — keep the two in sync.
 		for _, box := range m.Boxes {
 			if box.W > 0 && box.H > 0 {
-				fmt.Fprintf(&b, "boxsize %s %g %g\n", box.ID, box.W, box.H)
+				fmt.Fprintf(&b, "nodesize %s %g %g\n", box.ID, box.W, box.H)
 			}
 		}
 		for _, box := range m.Boxes {
 			if box.Shape >= 1 && box.Shape <= 9 {
-				fmt.Fprintf(&b, "boxshape %s %d\n", box.ID, box.Shape)
+				fmt.Fprintf(&b, "nodeshape %s %d\n", box.ID, box.Shape)
 			}
 		}
 		// Single-anchor invariant: emit at most one `anchor <id>` line.

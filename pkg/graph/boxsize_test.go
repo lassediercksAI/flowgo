@@ -24,7 +24,7 @@ func TestParseBoxsize(t *testing.T) {
 
 func TestParseBoxsizeUnknownBox(t *testing.T) {
 	_, err := Parse("box b1 hello 10 20\nboxsize nope 200 120\n")
-	if err == nil || !strings.Contains(err.Error(), "unknown box") {
+	if err == nil || !strings.Contains(err.Error(), "unknown node") {
 		t.Fatalf("expected unknown-box error, got %v", err)
 	}
 }
@@ -51,11 +51,11 @@ func TestSerializeBoxsizeRoundTrip(t *testing.T) {
 		},
 	}}}
 	out := Serialize(in)
-	if !strings.Contains(out, "boxsize b1 180.5 90\n") {
-		t.Fatalf("serialized output missing boxsize line:\n%s", out)
+	if !strings.Contains(out, "nodesize b1 180.5 90\n") {
+		t.Fatalf("serialized output missing nodesize line:\n%s", out)
 	}
-	if strings.Contains(out, "boxsize b2") {
-		t.Fatalf("auto-sized box must not emit boxsize:\n%s", out)
+	if strings.Contains(out, "nodesize b2") {
+		t.Fatalf("auto-sized node must not emit nodesize:\n%s", out)
 	}
 	back, err := Parse(out)
 	if err != nil {

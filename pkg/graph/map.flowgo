@@ -1,21 +1,21 @@
 version 0.1.0
 map /
-box b1 Versioning 1016.7759604114208 291.48569022823733
-box b2 FlowGo 923 -278 4 7 8
-box b3 Mapping 906.5 32.5
-box b4 "Layering (CMD/CTRL + Click)" 540.5 186.5
-box b6 Abstraction 727 332.5
-box b7 Simple 1232 -213.5 4 6
-box b8 "Open Format" 1203.5 24.75
-box b5 "Alpha Software" 608 -191
-box b9 "Ephemeral Env" 588.75 -28.75
-box b10 Collaboration 838.5 416.2428451141186
-box b11 Exaptation? 1381 -91.8785774429407 4 8
-box b12 "A new box" 1816.25 490.6214225570593
-box b15 "(1) numbers are attached to styles" 1508 686.3107112785297
-box b16 "(2) numbers are attached to styles" 1506 740 4 2
-box b17 "(3) numbers are attached to styles" 1508 791 4 3
-box b18 "Shift+Number changes size" 1483 846 4 2 5
+node b1 Versioning 1016.7759604114208 291.48569022823733
+node b2 FlowGo 923 -278 4 7 8
+node b3 Mapping 906.5 32.5
+node b4 "Layering (CMD/CTRL + Click)" 540.5 186.5
+node b6 Abstraction 727 332.5
+node b7 Simple 1232 -213.5 4 6
+node b8 "Open Format" 1203.5 24.75
+node b5 "Alpha Software" 608 -191
+node b9 "Ephemeral Env" 588.75 -28.75
+node b10 Collaboration 838.5 416.2428451141186
+node b11 Exaptation? 1381 -91.8785774429407 4 8
+node b12 "A new box" 1816.25 490.6214225570593
+node b15 "(1) numbers are attached to styles" 1508 686.3107112785297
+node b16 "(2) numbers are attached to styles" 1506 740 4 2
+node b17 "(3) numbers are attached to styles" 1508 791 4 3
+node b18 "Shift+Number changes size" 1483 846 4 2 5
 anchor b2
 
 edge b1:t b2:br
@@ -62,60 +62,60 @@ stroke s13 7 1915.5,216 1919.5,224 1937.5,244 1962.5,265 1985.5,291 1987.5,290
 stroke s14 7 2055.5,214 2042.5,231 1990.5,283 1987.5,288 1986.5,298
 
 map /b1
-box b1 Versioning 1660 300
-box b2 Controlled 1626 557
-box b3 Git 1417 540
-box b4 Immutable 1887 556
+node b1 Versioning 1660 300
+node b2 Controlled 1626 557
+node b3 Git 1417 540
+node b4 Immutable 1887 556
 
 edge b1:bl b3:tr
 edge b1:br b4:tl
 edge b1:b b2:t
 
 map /b3
-box b2 Mapping 1492.5 414.5
-box b3 Explorative 1378.5 620.5
-box b1 Abstract 1712.5 624.5
-box b4 Wardley 1787.5 287.5
+node b2 Mapping 1492.5 414.5
+node b3 Explorative 1378.5 620.5
+node b1 Abstract 1712.5 624.5
+node b4 Wardley 1787.5 287.5
 
 edge b2:b b3:t
 edge b2:b b1:tl
 edge b2:br b4:l
 
 map /b9
-box b1 Temporary 1014 290.5
+node b1 Temporary 1014 290.5
 
 map /b5
-box b1 Unstable? 1056 217.5 4 3 5
-box b2 Intersting 1005 341.5
-box b3 B 1204 306.5
+node b1 Unstable? 1056 217.5 4 3 5
+node b2 Intersting 1005 341.5
+node b3 B 1204 306.5
 
 stroke s1 1554,329 1556,330 1558,329 1564,326 1576,313 1596,288 1618,259 1643,232 1672,218 1707,218 1750,229 1790,248 1818,276 1831,309 1831,346 1821,379 1797,417 1760,448 1719,471 1682,495 1659,518 1655,541 1665,563 1689,583 1718,595 1750,600 1777,600 1788,598
 stroke s2 1754,667 1745,666 1730,666 1717,670 1706,680 1699,692 1697,706 1701,720 1709,732 1718,739 1727,740 1737,733 1745,723 1750,710 1751,697 1746,686 1737,675 1727,670 1715,668
 
 map /b2
-box b1 "Exaptation GmbH" 1313.5 309
-box b2 "Lasse Diercks" 1318 112.5
-box b3 https://github.com/lassediercks/flowgo 1252 157
-box b4 https://exaptation.eu/ 1343 437.25
+node b1 "Exaptation GmbH" 1313.5 309
+node b2 "Lasse Diercks" 1318 112.5
+node b3 https://github.com/lassediercks/flowgo 1252 157
+node b4 https://exaptation.eu/ 1343 437.25
 
 map /b4
-box b1 "How deep?" 552 231 4 2 6
+node b1 "How deep?" 552 231 4 2 6
 
 map /b4/b1
-box b1 "I dont know" 754 267 4 2 8
+node b1 "I dont know" 754 267 4 2 8
 
 map /b4/b1/b1
-box b1 "Could it be an inception?" 115 387 4 2 8
+node b1 "Could it be an inception?" 115 387 4 2 8
 
 map /b4/b1/b1/b1
-box b1 "should we roll a dice?" 208 367 4 2 8
+node b1 "should we roll a dice?" 208 367 4 2 8
 
 map /b4/b1/b1/b1/b1
-box b1 "Get the spinner, we're in layer 5" 575 365 4 2 9
+node b1 "Get the spinner, we're in layer 5" 575 365 4 2 9
 
 map /b4/b1/b1/b1/b1/b1
-box b1 "maybe it was the friends we made alone the way" 815 413
+node b1 "maybe it was the friends we made alone the way" 815 413
 
 map /b8
-box b1 "You can run this gui 100% local with the go binary in the repo" 952.5 165.5
-box b2 https://github.com/lassediercks/flowgo 1099.5 226.5
+node b1 "You can run this gui 100% local with the go binary in the repo" 952.5 165.5
+node b2 https://github.com/lassediercks/flowgo 1099.5 226.5

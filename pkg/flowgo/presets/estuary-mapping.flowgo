@@ -1,5 +1,5 @@
 version v0.1.8
-hexagons on
+defaultshape 1
 text t1 Time 728 311.5 1 6
 text t2 Energy -709 -406.5 1 6
 
