@@ -282,7 +282,10 @@
   }
   .box.resizing .resize-grip { display: block; }
   .box.resizing .handle { display: none; }
-  .box.resizing { outline-color: #f80; }
+  /* Own the full outline: resize mode used to recolor the selection
+     outline, but .box.selected no longer draws one (selection is
+     border + glow now) — resize keeps its explicit orange frame. */
+  .box.resizing { outline: 3px solid #f80; outline-offset: 3px; }
   .rg-tl { top: -7px;    left: -7px;   cursor: nwse-resize; }
   .rg-tr { top: -7px;    right: -7px;  cursor: nesw-resize; }
   .rg-bl { bottom: -7px; left: -7px;   cursor: nesw-resize; }
@@ -312,19 +315,16 @@
 
   /* Selected highlights live below the palette block so the cascade
      wins against same-specificity .box.palette-N border/stroke rules
-     above. The two-tone halo (white inner, blue outer) is the
-     load-bearing cue — border-colour alone is invisible on palette-7
-     (the box is already blue), and a single-colour halo can blend
-     into either the canvas (light) or palette-2 (dark). The white
-     stripe always separates the blue ring from the box edge. */
+     above. Selection cue matches the hexagon treatment exactly: blue
+     border + soft blue glow — one visual language for "selected"
+     across both silhouettes. The glow carries the cue on palette-7,
+     where the border is already blue. */
   .box.selected {
     border-color: #07f;
-    outline: 3px solid #07f;
-    outline-offset: 3px;
-    box-shadow: 0 0 0 3px #fff;
+    box-shadow: 0 0 3px rgba(0,119,255,.7);
   }
   .box.has-submap.selected {
-    box-shadow: 0 0 0 3px #fff, 4px 4px 0 0 #222;
+    box-shadow: 4px 4px 0 0 #222, 0 0 3px rgba(0,119,255,.7);
   }
 
   /* Font-size scale: 1 = default (14px). 2-9 step monotonically larger. */
