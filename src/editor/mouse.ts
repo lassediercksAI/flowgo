@@ -135,10 +135,16 @@ export const wireMouse = (b: MouseBindings): void => {
 // SCREEN px of a box's edge counts as hitting it, so completing a
 // connection doesn't demand pixel-precision on the handle dots.
 // Screen px rather than data px on purpose — the required precision
-// shouldn't tighten as the user zooms out. 24px ≈ two handle dots of
-// slack, small enough that "drop in empty space to spawn a box" still
-// triggers anywhere that visually reads as empty.
-const LINK_SNAP_PX = 24;
+// shouldn't tighten as the user zooms out.
+//
+// Sizing: the distance is measured from the BOX RECT, but the handle
+// dots render outside it (offset -20px, 12px dot, 4px green glow ring
+// → the glow's outer edge sits ~24px beyond the rect). The halo must
+// clear all of that with real slack on top, or releasing "just past
+// the glowing handle" falls into empty space and spawns a new box —
+// the exact miss this constant exists to forgive. 48px = the handle
+// chrome (~24px) plus ~24px of genuine proximity beyond it.
+const LINK_SNAP_PX = 48;
 
 // Find the box element under (or generously near) the cursor. Exact
 // elementsFromPoint hits win — including the handle dots that stick
