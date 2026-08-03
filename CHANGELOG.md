@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.1](https://github.com/lassediercks/flowgo/compare/v0.2.0...v0.2.1) (2026-08-03)
+
+
+### Features
+
+* **editor:** band selection prioritises solid items over lines ([6b99df7](https://github.com/lassediercks/flowgo/commit/6b99df79727789a094ae40e5ddc6a6d53854b70e))
+* **editor:** feedback button points at the Loquiry study ([fbf35d8](https://github.com/lassediercks/flowgo/commit/fbf35d8ab025fada31ccdf43e919ee2186de695e))
+* **editor:** shift-drag moves a snapped hexagon cluster as one ([bd209b0](https://github.com/lassediercks/flowgo/commit/bd209b05adda8692ce36e21bb0673e859ba8478c))
+
 ## [0.2.0](https://github.com/lassediercks/flowgo/compare/v0.1.10...v0.2.0) (2026-08-03)
 
 
