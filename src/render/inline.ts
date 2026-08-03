@@ -3,7 +3,7 @@
 // browser extension. One <script> tag (the bundle produced by
 // `pnpm build:inline`, see vite.inline.config.ts) plus one call:
 //
-//   FlowgoInline.render(container, flowgoText)
+//   FlowgoInline.renderFlowgo(container, flowgoText)
 //
 // No network calls, no external CSS/fonts — everything this module
 // needs is inlined here and injected as a single <style> tag on first
