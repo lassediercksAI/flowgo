@@ -12,7 +12,6 @@ import {
   HANDLE_CODES,
   strokePathD,
 } from "../index.ts";
-import { HEX_H, HEX_W } from "../graph/hex.ts";
 import { hasSubmapContent } from "../graph/submap.ts";
 import { resolveFont, resolvePalette } from "../graph/palette.ts";
 import { endpointAnchor } from "./anchors.ts";
