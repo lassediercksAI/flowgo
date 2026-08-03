@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lassediercks/flowgo/pkg/graph"
 )
@@ -913,5 +914,166 @@ func TestShapeFixedSizeGuardsCoverCircleAndTriangle(t *testing.T) {
 	}
 	if g.Maps[0].Boxes[0].W != 0 || g.Maps[0].Boxes[0].H != 0 {
 		t.Fatalf("becoming a circle must clear the pinned size: %+v", g.Maps[0].Boxes[0])
+	}
+}
+
+// withServeModeAndWebhook Configures the package for serve mode against
+// a fake webhook standing in for the website's /api/snapshot, and
+// restores the prior package-level cfg on cleanup. cfg is a shared
+// package var (see state.go), so every test that mutates it must undo
+// that before returning control to whichever test runs next.
+func withServeModeAndWebhook(t *testing.T, handler http.HandlerFunc) *httptest.Server {
+	t.Helper()
+	webhook := httptest.NewServer(handler)
+	t.Cleanup(webhook.Close)
+	orig := cfg
+	t.Cleanup(func() { cfg = orig })
+	Configure(Config{
+		ServeMode:          true,
+		Workspaces:         NewWorkspaceManager(time.Hour),
+		ShareWebhookURL:    webhook.URL,
+		ShareWebhookSecret: "test-secret",
+	})
+	return webhook
+}
+
+// mcpToolResultText unwraps the {"content":[{"type":"text","text":...}]}
+// envelope every tool result is wrapped in (see mcpToolText/mcpToolJSON)
+// and returns the raw text payload.
+func mcpToolResultText(t *testing.T, result any) string {
+	t.Helper()
+	m, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("result is not a map[string]any: %#v", result)
+	}
+	content, ok := m["content"].([]map[string]any)
+	if !ok || len(content) == 0 {
+		t.Fatalf("result has no content: %#v", result)
+	}
+	text, ok := content[0]["text"].(string)
+	if !ok {
+		t.Fatalf("content[0].text is not a string: %#v", content[0])
+	}
+	return text
+}
+
+// TestCreateMapOneShot covers brain#211: create_map(flowgo_text) should
+// parse + validate the text, POST it to the configured webhook with
+// the bearer secret, and surface the webhook's {id, url} response —
+// all without a prior start_workspace call.
+func TestCreateMapOneShot(t *testing.T) {
+	var gotAuth string
+	var gotBody struct {
+		Graph                graph.Graph `json:"graph"`
+		WorkspaceFingerprint string      `json:"workspace_fingerprint"`
+	}
+	withServeModeAndWebhook(t, func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("webhook: decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"id": "abc123", "url": "https://flowgo-map.com/m/abc123",
+		})
+	})
+
+	args, _ := json.Marshal(map[string]string{"flowgo_text": "node b1 hi 10 20\nnode b2 there 220 20\nedge b1 b2\n"})
+	result, err := dispatchTool("create_map", args)
+	if err != nil {
+		t.Fatalf("dispatchTool(create_map): %v", err)
+	}
+
+	if gotAuth != "Bearer test-secret" {
+		t.Errorf("webhook Authorization = %q, want %q", gotAuth, "Bearer test-secret")
+	}
+	if len(gotBody.Graph.Maps) != 1 || len(gotBody.Graph.Maps[0].Boxes) != 2 || gotBody.Graph.Maps[0].Boxes[0].Label != "hi" {
+		t.Fatalf("webhook did not receive the parsed graph: %+v", gotBody.Graph)
+	}
+
+	var out struct {
+		ID  string `json:"id"`
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal([]byte(mcpToolResultText(t, result)), &out); err != nil {
+		t.Fatalf("unmarshal tool result: %v", err)
+	}
+	if out.ID != "abc123" || out.URL != "https://flowgo-map.com/m/abc123" {
+		t.Errorf("tool result = %+v, want id=abc123 url=.../m/abc123", out)
+	}
+}
+
+func TestCreateMapRequiresFlowgoText(t *testing.T) {
+	withServeModeAndWebhook(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("webhook should never be called when flowgo_text is missing")
+	})
+	if _, err := dispatchTool("create_map", json.RawMessage(`{}`)); err == nil {
+		t.Fatal("expected an error for missing flowgo_text")
+	}
+}
+
+func TestCreateMapRejectsInvalidSyntax(t *testing.T) {
+	withServeModeAndWebhook(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("webhook should never be called for unparseable text")
+	})
+	args, _ := json.Marshal(map[string]string{"flowgo_text": "not a real directive at all\n"})
+	_, err := dispatchTool("create_map", args)
+	if err == nil || !strings.Contains(err.Error(), "invalid .flowgo text") {
+		t.Fatalf("dispatchTool(create_map) error = %v, want it to mention invalid .flowgo text", err)
+	}
+}
+
+func TestCreateMapRejectsSemanticallyInvalidGraph(t *testing.T) {
+	withServeModeAndWebhook(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("webhook should never be called for a graph that fails validation")
+	})
+	// Syntactically fine, semantically broken: an edge to a node that
+	// doesn't exist on this map.
+	args, _ := json.Marshal(map[string]string{"flowgo_text": "node b1 hi 0 0\nedge b1 nonexistent\n"})
+	_, err := dispatchTool("create_map", args)
+	if err == nil || !strings.Contains(err.Error(), "graph rejected") {
+		t.Fatalf("dispatchTool(create_map) error = %v, want it to mention graph rejected", err)
+	}
+}
+
+// TestCreateMapNotAvailableOutsideServeMode confirms create_map is a
+// hosted-only tool: in local (non-serve) mode it's simply unknown,
+// same as start_workspace/share.
+func TestCreateMapNotAvailableOutsideServeMode(t *testing.T) {
+	orig := cfg
+	t.Cleanup(func() { cfg = orig })
+	Configure(Config{}) // ServeMode defaults false
+
+	args, _ := json.Marshal(map[string]string{"flowgo_text": "node b1 hi 0 0\n"})
+	_, err := dispatchTool("create_map", args)
+	if err == nil || !strings.Contains(err.Error(), "unknown tool") {
+		t.Fatalf("dispatchTool(create_map) outside serve mode: err = %v, want unknown tool", err)
+	}
+}
+
+func TestMcpToolsListIncludesCreateMapOnlyInServeMode(t *testing.T) {
+	orig := cfg
+	t.Cleanup(func() { cfg = orig })
+
+	Configure(Config{ServeMode: true, Workspaces: NewWorkspaceManager(time.Hour)})
+	found := false
+	for _, tool := range mcpTools() {
+		if tool.Name == "create_map" {
+			found = true
+			req, _ := tool.InputSchema["required"].([]string)
+			if len(req) != 1 || req[0] != "flowgo_text" {
+				t.Errorf("create_map required = %v, want [flowgo_text]", req)
+			}
+		}
+	}
+	if !found {
+		t.Error("create_map missing from tools/list in serve mode")
+	}
+
+	Configure(Config{}) // local mode
+	for _, tool := range mcpTools() {
+		if tool.Name == "create_map" {
+			t.Error("create_map should not be listed outside serve mode")
+		}
 	}
 }

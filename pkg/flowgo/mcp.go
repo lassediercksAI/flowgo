@@ -1075,6 +1075,8 @@ func dispatchTool(name string, raw json.RawMessage) (any, error) {
 			return mcpToolText(cfg.Workspaces.Start()), nil
 		case "share":
 			return shareWorkspace(args)
+		case "create_map":
+			return createMap(args)
 		}
 	}
 
@@ -1152,6 +1154,13 @@ func mcpTools() []mcpToolDef {
 				InputSchema: schemaObject(map[string]any{
 					"workspace_id": schemaString("Workspace id from start_workspace."),
 				}, []string{"workspace_id"}),
+			},
+			mcpToolDef{
+				Name: "create_map",
+				Description: "One-shot: turn complete .flowgo text into a public share URL. Use this when you already have (or can write) the full map in one go — skip start_workspace/add_*/share entirely. Returns { id, url }. The text must be valid .flowgo syntax (see flowgo://about); reach for the granular tools instead if you want to build a map up incrementally or read back state.",
+				InputSchema: schemaObject(map[string]any{
+					"flowgo_text": schemaString("Complete .flowgo file content — one or more directive lines (node/edge/text/line/stroke/map/...). See flowgo://about for the full grammar."),
+				}, []string{"flowgo_text"}),
 			},
 		)
 	}
@@ -1437,9 +1446,6 @@ func shareWorkspace(args map[string]any) (any, error) {
 	if wsID == "" {
 		return nil, fmt.Errorf("workspace_id is required")
 	}
-	if cfg.ShareWebhookURL == "" {
-		return nil, fmt.Errorf("share is unconfigured: --share-webhook missing")
-	}
 
 	var graphCopy Graph
 	if err := cfg.Workspaces.With(wsID, func(ws *Workspace) error {
@@ -1448,8 +1454,48 @@ func shareWorkspace(args map[string]any) (any, error) {
 	}); err != nil {
 		return nil, err
 	}
+	return shareGraph(graphCopy)
+}
 
-	graphJSON, err := json.Marshal(graphCopy)
+// createMap is the one-shot sibling of start_workspace + add_* + share:
+// takes complete .flowgo text, parses + validates it, and persists it
+// via the same webhook path — no workspace, no per-node tool calls.
+// Reuses the local-mode parser/validator (parse/validateGraph) so a
+// syntax or semantic error here surfaces the exact same messages a
+// local `flowgo` user would see from a malformed file.
+func createMap(args map[string]any) (any, error) {
+	text := stringArg(args, "flowgo_text", "")
+	if text == "" {
+		return nil, fmt.Errorf("flowgo_text is required")
+	}
+	if len(text) > snapshotBodyCap {
+		return nil, fmt.Errorf("flowgo_text too large: %d bytes (cap %d)", len(text), snapshotBodyCap)
+	}
+	g, err := parse(text)
+	if err != nil {
+		return nil, fmt.Errorf("invalid .flowgo text: %v", err)
+	}
+	if errs := validateGraph(g); len(errs) > 0 {
+		msgs := make([]string, len(errs))
+		for i, e := range errs {
+			msgs[i] = e.Error()
+		}
+		return nil, fmt.Errorf("graph rejected: %s", strings.Join(msgs, "; "))
+	}
+	return shareGraph(g)
+}
+
+// shareGraph POSTs a Graph to the configured webhook with bearer +
+// sha256 fingerprint, and returns { id, url }. Shared by share
+// (existing workspace) and create_map (one-shot text) — both end at
+// the same persistence path, they just differ in where the Graph
+// comes from.
+func shareGraph(g Graph) (any, error) {
+	if cfg.ShareWebhookURL == "" {
+		return nil, fmt.Errorf("sharing is unconfigured: --share-webhook missing")
+	}
+
+	graphJSON, err := json.Marshal(g)
 	if err != nil {
 		return nil, fmt.Errorf("marshal graph: %v", err)
 	}
@@ -1461,7 +1507,7 @@ func shareWorkspace(args map[string]any) (any, error) {
 	fingerprint := "sha256:" + hex.EncodeToString(h[:])
 
 	payload, err := json.Marshal(map[string]any{
-		"graph":                 graphCopy,
+		"graph":                 g,
 		"workspace_fingerprint": fingerprint,
 	})
 	if err != nil {
