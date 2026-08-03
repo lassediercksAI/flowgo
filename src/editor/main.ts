@@ -76,6 +76,7 @@ import {
 import { attachMediaListeners, wireMedia } from "./media.ts";
 import { attachAlignToolbar, wireAlign } from "./align.ts";
 import { attachContextBar, wireContextBar } from "./contextbar.ts";
+import { attachZoomControl } from "./zoomctl.ts";
 
 // ---------------------------------------------------------------
 // Module-level state. Every feature module reaches these through its
@@ -417,6 +418,10 @@ applyTouchClass();
 // unconditionally is safe — fine-pointer devices never see it.
 wireContextBar({ selected, currentMap: () => state, applyShapeToSelection });
 attachContextBar();
+
+// Bottom-left zoom cluster (− / % / +); double-click on the
+// percentage resets the view like Cmd/Ctrl+0.
+attachZoomControl({ currentMap: () => state });
 
 document.getElementById("upBtn").addEventListener("click", goUp);
 document.getElementById("downloadBtn").addEventListener("click", downloadFlowgo);

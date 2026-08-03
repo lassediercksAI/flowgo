@@ -72,6 +72,10 @@ export const applyViewport = (): void => {
   const major = GRID_MAJOR * s;
   bg.style.backgroundSize =
     `${minor}px ${minor}px, ${minor}px ${minor}px, ${major}px ${major}px, ${major}px ${major}px`;
+  // Unlike viewChanged, the display hook fires even while view sync is
+  // suppressed — the zoom control must reflect a load-time / resize
+  // scale change even though the URL shouldn't.
+  displayChanged?.();
   if (viewSyncSuspended === 0) viewChanged?.();
 };
 
@@ -98,6 +102,16 @@ export const zoomAt = (
     viewport.y = clientY - dataY * target;
     applyViewport();
   }
+  flashZoomIndicator();
+};
+
+// Reset to 100% and recenter on the anchor — the Cmd/Ctrl+0 behaviour,
+// shared with the zoom control's double-click. The viewport.s = 1
+// assignment goes before recenter() because recenter's translate math
+// reads viewport.s — at the new scale, not the old one.
+export const resetZoom = (map: Parameters<typeof recenter>[0]): void => {
+  viewport.s = 1;
+  recenter(map);
   flashZoomIndicator();
 };
 
@@ -219,6 +233,14 @@ let viewChanged: (() => void) | null = null;
 let viewSyncSuspended = 0;
 export const wireViewportSync = (cb: () => void): void => {
   viewChanged = cb;
+};
+// Second, independent slot for UI that mirrors the viewport (the zoom
+// control's percentage readout). Invoked once at wiring so the readout
+// starts correct without waiting for the first pan/zoom.
+let displayChanged: (() => void) | null = null;
+export const wireViewportDisplay = (cb: () => void): void => {
+  displayChanged = cb;
+  cb();
 };
 export const withSuppressedViewSync = <T>(fn: () => T): T => {
   viewSyncSuspended++;

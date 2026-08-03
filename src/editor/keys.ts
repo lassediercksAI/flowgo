@@ -41,7 +41,7 @@ import {
   renderAll,
   renderEdges,
 } from "./render.ts";
-import { flashZoomIndicator, recenter, viewport } from "./viewport.ts";
+import { resetZoom } from "./viewport.ts";
 import { clearBoxResize, resizingBoxId, toggleBoxResize } from "./resize.ts";
 import { SHAPE_FOR_KEY, SHAPE_HEX, SHAPE_NAMES } from "../graph/shape.ts";
 import { setDefaultShape } from "./default-shape.ts";
@@ -392,17 +392,13 @@ export const attachKeyboardListener = (): void => {
 
     // Cmd/Ctrl + 0 → reset zoom to 100% and recenter on the anchor.
     // Mirrors the browser-zoom shortcut for "back to default view"
-    // but operates on the canvas viewport. recenter() already
+    // but operates on the canvas viewport. resetZoom's recenter()
     // prioritises the anchor box → b1 → bbox of all content, so the
     // same heuristic that picks the load-time camera also drives the
-    // reset. The viewport.s = 1 assignment goes before recenter()
-    // because recenter's translate math reads viewport.s — at the
-    // new scale, not the old one.
+    // reset. Shared with the zoom control's double-click.
     if (mod && !e.altKey && !e.shiftKey && e.key === "0") {
       e.preventDefault();
-      viewport.s = 1;
-      recenter(w.currentMap());
-      flashZoomIndicator();
+      resetZoom(w.currentMap());
       return;
     }
 
