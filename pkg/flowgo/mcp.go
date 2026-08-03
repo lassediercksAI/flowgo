@@ -103,9 +103,9 @@ Notes:
   /b1/c2. Each path is "the inside of" the box at that path.
 - 'boxshape <id> <shape>' tags a box with a non-default silhouette:
   1 = hexagon, 2 = circle, 3 = triangle (all fixed-size, not
-  resizable; hexagons lattice-snap in the
-  GUI); 2-9 reserved. Omitted or 0 = rectangle. Emitted after the box
-  block so older binaries still parse the geometry.
+  resizable; hexagons lattice-snap in the GUI); 4-9 reserved. Omitted
+  or 0 = rectangle. Emitted after the box block so older binaries
+  still parse the geometry.
 - 'boxsize <id> <w> <h>' pins a box to an explicit size in data px
   (the GUI's resize feature). Omitted = auto-size to the label.
   Never combined with a non-zero boxshape — special shapes are not resizable.
@@ -502,7 +502,7 @@ func actAddBox(g *Graph, args map[string]any) (any, error) {
 		// lattice contract, circles and triangles by design). Rejecting
 		// (rather than silently dropping) a size given alongside one tells the
 		// MCP client its intent can't be honoured.
-		if s == 1 && (box.W != 0 || box.H != 0) {
+		if s != 0 && (box.W != 0 || box.H != 0) {
 			return nil, fmt.Errorf("this shape has a fixed size and is not resizable — omit w/h")
 		}
 	}
@@ -616,11 +616,12 @@ func actUpdateBox(g *Graph, args map[string]any) (any, error) {
 			}
 			newShape = s
 		}
-		// Special shapes have a fixed uniform size — any explicit w/h aimed
-		// at one (whether it already is a hex or becomes one in this
-		// call) is rejected so the client learns its intent can't be
-		// honoured. Becoming a hexagon clears a previously pinned size.
-		if size != nil && newShape == 1 {
+		// Special shapes have a fixed uniform size — any explicit w/h
+		// aimed at one (whether it already is one or becomes one in
+		// this call) is rejected so the client learns its intent can't
+		// be honoured. Becoming a special shape clears a previously
+		// pinned size.
+		if size != nil && newShape != 0 {
 			return nil, fmt.Errorf("this shape has a fixed size and is not resizable — omit w/h")
 		}
 		if size != nil {
@@ -629,7 +630,7 @@ func actUpdateBox(g *Graph, args map[string]any) (any, error) {
 		}
 		if hasShape {
 			m.Boxes[i].Shape = newShape
-			if newShape == 1 {
+			if newShape != 0 {
 				m.Boxes[i].W, m.Boxes[i].H = 0, 0
 			}
 		}

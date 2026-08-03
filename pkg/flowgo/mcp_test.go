@@ -889,3 +889,29 @@ func TestStyleProp_Range(t *testing.T) {
 		}
 	}
 }
+
+// Circles and triangles are fixed-size like hexagons: w/h aimed at
+// them must be rejected on add and update, and becoming one clears a
+// previously pinned size. Guards the shape!=0 generalisation — a
+// regression back to shape==1 lets circles carry pinned sizes.
+func TestShapeFixedSizeGuardsCoverCircleAndTriangle(t *testing.T) {
+	g := freshGraph()
+	if _, err := actAddBox(g, map[string]any{
+		"label": "c", "x": float64(0), "y": float64(0),
+		"shape": float64(2), "w": float64(200), "h": float64(100),
+	}); err == nil {
+		t.Fatal("add_box: w/h alongside shape=2 must error")
+	}
+	g.Maps[0].Boxes = []graph.Box{{ID: "b1", Label: "one", W: 200, H: 120}}
+	if _, err := actUpdateBox(g, map[string]any{
+		"id": "b1", "shape": float64(3), "w": float64(300), "h": float64(200),
+	}); err == nil {
+		t.Fatal("update_box: w/h alongside shape=3 must error")
+	}
+	if _, err := actUpdateBox(g, map[string]any{"id": "b1", "shape": float64(2)}); err != nil {
+		t.Fatalf("becoming a circle: %v", err)
+	}
+	if g.Maps[0].Boxes[0].W != 0 || g.Maps[0].Boxes[0].H != 0 {
+		t.Fatalf("becoming a circle must clear the pinned size: %+v", g.Maps[0].Boxes[0])
+	}
+}
