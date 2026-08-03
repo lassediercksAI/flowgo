@@ -9,7 +9,7 @@
 // module asks for it through wireMouse() bindings and writes back
 // through the supplied setters.
 
-import { applyViewport, toDataX, toDataY, viewport, zoomAt } from "./viewport.ts";
+import { GRID_MAJOR, applyViewport, toDataX, toDataY, viewport, zoomAt } from "./viewport.ts";
 import {
   applyClasses,
   clearProximity,
@@ -460,9 +460,48 @@ const onWheel = (e: WheelEvent): void => {
   // → canvas moves up). deltaMode 1/2 normalisation kept for the rare
   // Firefox trackpad config that reports lines.
   const pxFactor = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? window.innerHeight : 1;
-  viewport.x -= e.deltaX * pxFactor;
-  viewport.y -= e.deltaY * pxFactor;
+  const dx = e.deltaX * pxFactor;
+  const dy = e.deltaY * pxFactor;
+  if (isDiscreteWheel(e)) {
+    // Discrete mouse-wheel notch: pan exactly one major grid block
+    // per notch (scaled by zoom), so the background pattern maps onto
+    // itself after every notch and content moves in clean 100-data-px
+    // steps. Coalesced fast spins (Chrome reports e.g. 300 for three
+    // notches) still advance the right number of blocks.
+    const step = GRID_MAJOR * viewport.s;
+    viewport.x -= wheelNotches(dx) * step;
+    viewport.y -= wheelNotches(dy) * step;
+  } else {
+    viewport.x -= dx;
+    viewport.y -= dy;
+  }
   applyViewport();
+};
+
+// Chromium's default wheel notch scrolls ~100px; used to translate a
+// coalesced pixel delta back into "how many notches was that".
+const WHEEL_NOTCH_PX = 100;
+
+const wheelNotches = (pxDelta: number): number =>
+  pxDelta === 0
+    ? 0
+    : Math.sign(pxDelta) *
+      Math.max(1, Math.round(Math.abs(pxDelta) / WHEEL_NOTCH_PX));
+
+// Distinguish a discrete mouse wheel from a trackpad so only real
+// notches get grid-quantised — a two-finger swipe must keep panning
+// smoothly. Lines/pages deltaMode is always a wheel (Firefox). For
+// pixel deltas: wheels emit large single-axis integer steps (Chrome
+// ±100 per notch), trackpads a stream of small often-fractional
+// deltas on both axes. A very fast single-axis trackpad flick can
+// occasionally cross the threshold and quantise one frame — visually
+// indistinguishable from an intended fast pan, so the trade is fine.
+const isDiscreteWheel = (e: WheelEvent): boolean => {
+  if (e.deltaMode !== 0) return true;
+  const onlyY = e.deltaX === 0 && e.deltaY !== 0;
+  const onlyX = e.deltaY === 0 && e.deltaX !== 0;
+  const main = onlyY ? e.deltaY : onlyX ? e.deltaX : 0;
+  return main !== 0 && Number.isInteger(main) && Math.abs(main) >= 50;
 };
 
 const onMiddleClickPan = (e: MouseEvent): void => {

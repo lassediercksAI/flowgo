@@ -47,7 +47,10 @@ const byId = (id: string): HTMLElement => {
 // canvas content rather than the screen, so zooming "in" makes the
 // dots spread apart instead of staying still.
 const GRID_MINOR = 20;
-const GRID_MAJOR = 100;
+// Exported for the wheel-notch pan step in mouse.ts: one notch pans
+// exactly one major grid block so the background pattern maps onto
+// itself after every notch.
+export const GRID_MAJOR = 100;
 
 export const applyViewport = (): void => {
   const { x: tx, y: ty, s } = viewport;
