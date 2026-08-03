@@ -287,10 +287,19 @@
   }
   .box.resizing .resize-grip { display: block; }
   .box.resizing .handle { display: none; }
-  /* Own the full outline: resize mode used to recolor the selection
-     outline, but .box.selected no longer draws one (selection is
-     border + glow now) — resize keeps its explicit orange frame. */
-  .box.resizing { outline: 3px solid #f80; outline-offset: 3px; }
+  /* Resize recolors the selection cue orange — same border + glow
+     language as .box.selected, never a second ring. The extra
+     .selected variants outrank the blue selection rules (and the
+     has-submap shadow combo) regardless of source order. */
+  .box.resizing,
+  .box.selected.resizing {
+    outline: none;
+    border-color: #f80;
+    box-shadow: 0 0 3px rgba(255,136,0,.7);
+  }
+  .box.has-submap.selected.resizing {
+    box-shadow: 4px 4px 0 0 #222, 0 0 3px rgba(255,136,0,.7);
+  }
   .rg-tl { top: -7px;    left: -7px;   cursor: nwse-resize; }
   .rg-tr { top: -7px;    right: -7px;  cursor: nesw-resize; }
   .rg-bl { bottom: -7px; left: -7px;   cursor: nesw-resize; }
