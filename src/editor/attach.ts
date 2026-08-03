@@ -591,7 +591,7 @@ export const attachBoxHandlers = (
         w.ghostLine.setAttribute("y2", String(toDataY(e.clientY)));
         w.ghostLine.style.display = "";
         renderEdges();
-        w.setStatus("re-routing edge — drop on a box, or in empty space");
+        w.setStatus("re-routing edge — drop on a node, or in empty space");
         return;
       }
 
@@ -610,7 +610,7 @@ export const attachBoxHandlers = (
       w.ghostLine.setAttribute("x2", String(toDataX(e.clientX)));
       w.ghostLine.setAttribute("y2", String(toDataY(e.clientY)));
       w.ghostLine.style.display = "";
-      w.setStatus("drop on a box to connect, or release to cancel");
+      w.setStatus("drop on a node to connect, or release to cancel");
       return;
     }
 

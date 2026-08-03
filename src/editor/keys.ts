@@ -214,14 +214,14 @@ const stepFont = (dir: 1 | -1): boolean => {
 const toggleAnchor = (): void => {
   const w = must();
   if (w.selected.size !== 1) {
-    w.setStatus("anchor needs exactly one selected box");
+    w.setStatus("anchor needs exactly one selected node");
     return;
   }
   const id = w.selected.values().next().value as string;
   const map = w.currentMap();
   const target = map.boxes.find((b) => b.id === id);
   if (!target) {
-    w.setStatus("anchor only applies to boxes");
+    w.setStatus("anchor only applies to nodes");
     return;
   }
   const turningOn = !target.anchor;
@@ -421,13 +421,13 @@ export const attachKeyboardListener = (): void => {
     if (!mod && !e.altKey && (e.key === "e" || e.key === "E")) {
       e.preventDefault();
       if (w.selected.size !== 1) {
-        w.setStatus("resize needs exactly one selected box");
+        w.setStatus("resize needs exactly one selected node");
         return;
       }
       const id = w.selected.values().next().value as string;
       const box = w.currentMap().boxes.find((b) => b.id === id);
       if (!box) {
-        w.setStatus("resize only applies to boxes");
+        w.setStatus("resize only applies to nodes");
         return;
       }
       // Special shapes are uniform by contract — hexagons because the

@@ -1033,60 +1033,60 @@
 
     <h3>Create</h3>
     <table>
-      <tr><td>Double-click empty canvas</td><td>Add a new box of the file's default shape at the cursor (auto-edits the label)</td></tr>
+      <tr><td>Double-click empty canvas</td><td>Add a new node of the file's default shape at the cursor (auto-edits the label)</td></tr>
       <tr><td><kbd>T</kbd> then click</td><td>Place a free-floating text label</td></tr>
       <tr><td><kbd>L</kbd> then click, click</td><td>Draw a line</td></tr>
       <tr><td><kbd>B</kbd> then drag</td><td>Paint a freehand stroke</td></tr>
       <tr><td><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>V</kbd> an image · drop an image file</td><td>Place the image on the canvas (scaled down on insert; unavailable in shared snapshot views)</td></tr>
-      <tr><td>Drag a blue handle dot into empty space</td><td>Spawn a new box at the cursor, already connected</td></tr>
+      <tr><td>Drag a blue handle dot into empty space</td><td>Spawn a new node at the cursor, already connected</td></tr>
     </table>
 
     <h3>Select</h3>
     <table>
       <tr><td>Click an item</td><td>Select it (replaces the current selection)</td></tr>
-      <tr><td>Drag on empty canvas</td><td>Rubber-band select boxes, texts, and images — lines join only when the band caught nothing else (they count only where a segment actually crosses the band)</td></tr>
+      <tr><td>Drag on empty canvas</td><td>Rubber-band select nodes, texts, and images — lines join only when the band caught nothing else (they count only where a segment actually crosses the band)</td></tr>
       <tr><td><kbd>Shift</kbd>-drag on empty canvas</td><td>Add to the existing selection instead of replacing</td></tr>
-      <tr><td><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>A</kbd></td><td>Select every box, text, and line on the current map</td></tr>
+      <tr><td><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>A</kbd></td><td>Select every node, text, and line on the current map</td></tr>
       <tr><td>Click on empty canvas</td><td>Clear the selection</td></tr>
     </table>
 
     <h3>Edit &amp; style</h3>
     <table>
-      <tr><td>Double-click a box / text</td><td>Edit its label inline · <kbd>Enter</kbd> commits · <kbd>Escape</kbd> cancels</td></tr>
-      <tr><td><kbd>1</kbd>–<kbd>9</kbd> with anything selected</td><td>Recolor boxes, texts, lines, strokes, and the selected edge: <kbd>1</kbd> default · <kbd>2</kbd>–<kbd>8</kbd> blue, purple, green, yellow, red, orange, gray · <kbd>9</kbd> black (boxes invert to white-on-black; text: bold black)</td></tr>
+      <tr><td>Double-click a node / text</td><td>Edit its label inline · <kbd>Enter</kbd> commits · <kbd>Escape</kbd> cancels</td></tr>
+      <tr><td><kbd>1</kbd>–<kbd>9</kbd> with anything selected</td><td>Recolor nodes, texts, lines, strokes, and the selected edge: <kbd>1</kbd> default · <kbd>2</kbd>–<kbd>8</kbd> blue, purple, green, yellow, red, orange, gray · <kbd>9</kbd> black (nodes invert to white-on-black; text: bold black)</td></tr>
       <tr><td><kbd>+</kbd> / <kbd>-</kbd> with anything selected</td><td>Step palette colour by ±1 (wraps <kbd>1</kbd>↔<kbd>9</kbd>)</td></tr>
-      <tr><td><kbd>⌥</kbd>/<kbd>Alt</kbd> + <kbd>1</kbd>–<kbd>4</kbd> with boxes selected</td><td>Set the shape of every selected box: <kbd>1</kbd> rectangle · <kbd>2</kbd> circle · <kbd>3</kbd> triangle · <kbd>4</kbd> hexagon — non-rectangles are fixed-size (E-resize refuses them; becoming one drops a pinned size)</td></tr>
-      <tr><td><kbd>Shift</kbd> + <kbd>1</kbd>–<kbd>9</kbd> with boxes or texts selected</td><td>Font size: <kbd>1</kbd> default (14px) → <kbd>9</kbd> largest (56px) · <kbd>Shift</kbd> + <kbd>+</kbd>/<kbd>-</kbd> steps it</td></tr>
+      <tr><td><kbd>⌥</kbd>/<kbd>Alt</kbd> + <kbd>1</kbd>–<kbd>4</kbd> with nodes selected</td><td>Set the shape of every selected node: <kbd>1</kbd> rectangle · <kbd>2</kbd> circle · <kbd>3</kbd> triangle · <kbd>4</kbd> hexagon — non-rectangles are fixed-size (E-resize refuses them; becoming one drops a pinned size)</td></tr>
+      <tr><td><kbd>Shift</kbd> + <kbd>1</kbd>–<kbd>9</kbd> with nodes or texts selected</td><td>Font size: <kbd>1</kbd> default (14px) → <kbd>9</kbd> largest (56px) · <kbd>Shift</kbd> + <kbd>+</kbd>/<kbd>-</kbd> steps it</td></tr>
       <tr><td><kbd>Shift</kbd> + <kbd>1</kbd>–<kbd>3</kbd> with lines selected</td><td>Line render style: <kbd>1</kbd> straight (default) · <kbd>2</kbd> smooth bezier · <kbd>3</kbd> orthogonal (right-angle elbows)</td></tr>
-      <tr><td><kbd>E</kbd> with one box selected</td><td>Toggle resize mode — drag the orange corner grips · <kbd>Shift</kbd> + <kbd>E</kbd> resets to auto-size · <kbd>E</kbd> or <kbd>Escape</kbd> to finish (circles, triangles and hexagons are fixed-size)</td></tr>
+      <tr><td><kbd>E</kbd> with one node selected</td><td>Toggle resize mode — drag the orange corner grips · <kbd>Shift</kbd> + <kbd>E</kbd> resets to auto-size · <kbd>E</kbd> or <kbd>Escape</kbd> to finish (circles, triangles and hexagons are fixed-size)</td></tr>
       <tr><td>Drag a selected image's corner grip</td><td>Resize the image</td></tr>
-      <tr><td><kbd>A</kbd> with one box selected</td><td>Toggle anchor — the map centers on this box on load (one anchor per map)</td></tr>
-      <tr><td>2+ boxes / texts selected</td><td>Floating toolbar above the selection: align items on a horizontal or vertical centre line — if the result would overlap, items are spread along the line with a 20px gap</td></tr>
+      <tr><td><kbd>A</kbd> with one node selected</td><td>Toggle anchor — the map centers on this node on load (one anchor per map)</td></tr>
+      <tr><td>2+ nodes / texts selected</td><td>Floating toolbar above the selection: align items on a horizontal or vertical centre line — if the result would overlap, items are spread along the line with a 20px gap</td></tr>
     </table>
 
     <h3>Arrange &amp; move</h3>
     <table>
       <tr><td>Drag an item's body</td><td>Move it (and any other selected items together)</td></tr>
-      <tr><td><kbd>⌥</kbd>-drag (Alt-drag)</td><td>Duplicate the selection (boxes, texts, lines, edges) and drag the copies</td></tr>
-      <tr><td>Hold <kbd>Shift</kbd> while dragging</td><td>Snap to the 20px background grid (boxes, texts, line bodies, line endpoints)</td></tr>
+      <tr><td><kbd>⌥</kbd>-drag (Alt-drag)</td><td>Duplicate the selection (nodes, texts, lines, edges) and drag the copies</td></tr>
+      <tr><td>Hold <kbd>Shift</kbd> while dragging</td><td>Snap to the 20px background grid (nodes, texts, line bodies, line endpoints)</td></tr>
       <tr><td><kbd>Shift</kbd>-drag a hexagon</td><td>Grab and move its whole snapped-together cluster as one (drop settles everything back onto the lattice)</td></tr>
       <tr><td>Drag a line endpoint dot (when selected)</td><td>Resize / re-aim the line</td></tr>
       <tr><td>Double-click a line</td><td>Add a control point — the line runs through every added point · drag the green dots to reshape · double-click a green dot to remove it (works inside <kbd>L</kbd>-mode too)</td></tr>
-      <tr><td><kbd>Delete</kbd> / <kbd>Backspace</kbd></td><td>Remove the selection (boxes take their submap subtrees along)</td></tr>
+      <tr><td><kbd>Delete</kbd> / <kbd>Backspace</kbd></td><td>Remove the selection (nodes take their submap subtrees along)</td></tr>
     </table>
 
     <h3>Connections</h3>
     <table>
-      <tr><td>Drag a blue dot to another box</td><td>Create a connection — release anywhere near the box once its handles show; the green handle is the one that will receive the edge (nearest to the cursor)</td></tr>
+      <tr><td>Drag a blue dot to another node</td><td>Create a connection — release anywhere near the node once its handles show; the green handle is the one that will receive the edge (nearest to the cursor)</td></tr>
       <tr><td>Drag a blue dot onto an existing connected handle</td><td>Re-route the existing connection</td></tr>
-      <tr><td>Drag a blue dot into empty space</td><td>Spawn a new box at the cursor and connect to it</td></tr>
+      <tr><td>Drag a blue dot into empty space</td><td>Spawn a new node at the cursor and connect to it</td></tr>
       <tr><td>Click an edge</td><td>Select it (turns blue + thicker) · <kbd>Delete</kbd> removes it</td></tr>
       <tr><td>(creating a new edge)</td><td>Replaces any prior edge between the same pair (undirected)</td></tr>
     </table>
 
     <h3>Submaps &amp; navigation</h3>
     <table>
-      <tr><td><kbd>⌘</kbd>-click (macOS) / <kbd>Ctrl</kbd>-click / middle-click a box</td><td>Enter that box's submap</td></tr>
+      <tr><td><kbd>⌘</kbd>-click (macOS) / <kbd>Ctrl</kbd>-click / middle-click a node</td><td>Enter that node's submap</td></tr>
       <tr><td><kbd>↑ Up</kbd> button</td><td>Navigate one level up</td></tr>
       <tr><td>Click the <kbd>/</kbd> breadcrumb segment</td><td>Jump back to the root map (intermediate levels are collapsed into "…")</td></tr>
       <tr><td>(current submap + view)</td><td>Persisted in the URL hash (<code>#/path?z=&amp;x=&amp;y=</code>) so reloads / bookmarks / back-forward restore them</td></tr>
@@ -1097,7 +1097,7 @@
       <tr><td>Mouse wheel</td><td>Pan — each notch moves exactly one background grid block</td></tr>
       <tr><td>Two-finger trackpad swipe · right-click + drag</td><td>Pan freely</td></tr>
       <tr><td>Trackpad pinch / <kbd>⌘</kbd>+scroll / <kbd>Ctrl</kbd>+scroll</td><td>Zoom in / out (anchored to the cursor; clamps 50% – 800%)</td></tr>
-      <tr><td><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>0</kbd></td><td>Reset zoom to 100% and recenter on the anchor box</td></tr>
+      <tr><td><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>0</kbd></td><td>Reset zoom to 100% and recenter on the anchor node</td></tr>
       <tr><td>Resize the window</td><td>Auto-recenters the current map</td></tr>
     </table>
 
@@ -1110,7 +1110,7 @@
 
     <h3>Other</h3>
     <table>
-      <tr><td><kbd>Escape</kbd></td><td>Close this help · exit the active tool or resize mode · cancel a link drag or fresh box · clear the selection</td></tr>
+      <tr><td><kbd>Escape</kbd></td><td>Close this help · exit the active tool or resize mode · cancel a link drag or fresh node · clear the selection</td></tr>
       <tr><td>Help button (top right)</td><td>Open / close this help</td></tr>
       <tr><td>(any change)</td><td>Auto-saves to the <code>.flowgo</code> file (200 ms debounce)</td></tr>
     </table>
@@ -1120,12 +1120,12 @@
     <h2>flowgo — touch gestures</h2>
     <div class="sub">A keyboard isn't required — every action below works on a touch screen.</div>
 
-    <h3>Boxes &amp; text</h3>
+    <h3>Nodes &amp; text</h3>
     <table>
       <tr><td>Tap</td><td>Select an item</td></tr>
       <tr><td>Double-tap</td><td>Edit its label inline</td></tr>
       <tr><td>Drag</td><td>Move it (and any other selected items in lockstep)</td></tr>
-      <tr><td>Long-press (hold ~½ s)</td><td>Enter the box's submap</td></tr>
+      <tr><td>Long-press (hold ~½ s)</td><td>Enter the node's submap</td></tr>
       <tr><td>Drag onto the red bar at the top</td><td>Delete the dragged selection</td></tr>
     </table>
 
@@ -1133,30 +1133,30 @@
     <table>
       <tr><td>Drag</td><td>Pan the viewport</td></tr>
       <tr><td>Tap</td><td>Clear the current selection</td></tr>
-      <tr><td>Double-tap</td><td>Add a new box of the file's default shape at the tap point (auto-edits)</td></tr>
-      <tr><td>T button in the mode bar</td><td>Text mode: the next tap places a text label (auto-edits) instead of a box, then the bar returns to cursor mode</td></tr>
+      <tr><td>Double-tap</td><td>Add a new node of the file's default shape at the tap point (auto-edits)</td></tr>
+      <tr><td>T button in the mode bar</td><td>Text mode: the next tap places a text label (auto-edits) instead of a node, then the bar returns to cursor mode</td></tr>
 
       <tr><td>Pinch with two fingers</td><td>Browser zoom in / out</td></tr>
     </table>
 
     <h3>Connections</h3>
     <table>
-      <tr><td>Tap a box</td><td>Reveals its blue handle dots</td></tr>
-      <tr><td>Drag a handle dot toward another box</td><td>Pull a connection</td></tr>
+      <tr><td>Tap a node</td><td>Reveals its blue handle dots</td></tr>
+      <tr><td>Drag a handle dot toward another node</td><td>Pull a connection</td></tr>
       <tr><td>(while dragging)</td><td>The handle that would receive the edge lights up green</td></tr>
-      <tr><td>Drop on a box</td><td>Create / re-route the connection</td></tr>
-      <tr><td>Drop in empty space</td><td>Spawn a new box at the drop point and connect to it</td></tr>
+      <tr><td>Drop on a node</td><td>Create / re-route the connection</td></tr>
+      <tr><td>Drop in empty space</td><td>Spawn a new node at the drop point and connect to it</td></tr>
     </table>
 
     <h3>Editing labels</h3>
     <table>
-      <tr><td>Double-tap a box / text</td><td>Open the keyboard and edit the label</td></tr>
+      <tr><td>Double-tap a node / text</td><td>Open the keyboard and edit the label</td></tr>
       <tr><td>Tap outside the label</td><td>Commit the change and dismiss the keyboard</td></tr>
     </table>
 
     <h3>Navigation</h3>
     <table>
-      <tr><td>Long-press a box</td><td>Enter its submap</td></tr>
+      <tr><td>Long-press a node</td><td>Enter its submap</td></tr>
       <tr><td><kbd>↑ Up</kbd> button (top-left)</td><td>Navigate one level up</td></tr>
       <tr><td>Tap the <kbd>/</kbd> breadcrumb segment</td><td>Jump back to the root map (intermediate levels are collapsed into "…")</td></tr>
     </table>

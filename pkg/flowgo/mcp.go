@@ -36,30 +36,30 @@ const snapshotBodyCap = 1 << 20 // 1 MiB
 const mcpInstructions = `flowgo is a mind-map / flowchart editor backed by a plain-text .flowgo file. Each file is a tree of maps; each map holds positioned boxes (labelled nodes), edges (undirected links between boxes), free-floating text labels, static lines, and freehand strokes.
 
 MAPS AND SUBMAPS
-A map is addressed by path. "/" is the root. "/<box_id>" is the inside of a box — a submap. "/<box_id>/<inner_box_id>" is two levels deep. Submaps are created implicitly the first time you write to a new path; you don't need a "create_map" call. To navigate, pass the path to any tool. Boxes carry the same ids across maps because each map's id space is independent.
+A map is addressed by path. "/" is the root. "/<node_id>" is the inside of a node — a submap. "/<node_id>/<inner_node_id>" is two levels deep. Submaps are created implicitly the first time you write to a new path; you don't need a "create_map" call. To navigate, pass the path to any tool. Nodes carry the same ids across maps because each map's id space is independent.
 
 COORDINATES
-x, y are in CSS-pixel data space. Origin is top-left; +x is right, +y is down. Boxes render roughly 120-180px wide and 36-44px tall depending on label length and font, so space them by at least 200px horizontally and 80px vertically to avoid overlap. A reasonable map fits inside a ~1600x1200 canvas; large maps work but the GUI will need pan/zoom. Always pass distinct coordinates — multiple items at (0, 0) will pile up.
+x, y are in CSS-pixel data space. Origin is top-left; +x is right, +y is down. Nodes render roughly 120-180px wide and 36-44px tall depending on label length and font, so space them by at least 200px horizontally and 80px vertically to avoid overlap. A reasonable map fits inside a ~1600x1200 canvas; large maps work but the GUI will need pan/zoom. Always pass distinct coordinates — multiple items at (0, 0) will pile up.
 
 STYLING (1-9 SCALES)
-- palette: 1=default (white box, black text), 2=blue, 3=purple, 4=green, 5=yellow, 6=red, 7=orange, 8=gray, 9=black/inverted (black bg, white text). Applies to boxes, edges, texts, lines, strokes.
-- font (boxes, texts): 1=default 14px, scales up to 9 ≈ 56px.
+- palette: 1=default (white node, black text), 2=blue, 3=purple, 4=green, 5=yellow, 6=red, 7=orange, 8=gray, 9=black/inverted (black bg, white text). Applies to nodes, edges, texts, lines, strokes.
+- font (nodes, texts): 1=default 14px, scales up to 9 ≈ 56px.
 - style (lines only): 1=straight, 2=smooth bezier, 3=orthogonal right-angle elbows.
-- shape (boxes only): 0=rectangle (default), 1=hexagon, 2=circle, 3=triangle. Non-rectangles render at fixed sizes in the GUI (hexagon 240x208, circle 208x208, triangle 240x208) and are not resizable; hexagons additionally snap onto a hex lattice near other hexagons and never overlap.
+- shape (nodes only): 0=rectangle (default), 1=hexagon, 2=circle, 3=triangle. Non-rectangles render at fixed sizes in the GUI (hexagon 240x208, circle 208x208, triangle 240x208) and are not resizable; hexagons additionally snap onto a hex lattice near other hexagons and never overlap.
 
 EDGE HANDLES
-fromHandle/toHandle pin the connection to a specific side or corner of the source/target box: t (top), r (right), b (bottom), l (left), tl, tr, bl, br. Omit both to let the renderer auto-pick the nearest pair. Edges are undirected — add_edge from A to B is the same edge as B to A; update_edge / delete_edge match in either order.
+fromHandle/toHandle pin the connection to a specific side or corner of the source/target node: t (top), r (right), b (bottom), l (left), tl, tr, bl, br. Omit both to let the renderer auto-pick the nearest pair. Edges are undirected — add_edge from A to B is the same edge as B to A; update_edge / delete_edge match in either order.
 
 WHEN TO USE WHICH ENTITY
-- box: a labelled node in the conceptual graph. Use for things that have meaning and connect.
-- edge: a connection between two boxes. Always between boxes — not to text or lines.
+- node: the labelled unit of the conceptual graph (the add_box/update_box/delete_box tools keep their historical names — nodes were formerly called boxes). Use for things that have meaning and connect.
+- edge: a connection between two nodes. Always between nodes — not to text or lines.
 - text: a free-floating annotation. Use for callouts, headers, labels that aren't graph nodes.
 - line: a static segment with optional control points. Use for arrows, dividers, geometric shapes.
 - stroke: freehand polyline. Use for sketchy annotations; agents rarely need this.
-- anchor (a flag on one box per map): marks the recenter target the GUI scrolls to on load. Optional.
+- anchor (a flag on one node per map): marks the recenter target the GUI scrolls to on load. Optional.
 
 GRANULAR VS SET_STATE
-Prefer add_*/update_*/delete_* for edits. set_state rewrites the entire graph and runs strict validation; it's the right tool for bulk imports or wholesale layout changes, not for tweaking one box's color.
+Prefer add_*/update_*/delete_* for edits. set_state rewrites the entire graph and runs strict validation; it's the right tool for bulk imports or wholesale layout changes, not for tweaking one node's color.
 
 For the full file-format reference (the .flowgo on-disk syntax), read the resource flowgo://about.`
 
@@ -79,36 +79,41 @@ UTF-8 text, one directive per line, '#' for comments.
     # optional map header; defaults to "/" if omitted
     map /
 
-    box    <id> <label> <x> <y> [sides] [palette] [font] [rotation]
+    node   <id> <label> <x> <y> [sides] [palette] [font] [rotation]
     edge   <id>[:<handle>] <id>[:<handle>] [palette]
     text   <id> <label> <x> <y> [palette] [font]
     line   <id> <x1> <y1> <x2> <y2> [palette] [mid <x>,<y> ...]
     stroke <id> <x>,<y> <x>,<y> ... [palette]
     linestyle <id> <style>
-    boxsize <id> <w> <h>
-    boxshape <id> <shape>
+    nodesize <id> <w> <h>
+    nodeshape <id> <shape>
     anchor <id>
     defaultshape <n>
 
 Notes:
 - 'id' is alphanumeric and unique within its map. Granular MCP tools
-  mint ids for you (b1, b2, ... for boxes; t* for texts; l* for lines;
+  mint ids for you (b1, b2, ... for nodes; t* for texts; l* for lines;
   s* for strokes).
 - 'label' is a bare word or "quoted string" with escapes \", \\, \n.
-- '[sides]' and '[rotation]' in the box directive are VESTIGIAL
+- 'node' (and its per-node annotations 'nodesize' / 'nodeshape')
+  replaced the legacy spellings 'box' / 'boxsize' / 'boxshape' — the
+  legacy forms still parse (deprecated; until at least v0.5.x) and
+  are rewritten to the node forms on the next save. Nodes were
+  formerly called boxes throughout.
+- '[sides]' and '[rotation]' in the node directive are VESTIGIAL
   positional slots from removed polygon support. The parser
   validate-and-discards them; new files don't need them. The MCP does
   not advertise sides or rotation as parameters.
 - 'map <path>' switches the current map. Paths look like /, /b1,
-  /b1/c2. Each path is "the inside of" the box at that path.
-- 'boxshape <id> <shape>' tags a box with a non-default silhouette:
+  /b1/c2. Each path is "the inside of" the node at that path.
+- 'nodeshape <id> <shape>' tags a node with a non-default silhouette:
   1 = hexagon, 2 = circle, 3 = triangle (all fixed-size, not
   resizable; hexagons lattice-snap in the GUI); 4-9 reserved. Omitted
-  or 0 = rectangle. Emitted after the box block so older binaries
+  or 0 = rectangle. Emitted after the node block so older binaries
   still parse the geometry.
-- 'boxsize <id> <w> <h>' pins a box to an explicit size in data px
+- 'nodesize <id> <w> <h>' pins a node to an explicit size in data px
   (the GUI's resize feature). Omitted = auto-size to the label.
-  Never combined with a non-zero boxshape — special shapes are not resizable.
+  Never combined with a non-zero nodeshape — special shapes are not resizable.
 - 'anchor <id>' is at most once per map — the per-map recenter target.
 - 'defaultshape <n>' is a document-level preference (before any map):
   the shape a canvas double-click creates in this file (1 hexagon,
@@ -118,7 +123,7 @@ Notes:
 
 ## Coordinate system
 
-CSS pixels, origin top-left, +x right, +y down. Default boxes render
+CSS pixels, origin top-left, +x right, +y down. Default nodes render
 roughly 120-180px wide and 36-44px tall (label-dependent). Space them
 at least 200px horizontally and 80px vertically.
 
@@ -127,14 +132,14 @@ at least 200px horizontally and 80px vertically.
 palette (1-9): 1 default, 2 blue, 3 purple, 4 green, 5 yellow,
 6 red, 7 orange, 8 gray, 9 black/inverted.
 
-font (1-9, boxes and texts only): 1 default 14px, 9 largest ~56px.
+font (1-9, nodes and texts only): 1 default 14px, 9 largest ~56px.
 
 style (1-9, lines only, GUI uses 1-3): 1 straight, 2 smooth bezier,
 3 orthogonal elbows.
 
 ## Handle codes (edge endpoints)
 
-t r b l tl tr bl br — pin an edge to a side or corner of the box.
+t r b l tl tr bl br — pin an edge to a side or corner of the node.
 Omit to autoroute to the nearest handle.
 
 ## MCP usage notes
@@ -636,7 +641,7 @@ func actUpdateBox(g *Graph, args map[string]any) (any, error) {
 		}
 		return mcpToolText("ok"), nil
 	}
-	return nil, fmt.Errorf("box %s not found in map %s", id, path)
+	return nil, fmt.Errorf("node %s not found in map %s", id, path)
 }
 
 func actDeleteBox(g *Graph, args map[string]any) (any, error) {
@@ -649,7 +654,7 @@ func actDeleteBox(g *Graph, args map[string]any) (any, error) {
 	before := len(m.Boxes)
 	m.Boxes = filterBoxes(m.Boxes, func(b Box) bool { return b.ID != id })
 	if len(m.Boxes) == before {
-		return nil, fmt.Errorf("box %s not found in map %s", id, path)
+		return nil, fmt.Errorf("node %s not found in map %s", id, path)
 	}
 	m.Edges = filterEdges(m.Edges, func(e Edge) bool { return e.From != id && e.To != id })
 	subPrefix := joinPath(path, id)
@@ -1166,11 +1171,11 @@ func mcpTools() []mcpToolDef {
 	}
 
 	addTool("get_state",
-		"Read and return the entire flowgo graph (every map with its boxes, edges, texts, lines, and strokes). Call once at session start to learn what exists; for edits prefer granular add_/update_/delete_ tools over a get/mutate/set round-trip.",
+		"Read and return the entire flowgo graph (every map with its nodes, edges, texts, lines, and strokes). Call once at session start to learn what exists; for edits prefer granular add_/update_/delete_ tools over a get/mutate/set round-trip.",
 		map[string]any{}, nil)
 
 	addTool("set_state",
-		"Replace the entire graph with the supplied object. Heavy and validation-strict — use for bulk imports or wholesale layout swaps, not for tweaking single items. Shape: { maps: [{ path, boxes, edges, texts, lines, strokes }] }. Entity fields match the granular add_* / update_* tools. See flowgo://about for the full field reference.",
+		"Replace the entire graph with the supplied object. Heavy and validation-strict — use for bulk imports or wholesale layout swaps, not for tweaking single items. Shape: { maps: [{ path, boxes, edges, texts, lines, strokes }] } (the boxes array holds the nodes — historical field name). Entity fields match the granular add_* / update_* tools. See flowgo://about for the full field reference.",
 		map[string]any{
 			"graph": map[string]any{"type": "object", "description": "Full graph to write."},
 		}, []string{"graph"})
@@ -1192,31 +1197,31 @@ func mcpTools() []mcpToolDef {
 	}
 
 	addTool("add_box",
-		"Add a box (labelled node) to the map at the given path. Returns the assigned id. Space boxes by at least 200px x / 80px y to avoid overlap.",
+		"Add a node to the map at the given path. Returns the assigned id. Space nodes by at least 200px x / 80px y to avoid overlap. (Nodes were formerly called boxes — the tool name is historical.)",
 		map[string]any{
-			"path":    schemaString("Map path: '/' for root, '/<box_id>' for a box's submap, '/<box_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
+			"path":    schemaString("Map path: '/' for root, '/<node_id>' for a node's submap, '/<node_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
 			"label":   schemaString("Box label. Supports embedded \\n for hard line breaks; runs through the same normalisation as the GUI (trim, collapse internal whitespace, max 200 chars)."),
 			"x":       schemaNumber("X in CSS-pixel data space. Origin top-left, +x right."),
 			"y":       schemaNumber("Y in CSS-pixel data space. Origin top-left, +y down."),
 			"palette": paletteSchema,
 			"font":    fontSchema,
-			"anchor":  map[string]any{"type": "boolean", "description": "Set true to make this box the map's recenter anchor (clears any prior anchor on the same map). At most one anchor per map."},
-			"w":       schemaNumber("Optional explicit width in data px (min 80). Both w and h must be given to pin the size; omit both for auto-size (box hugs its label). Rectangles only — special shapes are fixed-size."),
+			"anchor":  map[string]any{"type": "boolean", "description": "Set true to make this node the map's recenter anchor (clears any prior anchor on the same map). At most one anchor per map."},
+			"w":       schemaNumber("Optional explicit width in data px (min 80). Both w and h must be given to pin the size; omit both for auto-size (node hugs its label). Rectangles only — special shapes are fixed-size."),
 			"h":       schemaNumber("Optional explicit height in data px (min 36). Both w and h must be given to pin the size; omit both for auto-size. Rectangles only — special shapes are fixed-size."),
 			"shape":   schemaNumber("Optional shape: 0=rectangle (default), 1=hexagon (240x208, lattice-snapped, never overlaps), 2=circle (208x208), 3=triangle (240x208). Non-rectangles are fixed-size and not resizable."),
 		}, []string{"label", "x", "y"})
 
 	addTool("update_box",
-		"Update a box's label, position, color, font size, shape, anchor flag, or explicit size. Pass 1 for palette or font to reset to default. Pass w=0 and h=0 to restore auto-sizing.",
+		"Update a node's label, position, color, font size, shape, anchor flag, or explicit size. Pass 1 for palette or font to reset to default. Pass w=0 and h=0 to restore auto-sizing.",
 		map[string]any{
-			"path":    schemaString("Map path: '/' for root, '/<box_id>' for a box's submap, '/<box_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
+			"path":    schemaString("Map path: '/' for root, '/<node_id>' for a node's submap, '/<node_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
 			"id":      schemaString("Box id."),
 			"label":   schemaString("New label (optional)."),
 			"x":       schemaNumber("New x (optional)."),
 			"y":       schemaNumber("New y (optional)."),
 			"palette": schemaNumber("Optional palette index 1..9."),
 			"font":    schemaNumber("Optional font-size step 1..9."),
-			"anchor":  map[string]any{"type": "boolean", "description": "true sets this box as the map's anchor (clears any prior); false clears the anchor flag on this box."},
+			"anchor":  map[string]any{"type": "boolean", "description": "true sets this node as the map's anchor (clears any prior); false clears the anchor flag on this node."},
 			"w":       schemaNumber("New explicit width in data px, min 80 (optional; set both w and h). 0 together with h=0 restores auto-size. Rectangles only — special shapes are fixed-size."),
 			"h":       schemaNumber("New explicit height in data px, min 36 (optional; set both w and h). 0 together with w=0 restores auto-size. Rectangles only — special shapes are fixed-size."),
 			"shape":   schemaNumber("Optional shape: 0=rectangle (default), 1=hexagon (240x208, lattice-snapped), 2=circle (208x208), 3=triangle (240x208). Combining a non-zero shape with w/h is an error; becoming a special shape clears any previously pinned size."),
@@ -1225,53 +1230,53 @@ func mcpTools() []mcpToolDef {
 	addTool("set_default_shape",
 		"Set the document-level default shape (the `defaultshape <n>` directive): the shape a canvas double-click creates in this file. 0=rectangle, 1=hexagon, 2=circle, 3=triangle. Document-scoped — there is no path parameter.",
 		map[string]any{
-			"shape": schemaNumber("The default shape for new boxes: 0=rectangle, 1=hexagon, 2=circle, 3=triangle. 0 clears the directive."),
+			"shape": schemaNumber("The default shape for new nodes: 0=rectangle, 1=hexagon, 2=circle, 3=triangle. 0 clears the directive."),
 		}, []string{"shape"})
 
 	addTool("delete_box",
-		"Delete a box (and all incident edges plus its submap subtree).",
+		"Delete a node (and all incident edges plus its submap subtree).",
 		map[string]any{
-			"path": schemaString("Map path: '/' for root, '/<box_id>' for a box's submap, '/<box_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
+			"path": schemaString("Map path: '/' for root, '/<node_id>' for a node's submap, '/<node_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
 			"id":   schemaString("Box id."),
 		}, []string{"id"})
 
 	handleSchema := schemaString("Edge endpoint handle: t r b l tl tr bl br (sides + corners). Omit to autoroute to the nearest handle.")
 
 	addTool("add_edge",
-		"Add an undirected edge between two boxes in the same map. Replaces any prior edge between the same pair. Edges only connect boxes — not text, lines, or strokes.",
+		"Add an undirected edge between two nodes in the same map. Replaces any prior edge between the same pair. Edges only connect nodes — not text, lines, or strokes.",
 		map[string]any{
-			"path":       schemaString("Map path: '/' for root, '/<box_id>' for a box's submap, '/<box_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
-			"from":       schemaString("Source box id."),
-			"to":         schemaString("Target box id."),
+			"path":       schemaString("Map path: '/' for root, '/<node_id>' for a node's submap, '/<node_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
+			"from":       schemaString("Source node id."),
+			"to":         schemaString("Target node id."),
 			"fromHandle": handleSchema,
 			"toHandle":   handleSchema,
 			"palette":    paletteSchema,
 		}, []string{"from", "to"})
 
 	addTool("update_edge",
-		"Update the edge between two boxes: re-aim a handle or set the palette. Identify the edge by 'from'/'to' in either order (edges are undirected); handle args are interpreted relative to the args' direction.",
+		"Update the edge between two nodes: re-aim a handle or set the palette. Identify the edge by 'from'/'to' in either order (edges are undirected); handle args are interpreted relative to the args' direction.",
 		map[string]any{
-			"path":       schemaString("Map path: '/' for root, '/<box_id>' for a box's submap, '/<box_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
-			"from":       schemaString("One endpoint box id (matches in either direction)."),
-			"to":         schemaString("Other endpoint box id (matches in either direction)."),
+			"path":       schemaString("Map path: '/' for root, '/<node_id>' for a node's submap, '/<node_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
+			"from":       schemaString("One endpoint node id (matches in either direction)."),
+			"to":         schemaString("Other endpoint node id (matches in either direction)."),
 			"fromHandle": handleSchema,
 			"toHandle":   handleSchema,
 			"palette":    schemaNumber("Optional palette index 1..9 (1 resets to default)."),
 		}, []string{"from", "to"})
 
 	addTool("delete_edge",
-		"Delete the edge between two box ids in the same map.",
+		"Delete the edge between two node ids in the same map.",
 		map[string]any{
-			"path": schemaString("Map path: '/' for root, '/<box_id>' for a box's submap, '/<box_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
-			"from": schemaString("Source box id."),
-			"to":   schemaString("Target box id."),
+			"path": schemaString("Map path: '/' for root, '/<node_id>' for a node's submap, '/<node_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
+			"from": schemaString("Source node id."),
+			"to":   schemaString("Target node id."),
 		}, []string{"from", "to"})
 
 	addTool("add_text",
-		"Add a free-floating text annotation (header, callout, label). Use a box instead if the item should connect to other items via edges.",
+		"Add a free-floating text annotation (header, callout, label). Use a node instead if the item should connect to other items via edges.",
 		map[string]any{
-			"path":    schemaString("Map path: '/' for root, '/<box_id>' for a box's submap, '/<box_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
-			"label":   schemaString("Text content. Embedded \\n produces hard line breaks; same normalisation as box labels."),
+			"path":    schemaString("Map path: '/' for root, '/<node_id>' for a node's submap, '/<node_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
+			"label":   schemaString("Text content. Embedded \\n produces hard line breaks; same normalisation as node labels."),
 			"x":       schemaNumber("X in CSS-pixel data space. Origin top-left, +x right."),
 			"y":       schemaNumber("Y in CSS-pixel data space. Origin top-left, +y down."),
 			"palette": paletteSchema,
@@ -1281,7 +1286,7 @@ func mcpTools() []mcpToolDef {
 	addTool("update_text",
 		"Update a text label's content, position, color, or font size. Pass 1 for palette or font to reset to default.",
 		map[string]any{
-			"path":    schemaString("Map path: '/' for root, '/<box_id>' for a box's submap, '/<box_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
+			"path":    schemaString("Map path: '/' for root, '/<node_id>' for a node's submap, '/<node_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
 			"id":      schemaString("Text id."),
 			"label":   schemaString("New label (optional)."),
 			"x":       schemaNumber("New x (optional)."),
@@ -1293,14 +1298,14 @@ func mcpTools() []mcpToolDef {
 	addTool("delete_text",
 		"Delete a free-floating text label.",
 		map[string]any{
-			"path": schemaString("Map path: '/' for root, '/<box_id>' for a box's submap, '/<box_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
+			"path": schemaString("Map path: '/' for root, '/<node_id>' for a node's submap, '/<node_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
 			"id":   schemaString("Text id."),
 		}, []string{"id"})
 
 	addTool("add_line",
 		"Add a static line segment (arrow, divider, geometric shape). Use 'mids' for a polyline through control points. Use edges (not lines) to connect boxes.",
 		map[string]any{
-			"path":    schemaString("Map path: '/' for root, '/<box_id>' for a box's submap, '/<box_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
+			"path":    schemaString("Map path: '/' for root, '/<node_id>' for a node's submap, '/<node_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
 			"x1":      schemaNumber("Start x in CSS-pixel data space."),
 			"y1":      schemaNumber("Start y in CSS-pixel data space."),
 			"x2":      schemaNumber("End x in CSS-pixel data space."),
@@ -1313,7 +1318,7 @@ func mcpTools() []mcpToolDef {
 	addTool("update_line",
 		"Update a line's endpoints, color, render style, or control points. Pass 1 for palette/style to reset to default. Pass null for 'mids' to clear all control points.",
 		map[string]any{
-			"path":    schemaString("Map path: '/' for root, '/<box_id>' for a box's submap, '/<box_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
+			"path":    schemaString("Map path: '/' for root, '/<node_id>' for a node's submap, '/<node_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
 			"id":      schemaString("Line id."),
 			"x1":      schemaNumber("New start x (optional)."),
 			"y1":      schemaNumber("New start y (optional)."),
@@ -1327,7 +1332,7 @@ func mcpTools() []mcpToolDef {
 	addTool("delete_line",
 		"Delete a static line segment.",
 		map[string]any{
-			"path": schemaString("Map path: '/' for root, '/<box_id>' for a box's submap, '/<box_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
+			"path": schemaString("Map path: '/' for root, '/<node_id>' for a node's submap, '/<node_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
 			"id":   schemaString("Line id."),
 		}, []string{"id"})
 
@@ -1337,7 +1342,7 @@ func mcpTools() []mcpToolDef {
 	addTool("add_stroke",
 		"Add a freehand brush stroke (sketchy annotation). Provide at least two [x, y] points. Prefer 'line' for structured geometry; reach for stroke only when you want a hand-drawn look.",
 		map[string]any{
-			"path":    schemaString("Map path: '/' for root, '/<box_id>' for a box's submap, '/<box_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
+			"path":    schemaString("Map path: '/' for root, '/<node_id>' for a node's submap, '/<node_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
 			"points":  strokePointSchema,
 			"palette": paletteSchema,
 		}, []string{"points"})
@@ -1345,7 +1350,7 @@ func mcpTools() []mcpToolDef {
 	addTool("update_stroke",
 		"Update a stroke's color or replace its full point list (useful for translating the whole stroke).",
 		map[string]any{
-			"path":    schemaString("Map path: '/' for root, '/<box_id>' for a box's submap, '/<box_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
+			"path":    schemaString("Map path: '/' for root, '/<node_id>' for a node's submap, '/<node_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
 			"id":      schemaString("Stroke id."),
 			"points":  strokePointSchema,
 			"palette": schemaNumber("Optional palette index 1..9."),
@@ -1354,7 +1359,7 @@ func mcpTools() []mcpToolDef {
 	addTool("delete_stroke",
 		"Delete a freehand brush stroke.",
 		map[string]any{
-			"path": schemaString("Map path: '/' for root, '/<box_id>' for a box's submap, '/<box_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
+			"path": schemaString("Map path: '/' for root, '/<node_id>' for a node's submap, '/<node_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
 			"id":   schemaString("Stroke id."),
 		}, []string{"id"})
 
