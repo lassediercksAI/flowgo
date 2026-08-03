@@ -788,6 +788,18 @@
     line-height: 1;
   }
   #helpBtn:hover { background: #f0f0f0; }
+  /* Same override as #alignToolbar / #modeBar: chrome icon buttons
+     must not inherit the full-canvas overlay `svg` rule further down
+     (position: absolute + 100% size). width/height: auto defers to
+     each icon's own width= / height= attributes. */
+  #toolbar button svg,
+  #helpBtn svg,
+  #settingsBtn svg,
+  #helpClose svg {
+    position: static; inset: auto; z-index: auto;
+    width: auto; height: auto;
+    pointer-events: none;
+  }
 
   /* Settings gear + popover. Sits left of the help button; the
      popover hosts persistent per-browser preferences (currently just
