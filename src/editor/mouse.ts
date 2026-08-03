@@ -310,6 +310,12 @@ const onMouseUp = (e: MouseEvent): void => {
       const x2 = toDataX(cX2);
       const y2 = toDataY(cY2);
       const map = w.currentMap();
+      // Selection priority: lines are usually background structure
+      // (axes, lanes, dividers), so a band that catches boxes / texts
+      // / images takes only those — lines join the selection only
+      // when the band caught NOTHING else. Sweeping up a cluster of
+      // boxes must not silently drag the axis line underneath along.
+      let solidHits = 0;
       for (const b of map.boxes) {
         const el = w.canvas.querySelector<HTMLElement>(`.box[data-id="${b.id}"]`);
         if (!el) continue;
@@ -317,6 +323,7 @@ const onMouseUp = (e: MouseEvent): void => {
         const by2 = b.y + el.offsetHeight;
         if (b.x < x2 && bx2 > x1 && b.y < y2 && by2 > y1) {
           w.selected.add(b.id);
+          solidHits++;
         }
       }
       for (const t of map.texts) {
@@ -326,6 +333,7 @@ const onMouseUp = (e: MouseEvent): void => {
         const ty2 = t.y + el.offsetHeight;
         if (t.x < x2 && tx2 > x1 && t.y < y2 && ty2 > y1) {
           w.selected.add(t.id);
+          solidHits++;
         }
       }
       for (const img of map.images ?? []) {
@@ -333,21 +341,24 @@ const onMouseUp = (e: MouseEvent): void => {
         const iy2 = img.y + img.height;
         if (img.x < x2 && ix2 > x1 && img.y < y2 && iy2 > y1) {
           w.selected.add(img.id);
+          solidHits++;
         }
       }
-      for (const l of map.lines) {
-        // Test the line's actual segments, not its bounding box — an
-        // L-shaped polyline must not be selectable from the empty
-        // corner of its bbox (#1f8). Smooth/orthogonal render styles
-        // are approximated by their straight control polyline, which
-        // stays within a visually forgivable margin of the ink.
-        const pts: Array<readonly [number, number]> = [
-          [l.x1, l.y1],
-          ...(l.mids ?? []).map(([mx, my]) => [mx, my] as const),
-          [l.x2, l.y2],
-        ];
-        if (polylineIntersectsRect(pts, x1, y1, x2, y2)) {
-          w.selected.add(l.id);
+      if (solidHits === 0) {
+        for (const l of map.lines) {
+          // Test the line's actual segments, not its bounding box — an
+          // L-shaped polyline must not be selectable from the empty
+          // corner of its bbox (#1f8). Smooth/orthogonal render styles
+          // are approximated by their straight control polyline, which
+          // stays within a visually forgivable margin of the ink.
+          const pts: Array<readonly [number, number]> = [
+            [l.x1, l.y1],
+            ...(l.mids ?? []).map(([mx, my]) => [mx, my] as const),
+            [l.x2, l.y2],
+          ];
+          if (polylineIntersectsRect(pts, x1, y1, x2, y2)) {
+            w.selected.add(l.id);
+          }
         }
       }
       applyClasses();
