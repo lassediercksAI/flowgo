@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.3](https://github.com/lassediercks/flowgo/compare/v0.3.2...v0.3.3) (2026-08-03)
+
+
+### Features
+
+* **agent-skill:** package /map as a Claude Code Skill + Cursor command ([9daf376](https://github.com/lassediercks/flowgo/commit/9daf3764411937f02c29369170d9af7de9b014e1))
+* **browser-flowgo:** render flowgo blocks on any page via a browser extension ([f4b8ba2](https://github.com/lassediercks/flowgo/commit/f4b8ba26f7b757797256c0d32bc37318305e3d33))
+* **eval:** add tool-choice eval harness (flowgo vs mermaid) ([7cfefa4](https://github.com/lassediercks/flowgo/commit/7cfefa459b152a62c2e0125dc1678b3f7425f8d8))
+* **obsidian-flowgo:** render flowgo fenced code blocks in reading view ([394e00a](https://github.com/lassediercks/flowgo/commit/394e00a9565c56b5f68ec0705f91acb3cb4d225e))
+* **remark-flowgo:** add remark/rehype plugin to render ```flowgo blocks ([24190e9](https://github.com/lassediercks/flowgo/commit/24190e9c54da8036099d90b2949e236a42b67317))
+* **vscode-flowgo:** render flowgo fenced code blocks in Markdown preview ([8562e84](https://github.com/lassediercks/flowgo/commit/8562e84ffef3c058325549270ce444ed9217bf85))
+
 ## [0.3.2](https://github.com/lassediercks/flowgo/compare/v0.3.1...v0.3.2) (2026-08-03)
 
 
