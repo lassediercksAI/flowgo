@@ -470,7 +470,16 @@ export const attachKeyboardListener = (): void => {
     // pinned size (fixed footprint); becoming a hexagon settles the
     // lattice so the no-overlap invariant holds immediately.
     if (!mod && e.altKey && !e.shiftKey && /^Digit[1-4]$/.test(e.code)) {
-      if (w.selected.size === 0) return;
+      if (w.selected.size === 0) {
+        // Nothing selected: Alt+1..4 in plain cursor mode targets the
+        // FILE's default shape instead — one modifier, two targets,
+        // disambiguated by selection state (same rule as Shift+1..4).
+        if (!isBrushMode() && !isLineMode() && !isTextMode()) {
+          e.preventDefault();
+          setDefaultShape(SHAPE_FOR_KEY[parseInt(e.code.slice(5), 10)]!);
+        }
+        return;
+      }
       const shape = SHAPE_FOR_KEY[parseInt(e.code.slice(5), 10)]!;
       const map = w.currentMap();
       let changed = false;
