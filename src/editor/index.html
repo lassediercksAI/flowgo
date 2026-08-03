@@ -122,7 +122,10 @@
     background: #fff; border: 1px solid #ccc; border-radius: 6px;
     padding: 6px 10px; box-shadow: 0 1px 3px rgba(0,0,0,.1);
   }
-  #toolbar button { margin-right: 6px; flex: none; }
+  #toolbar button {
+    margin-right: 6px; flex: none;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
   #version {
     position: absolute;
     bottom: calc(6px + env(safe-area-inset-bottom, 0px));
@@ -778,8 +781,10 @@
     right: calc(8px + env(safe-area-inset-right, 0px));
     width: 32px; height: 32px; border-radius: 50%;
     background: #fff; border: 1px solid #ccc;
-    font-size: 16px; font-weight: bold; color: #555;
+    color: #555;
     cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,.1);
+    padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
     line-height: 1;
   }
   #helpBtn:hover { background: #f0f0f0; }
@@ -794,11 +799,10 @@
     right: calc(48px + env(safe-area-inset-right, 0px));
     width: 32px; height: 32px; border-radius: 50%;
     background: #fff; border: 1px solid #ccc;
-    font-size: 15px; color: #555;
+    color: #555;
     cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,.1);
-    /* Flex-center the ⚙ glyph: button default centering leans on the
-       text baseline, which sits gear glyphs visibly off-centre in the
-       circle. padding: 0 kills the UA's asymmetric button padding. */
+    /* Flex-center the gear icon; padding: 0 kills the UA's
+       asymmetric button padding. */
     padding: 0;
     display: inline-flex; align-items: center; justify-content: center;
     line-height: 1;
@@ -863,8 +867,9 @@
   body.touch-input .help-coarse { display: block; }
   #helpClose {
     position: absolute; top: 8px; right: 12px;
-    background: transparent; border: 0; font-size: 24px;
-    cursor: pointer; color: #888; line-height: 1; padding: 0;
+    background: transparent; border: 0;
+    cursor: pointer; color: #888; line-height: 1; padding: 4px;
+    display: inline-flex; align-items: center; justify-content: center;
   }
   #helpClose:hover { color: #333; }
   .help { color: #666; font-size: 12px; margin-left: 8px; }
@@ -907,7 +912,8 @@
 </head>
 <body>
 <div id="toolbar" style="display:none">
-  <button id="upBtn">↑ Up</button>
+  <!-- Lucide icons (lucide.dev), ISC license — see src/editor/icons.ts for the full notice. -->
+  <button id="upBtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg> Up</button>
   <button id="downloadBtn" style="display:none">Download .flowgo</button>
   <button id="reshareBtn"  style="display:none">Save as new share</button>
   <span id="path"></span>
@@ -920,8 +926,8 @@
   <g id="line-layer"></g>
 </svg>
 <div id="canvas"></div>
-<button id="helpBtn" title="Help (keybinds)" aria-label="Help">?</button>
-<button id="settingsBtn" title="Settings" aria-label="Settings">⚙</button>
+<button id="helpBtn" title="Help (keybinds)" aria-label="Help"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg></button>
+<button id="settingsBtn" title="Settings" aria-label="Settings"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg></button>
 <div id="settingsPop" role="dialog" aria-label="Settings">
   <h3>Settings</h3>
   <label>
@@ -935,7 +941,7 @@
 
 <div id="helpOverlay" class="hidden" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
   <div id="helpModal">
-    <button id="helpClose" aria-label="Close help">×</button>
+    <button id="helpClose" aria-label="Close help"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
     <div class="help-fine">
     <h2 id="helpTitle">flowgo — keybinds &amp; capabilities</h2>
     <div class="sub">Tip: <kbd>⌘</kbd> on macOS, <kbd>Ctrl</kbd> on Windows / Linux.</div>

@@ -22,6 +22,7 @@ import { isBrushMode, setBrushMode } from "./brush.ts";
 import { isHexMode, setHexMode } from "./hex.ts";
 import { isLineMode, setLineMode } from "./line.ts";
 import { isTextMode, setTextMode } from "./text-mode.ts";
+import { icon } from "./icons.ts";
 
 type Mode = "cursor" | "brush" | "line" | "text";
 
@@ -38,85 +39,13 @@ const setMode = (m: Mode): void => {
   setTextMode(m === "text");
 };
 
-const ns = "http://www.w3.org/2000/svg";
-
-const svgEl = (
-  size: number,
-  build: (root: SVGSVGElement) => void,
-): SVGSVGElement => {
-  const svg = document.createElementNS(ns, "svg");
-  svg.setAttribute("width", String(size));
-  svg.setAttribute("height", String(size));
-  svg.setAttribute("viewBox", `0 0 ${size} ${size}`);
-  svg.setAttribute("fill", "none");
-  svg.setAttribute("stroke", "currentColor");
-  svg.setAttribute("stroke-width", "1.6");
-  svg.setAttribute("stroke-linecap", "round");
-  svg.setAttribute("stroke-linejoin", "round");
-  build(svg);
-  return svg;
-};
-
-// Standard arrow pointer.
-const iconCursor = (): SVGSVGElement => svgEl(20, (svg) => {
-  const p = document.createElementNS(ns, "path");
-  p.setAttribute("d", "M4 3 L4 16 L8 12 L11 18 L13 17 L10 11 L16 11 Z");
-  p.setAttribute("fill", "currentColor");
-  p.setAttribute("stroke", "currentColor");
-  svg.appendChild(p);
-});
-
-// Pencil glyph — same silhouette as the brush-mode cursor SVG.
-const iconBrush = (): SVGSVGElement => svgEl(20, (svg) => {
-  const body = document.createElementNS(ns, "path");
-  body.setAttribute("d", "M3 17 L5 16 L14 7 L12 5 L3 14 Z");
-  body.setAttribute("fill", "currentColor");
-  svg.appendChild(body);
-  const tip = document.createElementNS(ns, "path");
-  tip.setAttribute("d", "M13 6 L16 3 L18 5 L15 8 Z");
-  tip.setAttribute("fill", "#a60");
-  tip.setAttribute("stroke", "currentColor");
-  svg.appendChild(tip);
-});
-
-// Flat-top hexagon outline — the shape hexagon mode spawns. Vertices
-// of a regular flat-top hex around (10, 10) with circumradius 7.
-const iconHex = (): SVGSVGElement => svgEl(20, (svg) => {
-  const p = document.createElementNS(ns, "path");
-  p.setAttribute(
-    "d",
-    "M17 10 L13.5 16.06 L6.5 16.06 L3 10 L6.5 3.94 L13.5 3.94 Z",
-  );
-  svg.appendChild(p);
-});
-
-// Capital "T" glyph — text mode places a text label on the next tap.
-const iconText = (): SVGSVGElement => svgEl(20, (svg) => {
-  const bar = document.createElementNS(ns, "line");
-  bar.setAttribute("x1", "4");  bar.setAttribute("y1", "4");
-  bar.setAttribute("x2", "16"); bar.setAttribute("y2", "4");
-  svg.appendChild(bar);
-  const stem = document.createElementNS(ns, "line");
-  stem.setAttribute("x1", "10"); stem.setAttribute("y1", "4");
-  stem.setAttribute("x2", "10"); stem.setAttribute("y2", "16");
-  svg.appendChild(stem);
-});
-
-// Diagonal segment with two endpoint dots.
-const iconLine = (): SVGSVGElement => svgEl(20, (svg) => {
-  const ln = document.createElementNS(ns, "line");
-  ln.setAttribute("x1", "4");  ln.setAttribute("y1", "16");
-  ln.setAttribute("x2", "16"); ln.setAttribute("y2", "4");
-  svg.appendChild(ln);
-  for (const [cx, cy] of [[4, 16], [16, 4]] as const) {
-    const c = document.createElementNS(ns, "circle");
-    c.setAttribute("cx", String(cx));
-    c.setAttribute("cy", String(cy));
-    c.setAttribute("r", "2");
-    c.setAttribute("fill", "currentColor");
-    svg.appendChild(c);
-  }
-});
+// Lucide icons (see icons.ts): pointer for cursor mode, brush,
+// slash for the line tool, type for text, hexagon for the latch.
+const iconCursor = (): SVGSVGElement => icon("mouse-pointer");
+const iconBrush = (): SVGSVGElement => icon("brush");
+const iconHex = (): SVGSVGElement => icon("hexagon");
+const iconText = (): SVGSVGElement => icon("type");
+const iconLine = (): SVGSVGElement => icon("slash");
 
 export const attachModeBar = (): void => {
   if (document.getElementById("modeBar")) return;
