@@ -162,6 +162,7 @@ interface RenderBindings {
   readonly attachBoxHandlers: (el: HTMLElement, b: BoxData) => void;
   readonly attachTextHandlers: (el: HTMLElement, t: TextData) => void;
   readonly attachImageHandlers: (el: HTMLElement, img: ImageData) => void;
+  readonly attachStrokeHandlers: (g: SVGGElement, s: StrokeData) => void;
   readonly attachLineHandlers: (
     g: SVGGElement,
     line: SVGPathElement,
@@ -325,18 +326,10 @@ export const renderStrokes = (): void => {
     line.setAttribute("fill", "none");
     g.appendChild(line);
 
-    g.addEventListener("mousedown", (ev) => {
-      if (w.isBrushMode()) return;
-      ev.stopPropagation();
-      if (!ev.shiftKey) w.selected.clear();
-      w.selected.add(s.id);
-      if (w.selectedEdge()) {
-        w.setSelectedEdge(null);
-        renderEdges();
-      }
-      applyClasses();
-      renderStrokes();
-    });
+    // Selection + body-drag wiring lives in attach.ts (shared drag
+    // machinery, same as line bodies) — supplied via bindings to keep
+    // the render → attach dependency direction acyclic.
+    w.attachStrokeHandlers(g, s);
 
     w.strokeLayer.appendChild(g);
   }

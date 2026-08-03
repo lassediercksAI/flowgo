@@ -69,6 +69,7 @@ import {
   attachBoxHandlers,
   attachImageHandlers,
   attachLineHandlers,
+  attachStrokeHandlers,
   attachTextHandlers,
   wireAttach,
 } from "./attach.ts";
@@ -163,6 +164,7 @@ wireRender({
   attachBoxHandlers,
   attachTextHandlers,
   attachImageHandlers,
+  attachStrokeHandlers,
   attachLineHandlers,
   isBrushMode: () => isBrushMode(),
   setStatus,

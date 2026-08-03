@@ -27,6 +27,7 @@ import {
   type ResizeCorner,
 } from "./movers.ts";
 import { hexCenters } from "./hex.ts";
+import { isBrushMode } from "./brush.ts";
 import { handleAnchor, nearestHandle } from "./anchors.ts";
 import { startEdit, startTextEdit } from "./edit.ts";
 import { toDataX, toDataY } from "./viewport.ts";
@@ -456,6 +457,41 @@ export const attachLineHandlers = (
       applyClasses();
     });
   }
+};
+
+// Stroke-body drags: select (Shift adds) and start a selection drag
+// through the shared machinery, mirroring the line-body path — the
+// stroke mover in collectMovers translates the points as a rigid
+// body. No ⌥-clone mapping: cloneSelection doesn't cover strokes, so
+// alt-drag simply moves. Brush mode keeps strokes inert so painting
+// over an existing stroke never grabs it.
+export const attachStrokeHandlers = (
+  g: SVGGElement,
+  s: StrokeLike,
+): void => {
+  g.addEventListener("mousedown", (e) => {
+    const w = must();
+    if (isBrushMode()) return;
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!w.selected.has(s.id)) {
+      if (!e.shiftKey) w.selected.clear();
+      w.selected.add(s.id);
+      if (w.selectedEdge()) {
+        w.setSelectedEdge(null);
+        renderEdges();
+      }
+      applyClasses();
+    }
+    w.setDrag({
+      movers: collectMovers(),
+      primaryId: s.id,
+      downX: e.clientX,
+      downY: e.clientY,
+      active: false,
+    });
+  });
 };
 
 export const attachBoxHandlers = (
