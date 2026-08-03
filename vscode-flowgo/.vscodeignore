@@ -1,0 +1,12 @@
+.gitignore
+.vscodeignore
+src/**
+test/**
+scripts/**
+vite.preview.config.ts
+vitest.config.ts
+tsconfig.json
+tsconfig.tsbuildinfo
+node_modules/**
+*.map
+.eslintrc*

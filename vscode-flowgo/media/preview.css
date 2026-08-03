@@ -1,0 +1,23 @@
+/* Loaded via the markdown.previewStyles contribution alongside
+   media/preview.js (markdown.previewScripts). The rendered map itself is
+   styled by flowgo-inline.js's own injected <style> tag (ensureStyle() in
+   src/render/inline.ts at the repo root) — this file only styles the
+   preview-specific wrapper/error states that previewHydrate.ts adds. */
+
+.flowgo-preview-root {
+  margin: 1em 0;
+  border: 1px solid var(--vscode-panel-border, #ccc);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.flowgo-preview-error {
+  margin: 0.5em 0 1em;
+  padding: 0.5em 0.75em;
+  border: 1px solid var(--vscode-inputValidation-errorBorder, #f14c4c);
+  background: var(--vscode-inputValidation-errorBackground, #5a1d1d);
+  color: var(--vscode-inputValidation-errorForeground, #fff);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.9em;
+  border-radius: 4px;
+}

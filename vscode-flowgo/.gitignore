@@ -1,0 +1,16 @@
+# Extension host compile output (tsc -p ./)
+/out/
+
+# Node toolchain
+node_modules/
+*.tsbuildinfo
+
+# Generated preview scripts — regenerate with `npm run build` (or the
+# individual `npm run vendor:inline` / `npm run build:preview` steps).
+# media/preview.css is hand-written and IS committed.
+/media/flowgo-inline.js
+/media/preview.js
+/media/preview.js.map
+
+# vsce packaging output, if anyone ever packages this locally
+*.vsix

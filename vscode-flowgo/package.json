@@ -1,0 +1,51 @@
+{
+  "name": "vscode-flowgo",
+  "displayName": "flowgo Markdown Preview",
+  "description": "Renders ```flowgo fenced code blocks as live, read-only flowgo mind-maps in VS Code's built-in Markdown preview.",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0",
+  "publisher": "flowgo",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lassediercks/flowgo.git",
+    "directory": "vscode-flowgo"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "markdown.previewScripts": [
+      "./media/flowgo-inline.js",
+      "./media/preview.js"
+    ],
+    "markdown.previewStyles": [
+      "./media/preview.css"
+    ]
+  },
+  "scripts": {
+    "vendor:inline": "node scripts/vendor-inline.mjs",
+    "build:preview": "vite build --config vite.preview.config.ts",
+    "compile": "tsc -p ./",
+    "build": "npm run vendor:inline && npm run build:preview && npm run compile",
+    "prepare": "npm run build",
+    "typecheck": "tsc --noEmit -p ./",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "jsdom": "^24.0.0",
+    "typescript": "^5.4.0",
+    "vite": "^8.0.10",
+    "vitest": "^1.6.1"
+  }
+}
