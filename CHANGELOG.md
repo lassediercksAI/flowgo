@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/lassediercks/flowgo/compare/v0.3.0...v0.3.1) (2026-08-03)
+
+
+### Features
+
+* **editor:** context-aware bottom menu for touch, replacing the right-edge mode bar ([63a29a9](https://github.com/lassediercks/flowgo/commit/63a29a9999888815f4ea746296f471fa2d69f9dd))
+
 ## [0.3.0](https://github.com/lassediercks/flowgo/compare/v0.2.1...v0.3.0) (2026-08-03)
 
 
