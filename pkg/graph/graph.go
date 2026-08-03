@@ -130,14 +130,14 @@ type NamedMap struct {
 type Graph struct {
 	Version string     `json:"version,omitempty"`
 	Maps    []NamedMap `json:"maps"`
-	// Hexagons records the document's wish to open in hexagon mode:
-	// when true, the editor enables the hexagon setting for the
-	// session (double-click adds hexagons) regardless of the
-	// browser-local preference. Persisted as a document-level
-	// `hexagons on` directive right after `version`. False is the
-	// zero value and is not emitted — an absent directive means "no
-	// preference, use the browser default".
-	Hexagons bool `json:"hexagons,omitempty"`
+	// DefaultShape records the shape a canvas double-click creates in
+	// this document: 0 (absent) rectangle, 1 hexagon, 2 circle,
+	// 3 triangle. Persisted as a document-level `defaultshape <n>`
+	// directive right after `version`; zero is never emitted. The
+	// legacy `hexagons on` directive still parses (as DefaultShape=1)
+	// but is no longer written — the per-browser hexagon setting it
+	// backed was retired in favour of this per-file default.
+	DefaultShape int `json:"defaultShape,omitempty"`
 }
 
 // Parse reads the .flowgo text format and returns the resulting Graph.
@@ -179,22 +179,45 @@ func Parse(s string) (Graph, error) {
 			}
 			g.Version = toks[1]
 		case "hexagons":
-			// Document-level preference: `hexagons on` asks the editor
-			// to enable the hexagon setting when this file is opened.
-			// Bare `hexagons` counts as on; explicit off tokens parse
-			// but leave the zero value (so a hand-written `hexagons
-			// off` round-trips to an absent directive — same meaning).
+			// Legacy document-level preference (pre-defaultshape files):
+			// `hexagons on` meant "open with the hexagon setting
+			// enabled" — today that maps to a hexagon default shape.
+			// Bare `hexagons` counts as on. `off` is a no-op rather
+			// than a reset so it can never clobber a defaultshape
+			// directive regardless of line order. Never re-emitted:
+			// serialization writes `defaultshape` instead.
 			if len(toks) < 2 {
-				g.Hexagons = true
+				if g.DefaultShape == 0 {
+					g.DefaultShape = 1
+				}
 				break
 			}
 			switch toks[1] {
 			case "on", "1", "true":
-				g.Hexagons = true
+				if g.DefaultShape == 0 {
+					g.DefaultShape = 1
+				}
 			case "off", "0", "false":
-				g.Hexagons = false
+				// no-op
 			default:
 				return g, fmt.Errorf("line %d: hexagons wants on or off, got %q", lineNo, toks[1])
+			}
+		case "defaultshape":
+			// Document-level default shape for new boxes: 1 hexagon,
+			// 2 circle, 3 triangle (0 / rectangle is the absent
+			// default and never emitted). Out-of-range values are
+			// ignored rather than fatal, mirroring boxshape, so a
+			// future shape id degrades to "rectangle" instead of
+			// locking the file out of older binaries at THIS version.
+			if len(toks) < 2 {
+				return g, fmt.Errorf("line %d: defaultshape needs a value", lineNo)
+			}
+			shapeVal, err := strconv.Atoi(toks[1])
+			if err != nil {
+				return g, fmt.Errorf("line %d: bad defaultshape: %v", lineNo, err)
+			}
+			if shapeVal >= 1 && shapeVal <= 9 {
+				g.DefaultShape = shapeVal
 			}
 		case "map":
 			if len(toks) < 2 {
@@ -510,10 +533,11 @@ func Serialize(g Graph) string {
 	if g.Version != "" {
 		fmt.Fprintf(&b, "version %s\n", g.Version)
 	}
-	// Document preference: emitted only when set, directly after
-	// version. Part of the byte-parity contract with the TS serializer.
-	if g.Hexagons {
-		b.WriteString("hexagons on\n")
+	// Document default shape: emitted only when set, directly after
+	// version (the slot the legacy `hexagons on` used to occupy).
+	// Part of the byte-parity contract with the TS serializer.
+	if g.DefaultShape >= 1 && g.DefaultShape <= 9 {
+		fmt.Fprintf(&b, "defaultshape %d\n", g.DefaultShape)
 	}
 	var nonEmpty []NamedMap
 	for _, m := range g.Maps {

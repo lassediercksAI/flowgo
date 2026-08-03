@@ -20,9 +20,11 @@ export const HANDLE_CODES: readonly HandleCode[] = [
 ];
 
 // Box shape identifiers, mirroring graph.Box.Shape (Go) and the
-// BoxData.shape wire field. Only these two exist today; 2-9 reserved.
+// BoxData.shape wire field. 4-9 reserved.
 export const SHAPE_RECT = 0;
 export const SHAPE_HEX = 1;
+export const SHAPE_CIRCLE = 2;
+export const SHAPE_TRIANGLE = 3;
 
 const isHandleCode = (s: string): s is HandleCode =>
   s === "t" || s === "r" || s === "b" || s === "l" ||
@@ -47,6 +49,8 @@ export const handleAnchor = (
   code: HandleCode,
   shape?: number,
 ): Vec2 => {
+  if (shape === SHAPE_CIRCLE) return circleAnchor(box, code);
+  if (shape === SHAPE_TRIANGLE) return triangleAnchor(box, code);
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;
   const hex = shape === SHAPE_HEX;
@@ -71,6 +75,61 @@ export const handleAnchor = (
     case "bl": return [leftX, bottomY];
     case "br": return [rightX, bottomY];
   }
+};
+
+// Circle anchors sit on the rim: cardinals at the compass points,
+// diagonal codes at the 45° points. The rim radius is pulled in by
+// ANCHOR_INSET (radially toward the centre) for the same tuck-under
+// reason as the rectangle insets.
+const circleAnchor = (box: Box2D, code: HandleCode): Vec2 => {
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  const r = Math.min(box.width, box.height) / 2 - ANCHOR_INSET;
+  const d = r / Math.SQRT2;
+  switch (code) {
+    case "t":  return [cx, cy - r];
+    case "b":  return [cx, cy + r];
+    case "l":  return [cx - r, cy];
+    case "r":  return [cx + r, cy];
+    case "tl": return [cx - d, cy - d];
+    case "tr": return [cx + d, cy - d];
+    case "bl": return [cx - d, cy + d];
+    case "br": return [cx + d, cy + d];
+  }
+};
+
+// Triangle anchors follow the silhouette (apex top-centre, flat
+// bottom): t at the apex, tl/tr at the slant midpoints, l/r at the
+// slant three-quarter points, b/bl/br along the bottom edge. Each
+// point is pulled ANCHOR_INSET toward the centroid so line ends tuck
+// under the fill.
+const triangleAnchor = (box: Box2D, code: HandleCode): Vec2 => {
+  const cx = box.x + box.width / 2;
+  const w = box.width;
+  const h = box.height;
+  const raw = ((): Vec2 => {
+    switch (code) {
+      case "t":  return [cx, box.y];
+      case "tl": return [cx - w / 4, box.y + h / 2];
+      case "tr": return [cx + w / 4, box.y + h / 2];
+      case "l":  return [cx - (3 * w) / 8, box.y + (3 * h) / 4];
+      case "r":  return [cx + (3 * w) / 8, box.y + (3 * h) / 4];
+      case "b":  return [cx, box.y + h];
+      case "bl": return [box.x, box.y + h];
+      case "br": return [box.x + w, box.y + h];
+    }
+  })();
+  // Centroid of the triangle (apex + two base corners) / 3.
+  const gx = cx;
+  const gy = box.y + (2 * h) / 3;
+  const dx = gx - raw[0];
+  const dy = gy - raw[1];
+  const len = Math.hypot(dx, dy);
+  if (len === 0) return raw;
+  return [
+    raw[0] + (dx / len) * ANCHOR_INSET,
+    raw[1] + (dy / len) * ANCHOR_INSET,
+  ];
 };
 
 // Pick the handle whose anchor is closest to (fx, fy). Used when an

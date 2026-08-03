@@ -149,24 +149,26 @@ func TestActUpdateBox_RejectsNegativeSize(t *testing.T) {
 	}
 }
 
-func TestActSetHexagons(t *testing.T) {
+func TestActSetDefaultShape(t *testing.T) {
 	g := freshGraph()
-	if _, err := actSetHexagons(g, map[string]any{"on": true}); err != nil {
-		t.Fatalf("set on: %v", err)
+	for _, n := range []int{1, 2, 3} {
+		if _, err := actSetDefaultShape(g, map[string]any{"shape": float64(n)}); err != nil {
+			t.Fatalf("set %d: %v", n, err)
+		}
+		if g.DefaultShape != n {
+			t.Fatalf("default shape not set to %d: got %d", n, g.DefaultShape)
+		}
 	}
-	if !g.Hexagons {
-		t.Fatal("flag not set")
+	if _, err := actSetDefaultShape(g, map[string]any{"shape": float64(0)}); err != nil {
+		t.Fatalf("clear: %v", err)
 	}
-	if _, err := actSetHexagons(g, map[string]any{"on": false}); err != nil {
-		t.Fatalf("set off: %v", err)
+	if g.DefaultShape != 0 {
+		t.Fatal("default shape not cleared")
 	}
-	if g.Hexagons {
-		t.Fatal("flag not cleared")
+	if _, err := actSetDefaultShape(g, map[string]any{"shape": float64(7)}); err == nil {
+		t.Fatal("out-of-range shape must error")
 	}
-	if _, err := actSetHexagons(g, map[string]any{"on": "yes"}); err == nil {
-		t.Fatal("non-boolean must error")
-	}
-	if _, err := actSetHexagons(g, map[string]any{}); err == nil {
+	if _, err := actSetDefaultShape(g, map[string]any{}); err == nil {
 		t.Fatal("missing arg must error")
 	}
 }

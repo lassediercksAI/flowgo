@@ -436,22 +436,32 @@ describe("serializeGraph", () => {
   });
 });
 
-describe("hexagons document directive", () => {
-  it("emits `hexagons on` after version when the flag is set", () => {
+describe("defaultshape document directive", () => {
+  it("emits `defaultshape <n>` after version when set", () => {
     expect(
       serializeGraph({
         version: "1.2.3",
-        hexagons: true,
+        defaultShape: 3,
         maps: [{ path: "/", boxes: [{ id: "b1", label: "x", x: 0, y: 0 }] }],
       }),
-    ).toBe(["version 1.2.3", "hexagons on", "box b1 x 0 0", ""].join("\n"));
+    ).toBe(["version 1.2.3", "defaultshape 3", "box b1 x 0 0", ""].join("\n"));
   });
 
-  it("emits nothing when the flag is absent or false", () => {
+  it("emits nothing when absent or zero", () => {
     const out = serializeGraph({
-      hexagons: false,
+      defaultShape: 0,
       maps: [{ path: "/", boxes: [{ id: "b1", label: "x", x: 0, y: 0 }] }],
     });
+    expect(out).not.toContain("defaultshape");
+    expect(out).not.toContain("hexagons");
+  });
+
+  it("never emits the legacy hexagons directive", () => {
+    const out = serializeGraph({
+      defaultShape: 1,
+      maps: [{ path: "/", boxes: [{ id: "b1", label: "x", x: 0, y: 0 }] }],
+    });
+    expect(out).toContain("defaultshape 1\n");
     expect(out).not.toContain("hexagons");
   });
 });

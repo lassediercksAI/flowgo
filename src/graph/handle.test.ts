@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   ANCHOR_INSET,
   HANDLE_CODES,
+  SHAPE_CIRCLE,
   SHAPE_HEX,
   SHAPE_RECT,
+  SHAPE_TRIANGLE,
   handleAnchor,
   nearestHandle,
   rectAnchor,
@@ -115,5 +117,68 @@ describe("hexagon anchors (shape = 1)", () => {
   it("rectAnchor forwards the shape", () => {
     expect(rectAnchor(box, "tr", [0, 0], SHAPE_HEX)).toEqual([175 - IN, 100 + IN]);
     expect(rectAnchor(box, null, [175, 60], SHAPE_HEX)).toEqual([175 - IN, 100 + IN]);
+  });
+});
+
+describe("circle anchors (shape = 2)", () => {
+  // 208x208 circle at (100, 100): centre (204, 204), rim radius
+  // 104 - ANCHOR_INSET.
+  const circle: Box2D = { x: 100, y: 100, width: 208, height: 208 };
+  const r = 104 - IN;
+  const d = r / Math.SQRT2;
+
+  it("cardinals sit on the inset rim", () => {
+    expect(handleAnchor(circle, "t", SHAPE_CIRCLE)).toEqual([204, 204 - r]);
+    expect(handleAnchor(circle, "b", SHAPE_CIRCLE)).toEqual([204, 204 + r]);
+    expect(handleAnchor(circle, "l", SHAPE_CIRCLE)).toEqual([204 - r, 204]);
+    expect(handleAnchor(circle, "r", SHAPE_CIRCLE)).toEqual([204 + r, 204]);
+  });
+
+  it("diagonals sit at the 45-degree rim points", () => {
+    expect(handleAnchor(circle, "tl", SHAPE_CIRCLE)).toEqual([204 - d, 204 - d]);
+    expect(handleAnchor(circle, "br", SHAPE_CIRCLE)).toEqual([204 + d, 204 + d]);
+  });
+
+  it("every anchor lies on the inset rim", () => {
+    for (const code of HANDLE_CODES) {
+      const [x, y] = handleAnchor(circle, code, SHAPE_CIRCLE);
+      expect(Math.hypot(x - 204, y - 204)).toBeCloseTo(r, 6);
+    }
+  });
+});
+
+describe("triangle anchors (shape = 3)", () => {
+  // 240x208 triangle at (0, 0): apex (120, 0), base corners (0, 208)
+  // and (240, 208), centroid (120, 138.67).
+  const tri: Box2D = { x: 0, y: 0, width: 240, height: 208 };
+
+  it("t sits at the apex, pulled toward the centroid", () => {
+    const [x, y] = handleAnchor(tri, "t", SHAPE_TRIANGLE);
+    expect(x).toBeCloseTo(120, 6);
+    expect(y).toBeCloseTo(IN, 6); // straight down toward the centroid
+  });
+
+  it("slant and base anchors sit near their silhouette points", () => {
+    const near = (code: string, px: number, py: number) => {
+      const [x, y] = handleAnchor(tri, code as never, SHAPE_TRIANGLE);
+      expect(Math.hypot(x - px, y - py)).toBeLessThanOrEqual(IN + 1e-9);
+    };
+    near("tl", 60, 104);
+    near("tr", 180, 104);
+    near("l", 30, 156);
+    near("r", 210, 156);
+    near("b", 120, 208);
+    near("bl", 0, 208);
+    near("br", 240, 208);
+  });
+
+  it("every anchor is strictly inside the bounding box", () => {
+    for (const code of HANDLE_CODES) {
+      const [x, y] = handleAnchor(tri, code, SHAPE_TRIANGLE);
+      expect(x).toBeGreaterThan(0 - 1e-9);
+      expect(x).toBeLessThan(240 + 1e-9);
+      expect(y).toBeGreaterThan(0 - 1e-9);
+      expect(y).toBeLessThan(208 + 1e-9);
+    }
   });
 });

@@ -517,9 +517,9 @@ func TestActAddBox_AcceptsAnchor(t *testing.T) {
 }
 
 // TestActAddBox_AcceptsShape covers the shape flag on add_box:
-// 1 (hexagon) must persist as Box.Shape, 0 stays the zero-value
-// rectangle, and anything else is rejected — the GUI only renders
-// shapes 0 and 1, so the MCP must not let reserved values in.
+// 1-3 (hexagon/circle/triangle) must persist as Box.Shape, 0 stays
+// the zero-value rectangle, and anything else is rejected — the GUI
+// only renders shapes 0-3, so the MCP must not let reserved values in.
 func TestActAddBox_AcceptsShape(t *testing.T) {
 	g := freshGraph()
 	id, err := actAddBox(g, map[string]any{
@@ -542,10 +542,26 @@ func TestActAddBox_AcceptsShape(t *testing.T) {
 		t.Fatalf("shape not persisted: %+v", g.Maps[0].Boxes)
 	}
 	if _, err := actAddBox(g, map[string]any{
-		"label": "bad",
+		"label": "circle",
+		"x":     float64(0),
+		"y":     float64(0),
+		"shape": float64(2),
+	}); err != nil {
+		t.Fatalf("shape 2 (circle) must be accepted: %v", err)
+	}
+	if _, err := actAddBox(g, map[string]any{
+		"label": "tri",
 		"x":     float64(0),
 		"y":     float64(0),
 		"shape": float64(3),
+	}); err != nil {
+		t.Fatalf("shape 3 (triangle) must be accepted: %v", err)
+	}
+	if _, err := actAddBox(g, map[string]any{
+		"label": "bad",
+		"x":     float64(0),
+		"y":     float64(0),
+		"shape": float64(4),
 	}); err == nil {
 		t.Fatal("expected error for out-of-range shape")
 	}
@@ -566,7 +582,13 @@ func TestActUpdateBox_ShapeSetAndClear(t *testing.T) {
 	if g.Maps[0].Boxes[0].Shape != 0 {
 		t.Fatalf("shape not cleared: %+v", g.Maps[0].Boxes[0])
 	}
-	if _, err := actUpdateBox(g, map[string]any{"id": "b1", "shape": float64(2)}); err == nil {
+	if _, err := actUpdateBox(g, map[string]any{"id": "b1", "shape": float64(2)}); err != nil {
+		t.Fatalf("shape 2 (circle) must be accepted: %v", err)
+	}
+	if g.Maps[0].Boxes[0].Shape != 2 {
+		t.Fatalf("circle shape not set: %+v", g.Maps[0].Boxes[0])
+	}
+	if _, err := actUpdateBox(g, map[string]any{"id": "b1", "shape": float64(5)}); err == nil {
 		t.Fatal("expected error for reserved shape value")
 	}
 }

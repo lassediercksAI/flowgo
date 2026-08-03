@@ -68,13 +68,17 @@ func TestPresetSeedUnknown(t *testing.T) {
 }
 
 func TestPresetEstuaryKeepsHexagons(t *testing.T) {
-	// The estuary preset declares `hexagons on`; seeding must carry
-	// the document flag through the parse/stamp/serialize round-trip.
+	// The estuary preset declares the legacy `hexagons on`; seeding
+	// must carry the preference through the parse/stamp/serialize
+	// round-trip — re-emitted in its modern form, `defaultshape 1`.
 	out, err := presetSeed("estuary-mapping", "1.0.0")
 	if err != nil {
 		t.Fatalf("presetSeed: %v", err)
 	}
-	if !strings.Contains(out, "hexagons on\n") {
-		t.Fatalf("hexagons directive lost:\n%s", out)
+	if !strings.Contains(out, "defaultshape 1\n") {
+		t.Fatalf("hexagon default lost (expected defaultshape 1):\n%s", out)
+	}
+	if strings.Contains(out, "hexagons") {
+		t.Fatalf("legacy hexagons directive must not be re-emitted:\n%s", out)
 	}
 }

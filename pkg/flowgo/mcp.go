@@ -45,7 +45,7 @@ STYLING (1-9 SCALES)
 - palette: 1=default (white box, black text), 2=blue, 3=purple, 4=green, 5=yellow, 6=red, 7=orange, 8=gray, 9=black/inverted (black bg, white text). Applies to boxes, edges, texts, lines, strokes.
 - font (boxes, texts): 1=default 14px, scales up to 9 ≈ 56px.
 - style (lines only): 1=straight, 2=smooth bezier, 3=orthogonal right-angle elbows.
-- shape (boxes only): 0=rectangle (default), 1=hexagon. Hexagons render at a fixed 240x208 size in the GUI and snap onto a hex lattice near other hexagons — they never overlap and are not resizable.
+- shape (boxes only): 0=rectangle (default), 1=hexagon, 2=circle, 3=triangle. Non-rectangles render at fixed sizes in the GUI (hexagon 240x208, circle 208x208, triangle 240x208) and are not resizable; hexagons additionally snap onto a hex lattice near other hexagons and never overlap.
 
 EDGE HANDLES
 fromHandle/toHandle pin the connection to a specific side or corner of the source/target box: t (top), r (right), b (bottom), l (left), tl, tr, bl, br. Omit both to let the renderer auto-pick the nearest pair. Edges are undirected — add_edge from A to B is the same edge as B to A; update_edge / delete_edge match in either order.
@@ -88,7 +88,7 @@ UTF-8 text, one directive per line, '#' for comments.
     boxsize <id> <w> <h>
     boxshape <id> <shape>
     anchor <id>
-    hexagons on
+    defaultshape <n>
 
 Notes:
 - 'id' is alphanumeric and unique within its map. Granular MCP tools
@@ -102,16 +102,19 @@ Notes:
 - 'map <path>' switches the current map. Paths look like /, /b1,
   /b1/c2. Each path is "the inside of" the box at that path.
 - 'boxshape <id> <shape>' tags a box with a non-default silhouette:
-  1 = hexagon (fixed 240x208, lattice-snapped, not resizable in the
+  1 = hexagon, 2 = circle, 3 = triangle (all fixed-size, not
+  resizable; hexagons lattice-snap in the
   GUI); 2-9 reserved. Omitted or 0 = rectangle. Emitted after the box
   block so older binaries still parse the geometry.
 - 'boxsize <id> <w> <h>' pins a box to an explicit size in data px
   (the GUI's resize feature). Omitted = auto-size to the label.
-  Never combined with boxshape 1 — hexagons are not resizable.
+  Never combined with a non-zero boxshape — special shapes are not resizable.
 - 'anchor <id>' is at most once per map — the per-map recenter target.
-- 'hexagons on' is a document-level preference (before any map):
-  the GUI opens this file with the hexagon setting enabled, so
-  double-click adds hexagons. Set/cleared via the set_hexagons tool.
+- 'defaultshape <n>' is a document-level preference (before any map):
+  the shape a canvas double-click creates in this file (1 hexagon,
+  2 circle, 3 triangle; absent = rectangle). Set/cleared via the
+  set_default_shape tool. Legacy 'hexagons on' parses as
+  defaultshape 1 and is no longer written.
 
 ## Coordinate system
 
@@ -382,7 +385,7 @@ var toolActions = map[string]toolAction{
 	"add_stroke":    actAddStroke,
 	"update_stroke": actUpdateStroke,
 	"delete_stroke": actDeleteStroke,
-	"set_hexagons":  actSetHexagons,
+	"set_default_shape": actSetDefaultShape,
 }
 
 func isReadOnlyTool(name string) bool { return name == "get_state" }
@@ -391,18 +394,19 @@ func actGetState(g *Graph, args map[string]any) (any, error) {
 	return mcpToolJSON(*g), nil
 }
 
-// actSetHexagons flips the document-level "open in hexagon mode"
-// preference (the `hexagons on` directive). Doc-scoped, not per-map.
-func actSetHexagons(g *Graph, args map[string]any) (any, error) {
-	v, ok := args["on"]
+// actSetDefaultShape sets the document-level default shape — what a
+// canvas double-click creates (the `defaultshape <n>` directive).
+// Doc-scoped, not per-map. Replaces the retired set_hexagons tool.
+func actSetDefaultShape(g *Graph, args map[string]any) (any, error) {
+	v, ok := args["shape"]
 	if !ok {
-		return nil, fmt.Errorf("on is required")
+		return nil, fmt.Errorf("shape is required")
 	}
-	b, ok := v.(bool)
-	if !ok {
-		return nil, fmt.Errorf("on must be a boolean")
+	n, err := shapeProp(v)
+	if err != nil {
+		return nil, err
 	}
-	g.Hexagons = b
+	g.DefaultShape = n
 	return mcpToolText("ok"), nil
 }
 
@@ -494,11 +498,12 @@ func actAddBox(g *Graph, args map[string]any) (any, error) {
 			return nil, err
 		}
 		box.Shape = s
-		// Hexagons keep the fixed lattice size. Rejecting (rather than
-		// silently dropping) a size given alongside shape=1 tells the
+		// Special shapes keep a fixed uniform size (hexagons for the
+		// lattice contract, circles and triangles by design). Rejecting
+		// (rather than silently dropping) a size given alongside one tells the
 		// MCP client its intent can't be honoured.
 		if s == 1 && (box.W != 0 || box.H != 0) {
-			return nil, fmt.Errorf("hexagons have a fixed size and are not resizable — omit w/h")
+			return nil, fmt.Errorf("this shape has a fixed size and is not resizable — omit w/h")
 		}
 	}
 	m.Boxes = append(m.Boxes, box)
@@ -611,12 +616,12 @@ func actUpdateBox(g *Graph, args map[string]any) (any, error) {
 			}
 			newShape = s
 		}
-		// Hexagons have a fixed lattice size — any explicit w/h aimed
+		// Special shapes have a fixed uniform size — any explicit w/h aimed
 		// at one (whether it already is a hex or becomes one in this
 		// call) is rejected so the client learns its intent can't be
 		// honoured. Becoming a hexagon clears a previously pinned size.
 		if size != nil && newShape == 1 {
-			return nil, fmt.Errorf("hexagons have a fixed size and are not resizable — omit w/h")
+			return nil, fmt.Errorf("this shape has a fixed size and is not resizable — omit w/h")
 		}
 		if size != nil {
 			// {0,0} restores auto-size; anything else pins the size.
@@ -1195,9 +1200,9 @@ func mcpTools() []mcpToolDef {
 			"palette": paletteSchema,
 			"font":    fontSchema,
 			"anchor":  map[string]any{"type": "boolean", "description": "Set true to make this box the map's recenter anchor (clears any prior anchor on the same map). At most one anchor per map."},
-			"w":       schemaNumber("Optional explicit width in data px (min 80). Both w and h must be given to pin the size; omit both for auto-size (box hugs its label). Ignored for hexagons."),
-			"h":       schemaNumber("Optional explicit height in data px (min 36). Both w and h must be given to pin the size; omit both for auto-size. Ignored for hexagons."),
-			"shape":   schemaNumber("Optional shape: 0=rectangle (default), 1=hexagon. Hexagons render at a fixed 240x208 size, snap onto a hex lattice near other hexagons, never overlap, and are not resizable."),
+			"w":       schemaNumber("Optional explicit width in data px (min 80). Both w and h must be given to pin the size; omit both for auto-size (box hugs its label). Rectangles only — special shapes are fixed-size."),
+			"h":       schemaNumber("Optional explicit height in data px (min 36). Both w and h must be given to pin the size; omit both for auto-size. Rectangles only — special shapes are fixed-size."),
+			"shape":   schemaNumber("Optional shape: 0=rectangle (default), 1=hexagon (240x208, lattice-snapped, never overlaps), 2=circle (208x208), 3=triangle (240x208). Non-rectangles are fixed-size and not resizable."),
 		}, []string{"label", "x", "y"})
 
 	addTool("update_box",
@@ -1211,16 +1216,16 @@ func mcpTools() []mcpToolDef {
 			"palette": schemaNumber("Optional palette index 1..9."),
 			"font":    schemaNumber("Optional font-size step 1..9."),
 			"anchor":  map[string]any{"type": "boolean", "description": "true sets this box as the map's anchor (clears any prior); false clears the anchor flag on this box."},
-			"w":       schemaNumber("New explicit width in data px, min 80 (optional; set both w and h). 0 together with h=0 restores auto-size. Ignored for hexagons."),
-			"h":       schemaNumber("New explicit height in data px, min 36 (optional; set both w and h). 0 together with w=0 restores auto-size. Ignored for hexagons."),
-			"shape":   schemaNumber("Optional shape: 0=rectangle (default), 1=hexagon (fixed 240x208, lattice-snapped, not resizable). Combining shape=1 with w/h is an error; becoming a hexagon clears any previously pinned size."),
+			"w":       schemaNumber("New explicit width in data px, min 80 (optional; set both w and h). 0 together with h=0 restores auto-size. Rectangles only — special shapes are fixed-size."),
+			"h":       schemaNumber("New explicit height in data px, min 36 (optional; set both w and h). 0 together with w=0 restores auto-size. Rectangles only — special shapes are fixed-size."),
+			"shape":   schemaNumber("Optional shape: 0=rectangle (default), 1=hexagon (240x208, lattice-snapped), 2=circle (208x208), 3=triangle (240x208). Combining a non-zero shape with w/h is an error; becoming a special shape clears any previously pinned size."),
 		}, []string{"id"})
 
-	addTool("set_hexagons",
-		"Set the document-level hexagon preference (the `hexagons on` directive): when true, the GUI opens this file with the hexagon setting enabled so double-click adds fixed-size, lattice-snapping hexagons. Document-scoped — there is no path parameter.",
+	addTool("set_default_shape",
+		"Set the document-level default shape (the `defaultshape <n>` directive): the shape a canvas double-click creates in this file. 0=rectangle, 1=hexagon, 2=circle, 3=triangle. Document-scoped — there is no path parameter.",
 		map[string]any{
-			"on": map[string]any{"type": "boolean", "description": "true to open in hexagon mode; false to clear the preference (browser default rules)."},
-		}, []string{"on"})
+			"shape": schemaNumber("The default shape for new boxes: 0=rectangle, 1=hexagon, 2=circle, 3=triangle. 0 clears the directive."),
+		}, []string{"shape"})
 
 	addTool("delete_box",
 		"Delete a box (and all incident edges plus its submap subtree).",
@@ -1511,14 +1516,14 @@ func numArg(args map[string]any, key string, def float64) float64 {
 // styleProp parses a 1..9 styling argument (palette, font, line style)
 // per the file-format convention: 1 is the default and stored as 0 so
 // it round-trips as the absent-token. Returns the storage value.
-// shapeProp validates the box shape argument: 0 = rectangle
-// (default, stored as the zero value), 1 = hexagon. 2-9 are reserved
-// in the file format but not accepted over MCP until something
-// renders them.
+// shapeProp validates a shape argument: 0 = rectangle (default,
+// stored as the zero value), 1 = hexagon, 2 = circle, 3 = triangle.
+// 4-9 are reserved in the file format but not accepted over MCP until
+// something renders them.
 func shapeProp(v any) (int, error) {
 	n := intFromAny(v)
-	if n != 0 && n != 1 {
-		return 0, fmt.Errorf("shape must be 0 (rectangle) or 1 (hexagon)")
+	if n < 0 || n > 3 {
+		return 0, fmt.Errorf("shape must be 0 (rectangle), 1 (hexagon), 2 (circle), or 3 (triangle)")
 	}
 	return n, nil
 }
