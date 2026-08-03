@@ -308,21 +308,23 @@
      so they win on specificity and stay at their chosen size. */
   .box[contenteditable="true"], .text-item[contenteditable="true"] { font-size: 16px; }
 
-  /* Palette: 1 = default (white/black). 2 = inverted. 3-9 = standard hues. */
-  .box.palette-2 { background: #111; border-color: #fff; color: #fff; }
-  .box.palette-3 { background: #fecaca; border-color: #b91c1c; color: #7f1d1d; }
-  .box.palette-4 { background: #fed7aa; border-color: #c2410c; color: #7c2d12; }
+  /* Palette: 1 = default (white/black). 2-8 = hues in key order
+     (blue, purple, green, yellow, red, orange, gray). 9 = black —
+     the inverted slot (white-on-black boxes). */
+  .box.palette-2 { background: #bfdbfe; border-color: #1d4ed8; color: #1e3a8a; }
+  .box.palette-3 { background: #ddd6fe; border-color: #6d28d9; color: #4c1d95; }
+  .box.palette-4 { background: #bbf7d0; border-color: #15803d; color: #14532d; }
   .box.palette-5 { background: #fef9c3; border-color: #a16207; color: #713f12; }
-  .box.palette-6 { background: #bbf7d0; border-color: #15803d; color: #14532d; }
-  .box.palette-7 { background: #bfdbfe; border-color: #1d4ed8; color: #1e3a8a; }
-  .box.palette-8 { background: #ddd6fe; border-color: #6d28d9; color: #4c1d95; }
-  .box.palette-9 { background: #e5e7eb; border-color: #374151; color: #111827; }
+  .box.palette-6 { background: #fecaca; border-color: #b91c1c; color: #7f1d1d; }
+  .box.palette-7 { background: #fed7aa; border-color: #c2410c; color: #7c2d12; }
+  .box.palette-8 { background: #e5e7eb; border-color: #374151; color: #111827; }
+  .box.palette-9 { background: #111; border-color: #fff; color: #fff; }
 
   /* Selected highlights live below the palette block so the cascade
      wins against same-specificity .box.palette-N border/stroke rules
      above. Selection cue matches the hexagon treatment exactly: blue
      border + soft blue glow — one visual language for "selected"
-     across both silhouettes. The glow carries the cue on palette-7,
+     across both silhouettes. The glow carries the cue on palette-2,
      where the border is already blue. */
   .box.selected {
     border-color: #07f;
@@ -422,14 +424,14 @@
   }
   /* Palette hues: same pairs as the rectangle rules, mapped onto the
      border/fill variables (text colour inherits from .box.palette-N). */
-  .box.hex.palette-2 { background: transparent; --hex-border: #fff; --hex-fill: #111; }
-  .box.hex.palette-3 { background: transparent; --hex-border: #b91c1c; --hex-fill: #fecaca; }
-  .box.hex.palette-4 { background: transparent; --hex-border: #c2410c; --hex-fill: #fed7aa; }
+  .box.hex.palette-2 { background: transparent; --hex-border: #1d4ed8; --hex-fill: #bfdbfe; }
+  .box.hex.palette-3 { background: transparent; --hex-border: #6d28d9; --hex-fill: #ddd6fe; }
+  .box.hex.palette-4 { background: transparent; --hex-border: #15803d; --hex-fill: #bbf7d0; }
   .box.hex.palette-5 { background: transparent; --hex-border: #a16207; --hex-fill: #fef9c3; }
-  .box.hex.palette-6 { background: transparent; --hex-border: #15803d; --hex-fill: #bbf7d0; }
-  .box.hex.palette-7 { background: transparent; --hex-border: #1d4ed8; --hex-fill: #bfdbfe; }
-  .box.hex.palette-8 { background: transparent; --hex-border: #6d28d9; --hex-fill: #ddd6fe; }
-  .box.hex.palette-9 { background: transparent; --hex-border: #374151; --hex-fill: #e5e7eb; }
+  .box.hex.palette-6 { background: transparent; --hex-border: #b91c1c; --hex-fill: #fecaca; }
+  .box.hex.palette-7 { background: transparent; --hex-border: #c2410c; --hex-fill: #fed7aa; }
+  .box.hex.palette-8 { background: transparent; --hex-border: #374151; --hex-fill: #e5e7eb; }
+  .box.hex.palette-9 { background: transparent; --hex-border: #fff; --hex-fill: #111; }
   /* After the palette block so the edit-highlight fill wins over the
      palette fill, mirroring the rectangle cascade. */
   .box.hex[contenteditable="true"] { background: transparent; --hex-fill: #ffffe0; }
@@ -498,16 +500,16 @@
   }
 
   /* Text-item palette: maps the matching box border-hue onto the text
-     colour itself. Palette 2 (white-on-black for boxes) becomes bold
+     colour itself. Palette 9 (white-on-black for boxes) becomes bold
      black for text since white is invisible on the canvas. */
-  .text-item.palette-2 { color: #111; font-weight: 600; }
-  .text-item.palette-3 { color: #b91c1c; }
-  .text-item.palette-4 { color: #c2410c; }
+  .text-item.palette-2 { color: #1d4ed8; }
+  .text-item.palette-3 { color: #6d28d9; }
+  .text-item.palette-4 { color: #15803d; }
   .text-item.palette-5 { color: #a16207; }
-  .text-item.palette-6 { color: #15803d; }
-  .text-item.palette-7 { color: #1d4ed8; }
-  .text-item.palette-8 { color: #6d28d9; }
-  .text-item.palette-9 { color: #374151; }
+  .text-item.palette-6 { color: #b91c1c; }
+  .text-item.palette-7 { color: #c2410c; }
+  .text-item.palette-8 { color: #374151; }
+  .text-item.palette-9 { color: #111; font-weight: 600; }
 
   /* Text-item font scale mirrors the box scale (Shift+1..9). */
   .text-item.font-2 { font-size: 16px; }
@@ -525,21 +527,21 @@
      drawn with the active brush palette reads as the same colour as
      anything else stamped with that palette. Keep in sync with the
      PENCIL_BODY map in brush.ts. */
-  /* Palette 2 is the "inverted" slot (white-on-black for boxes/text).
+  /* Palette 9 is the "inverted" slot (white-on-black for boxes).
      A pure white stroke would vanish on the white canvas, so we paint
      a black halo via drop-shadow — the doubled filter widens it enough
      to read at the same weight as the unhaloed colour strokes. */
-  .stroke-group.palette-2 .stroke-line {
+  .stroke-group.palette-2 .stroke-line { stroke: #1d4ed8; }
+  .stroke-group.palette-3 .stroke-line { stroke: #6d28d9; }
+  .stroke-group.palette-4 .stroke-line { stroke: #15803d; }
+  .stroke-group.palette-5 .stroke-line { stroke: #a16207; }
+  .stroke-group.palette-6 .stroke-line { stroke: #b91c1c; }
+  .stroke-group.palette-7 .stroke-line { stroke: #c2410c; }
+  .stroke-group.palette-8 .stroke-line { stroke: #374151; }
+  .stroke-group.palette-9 .stroke-line {
     stroke: #fff;
     filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);
   }
-  .stroke-group.palette-3 .stroke-line { stroke: #b91c1c; }
-  .stroke-group.palette-4 .stroke-line { stroke: #c2410c; }
-  .stroke-group.palette-5 .stroke-line { stroke: #a16207; }
-  .stroke-group.palette-6 .stroke-line { stroke: #15803d; }
-  .stroke-group.palette-7 .stroke-line { stroke: #1d4ed8; }
-  .stroke-group.palette-8 .stroke-line { stroke: #6d28d9; }
-  .stroke-group.palette-9 .stroke-line { stroke: #374151; }
   /* `.selected` wins regardless of palette so users keep an unambiguous
      selection cue. */
   .stroke-group.selected .stroke-line { stroke: #07f; }
@@ -606,18 +608,18 @@
   .line-line { stroke: #555; stroke-width: 2; }
   /* Palette colours match the stroke/box palette so a recoloured line
      reads as the same hue as any other element stamped with that palette.
-     Palette 2 uses a black halo because pure white would vanish. */
-  .line-group.palette-2 .line-line {
+     Palette 9 uses a black halo because pure white would vanish. */
+  .line-group.palette-2 .line-line { stroke: #1d4ed8; }
+  .line-group.palette-3 .line-line { stroke: #6d28d9; }
+  .line-group.palette-4 .line-line { stroke: #15803d; }
+  .line-group.palette-5 .line-line { stroke: #a16207; }
+  .line-group.palette-6 .line-line { stroke: #b91c1c; }
+  .line-group.palette-7 .line-line { stroke: #c2410c; }
+  .line-group.palette-8 .line-line { stroke: #374151; }
+  .line-group.palette-9 .line-line {
     stroke: #fff;
     filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);
   }
-  .line-group.palette-3 .line-line { stroke: #b91c1c; }
-  .line-group.palette-4 .line-line { stroke: #c2410c; }
-  .line-group.palette-5 .line-line { stroke: #a16207; }
-  .line-group.palette-6 .line-line { stroke: #15803d; }
-  .line-group.palette-7 .line-line { stroke: #1d4ed8; }
-  .line-group.palette-8 .line-line { stroke: #6d28d9; }
-  .line-group.palette-9 .line-line { stroke: #374151; }
   .line-group.selected .line-line { stroke: #07f; stroke-width: 3; }
   .line-handle {
     fill: #07f; stroke: #fff; stroke-width: 2;
@@ -681,17 +683,17 @@
   .edge-group { pointer-events: none; }
   .edge-hit { pointer-events: stroke; cursor: pointer; }
   .edge-line { stroke: #333; stroke-width: 2; }
-  .edge-group.palette-2 .edge-line {
+  .edge-group.palette-2 .edge-line { stroke: #1d4ed8; }
+  .edge-group.palette-3 .edge-line { stroke: #6d28d9; }
+  .edge-group.palette-4 .edge-line { stroke: #15803d; }
+  .edge-group.palette-5 .edge-line { stroke: #a16207; }
+  .edge-group.palette-6 .edge-line { stroke: #b91c1c; }
+  .edge-group.palette-7 .edge-line { stroke: #c2410c; }
+  .edge-group.palette-8 .edge-line { stroke: #374151; }
+  .edge-group.palette-9 .edge-line {
     stroke: #fff;
     filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);
   }
-  .edge-group.palette-3 .edge-line { stroke: #b91c1c; }
-  .edge-group.palette-4 .edge-line { stroke: #c2410c; }
-  .edge-group.palette-5 .edge-line { stroke: #a16207; }
-  .edge-group.palette-6 .edge-line { stroke: #15803d; }
-  .edge-group.palette-7 .edge-line { stroke: #1d4ed8; }
-  .edge-group.palette-8 .edge-line { stroke: #6d28d9; }
-  .edge-group.palette-9 .edge-line { stroke: #374151; }
   .edge-group.selected .edge-line { stroke: #07f; stroke-width: 3; }
   .selection-band {
     position: absolute; z-index: 6; pointer-events: none;
@@ -927,7 +929,7 @@
       <tr><td><kbd>A</kbd> with one box selected</td><td>Toggle anchor — the map centers on this box on load (one anchor per map)</td></tr>
       <tr><td><kbd>E</kbd> with one box selected</td><td>Toggle resize mode — drag the orange corner grips to resize · <kbd>E</kbd> or <kbd>Escape</kbd> to finish</td></tr>
       <tr><td><kbd>Shift</kbd> + <kbd>E</kbd> with one box selected</td><td>Reset the box to auto-size (hug its label)</td></tr>
-      <tr><td><kbd>1</kbd>–<kbd>9</kbd> with anything selected</td><td>Recolor boxes, texts, lines, strokes, and the selected edge: <kbd>1</kbd> default · <kbd>2</kbd> inverted (text: bold black) · <kbd>3</kbd>–<kbd>9</kbd> red, orange, yellow, green, blue, purple, gray</td></tr>
+      <tr><td><kbd>1</kbd>–<kbd>9</kbd> with anything selected</td><td>Recolor boxes, texts, lines, strokes, and the selected edge: <kbd>1</kbd> default · <kbd>2</kbd>–<kbd>8</kbd> blue, purple, green, yellow, red, orange, gray · <kbd>9</kbd> black (boxes invert to white-on-black; text: bold black)</td></tr>
       <tr><td><kbd>Shift</kbd> + <kbd>1</kbd>–<kbd>9</kbd> with boxes or texts selected</td><td>Font size: <kbd>1</kbd> default (14px) → <kbd>9</kbd> largest (56px)</td></tr>
       <tr><td><kbd>Delete</kbd> / <kbd>Backspace</kbd></td><td>Remove all selected boxes (and their submap subtrees)</td></tr>
     </table>

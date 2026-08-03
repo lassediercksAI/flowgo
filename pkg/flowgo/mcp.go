@@ -42,7 +42,7 @@ COORDINATES
 x, y are in CSS-pixel data space. Origin is top-left; +x is right, +y is down. Boxes render roughly 120-180px wide and 36-44px tall depending on label length and font, so space them by at least 200px horizontally and 80px vertically to avoid overlap. A reasonable map fits inside a ~1600x1200 canvas; large maps work but the GUI will need pan/zoom. Always pass distinct coordinates — multiple items at (0, 0) will pile up.
 
 STYLING (1-9 SCALES)
-- palette: 1=default (white box, black text), 2=inverted (black bg, white text), 3=red, 4=orange, 5=yellow, 6=green, 7=blue, 8=purple, 9=gray. Applies to boxes, edges, texts, lines, strokes.
+- palette: 1=default (white box, black text), 2=blue, 3=purple, 4=green, 5=yellow, 6=red, 7=orange, 8=gray, 9=black/inverted (black bg, white text). Applies to boxes, edges, texts, lines, strokes.
 - font (boxes, texts): 1=default 14px, scales up to 9 ≈ 56px.
 - style (lines only): 1=straight, 2=smooth bezier, 3=orthogonal right-angle elbows.
 - shape (boxes only): 0=rectangle (default), 1=hexagon. Hexagons render at a fixed 240x208 size in the GUI and snap onto a hex lattice near other hexagons — they never overlap and are not resizable.
@@ -121,8 +121,8 @@ at least 200px horizontally and 80px vertically.
 
 ## Color and size scales
 
-palette (1-9): 1 default, 2 inverted, 3 red, 4 orange, 5 yellow,
-6 green, 7 blue, 8 purple, 9 gray.
+palette (1-9): 1 default, 2 blue, 3 purple, 4 green, 5 yellow,
+6 red, 7 orange, 8 gray, 9 black/inverted.
 
 font (1-9, boxes and texts only): 1 default 14px, 9 largest ~56px.
 
@@ -1169,7 +1169,7 @@ func mcpTools() []mcpToolDef {
 			"graph": map[string]any{"type": "object", "description": "Full graph to write."},
 		}, []string{"graph"})
 
-	paletteSchema := schemaNumber("Optional color: 1=default white, 2=inverted black, 3=red, 4=orange, 5=yellow, 6=green, 7=blue, 8=purple, 9=gray.")
+	paletteSchema := schemaNumber("Optional color: 1=default white, 2=blue, 3=purple, 4=green, 5=yellow, 6=red, 7=orange, 8=gray, 9=black (inverted).")
 	fontSchema := schemaNumber("Optional font-size step: 1=default 14px, 2-9 progressively larger up to 56px.")
 	lineStyleSchema := schemaNumber("Optional render style: 1=straight (default), 2=smooth bezier, 3=orthogonal elbows.")
 	pointArraySchema := func(desc string) map[string]any {

@@ -50,14 +50,14 @@ export const getBrushPalette = (): number => palette;
 // keeps the white pencil visible against the white canvas.
 const PENCIL_BODY: Record<number, string> = {
   1: "#333",
-  2: "#fff",
-  3: "#b91c1c",
-  4: "#c2410c",
+  2: "#1d4ed8",
+  3: "#6d28d9",
+  4: "#15803d",
   5: "#a16207",
-  6: "#15803d",
-  7: "#1d4ed8",
-  8: "#6d28d9",
-  9: "#374151",
+  6: "#b91c1c",
+  7: "#c2410c",
+  8: "#374151",
+  9: "#fff",
 };
 
 const cursorForPalette = (p: number): string => {
