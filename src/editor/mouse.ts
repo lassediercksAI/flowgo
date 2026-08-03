@@ -130,8 +130,22 @@ export const wireMouse = (b: MouseBindings): void => {
   bindings = b;
 };
 
-// Find the box element under the cursor, ignoring the ghost line and
-// any non-box elements above it.
+// Generous drop halo for link drags: releasing within this many
+// SCREEN px of a box's edge counts as hitting it, so completing a
+// connection doesn't demand pixel-precision on the handle dots.
+// Screen px rather than data px on purpose — the required precision
+// shouldn't tighten as the user zooms out. 24px ≈ two handle dots of
+// slack, small enough that "drop in empty space to spawn a box" still
+// triggers anywhere that visually reads as empty.
+const LINK_SNAP_PX = 24;
+
+// Find the box element under (or generously near) the cursor. Exact
+// elementsFromPoint hits win — including the handle dots that stick
+// out past the outline — then the nearest box whose bounding rect is
+// within LINK_SNAP_PX takes over. Every call site is link-drag
+// targeting (mouse + touch move/up), which is what licenses the halo:
+// this is "which box is the user trying to connect to", not a
+// hit-test.
 const findBoxAt = (x: number, y: number): HTMLElement | null => {
   const w = must();
   const els = document.elementsFromPoint(x, y);
@@ -140,7 +154,19 @@ const findBoxAt = (x: number, y: number): HTMLElement | null => {
     const box = (el as HTMLElement).closest?.(".box");
     if (box) return box as HTMLElement;
   }
-  return null;
+  let best: HTMLElement | null = null;
+  let bestD = Infinity;
+  for (const el of document.querySelectorAll<HTMLElement>("#canvas .box")) {
+    const r = el.getBoundingClientRect();
+    const dx = Math.max(r.left - x, 0, x - r.right);
+    const dy = Math.max(r.top - y, 0, y - r.bottom);
+    const d = Math.hypot(dx, dy);
+    if (d < bestD) {
+      bestD = d;
+      best = el;
+    }
+  }
+  return bestD <= LINK_SNAP_PX ? best : null;
 };
 
 const onMouseMove = (e: MouseEvent): void => {

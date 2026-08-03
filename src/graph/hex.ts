@@ -42,11 +42,13 @@ export const HEX_ROW = HEX_H; // 208
 
 // Magnetic range: snapping engages when the dragged/created hex
 // centre comes within this distance of another hexagon's centre.
-// 1.05·W sits just above the no-overlap floor (the invariant above
+// 1.01·W sits a hair above the no-overlap floor (the invariant above
 // requires > HEX_W), so hexes drag freely until their edges are
-// nearly touching — ~12px of corner gap / ~44px of flat gap — and
-// only then get grabbed by the lattice.
-export const HEX_SNAP_RADIUS = HEX_W * 1.05; // 252
+// practically touching — ~2px of corner gap / ~34px of flat gap —
+// and only then get grabbed by the lattice. Was 1.05·W; reduced so
+// the lattice doesn't reach out and grab hexes the user still
+// considers separate.
+export const HEX_SNAP_RADIUS = HEX_W * 1.01; // 242.4
 
 // How far (in rings) nearestFreeCell searches before giving up. Ring
 // n holds 6·n cells, so 6 rings cover 127 cells — far beyond any
