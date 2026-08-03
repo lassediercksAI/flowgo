@@ -1,0 +1,10 @@
+{
+  "id": "flowgo",
+  "name": "flowgo",
+  "version": "0.1.0",
+  "minAppVersion": "1.4.0",
+  "description": "Renders ```flowgo fenced code blocks as flowgo mind-maps in reading view, using flowgo's shared read-only renderer. Read-only: editing a map still requires the flowgo app.",
+  "author": "flowgo",
+  "authorUrl": "https://github.com/lassediercks/flowgo",
+  "isDesktopOnly": true
+}

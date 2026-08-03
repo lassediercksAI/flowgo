@@ -34,3 +34,7 @@ node_modules
 # `pnpm build:inline` output (see vite.inline.config.ts) — build it
 # locally before opening demo/inline-demo.html.
 /dist-inline/
+
+# Obsidian plugin build output (see obsidian-flowgo/README.md) — build
+# it locally with `pnpm build` inside obsidian-flowgo/.
+/obsidian-flowgo/main.js
