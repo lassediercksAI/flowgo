@@ -11,4 +11,5 @@ export * from "./graph/handle";
 export * from "./graph/edge";
 export * from "./graph/submap";
 export * from "./graph/serialize";
+export * from "./graph/parse";
 export * from "./graph/hex";

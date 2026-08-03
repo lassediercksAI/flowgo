@@ -30,3 +30,7 @@ node_modules
 # presets/<name>`, then copy the .flowgo into pkg/flowgo/presets/
 # when it should ship in the binary.
 /presets/
+
+# `pnpm build:inline` output (see vite.inline.config.ts) — build it
+# locally before opening demo/inline-demo.html.
+/dist-inline/

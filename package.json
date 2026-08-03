@@ -19,11 +19,13 @@
     ".": "./src/index.ts",
     "./editor": "./src/editor/main.ts",
     "./editor/*": "./src/editor/*",
-    "./collab": "./src/editor/collab-api.ts"
+    "./collab": "./src/editor/collab-api.ts",
+    "./inline": "./src/render/inline.ts"
   },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:inline": "vite build --config vite.inline.config.ts",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",

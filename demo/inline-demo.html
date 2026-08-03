@@ -1,0 +1,61 @@
+<!doctype html>
+<!--
+  Demo for the standalone inline renderer (brain#210 / task #210).
+  Build the bundle first: `pnpm build:inline` (writes
+  ../dist-inline/flowgo-inline.js). This file only depends on that one
+  script — no bundler, no network calls once it's loaded, which is the
+  same shape a Claude Artifact or a static docs page would use:
+
+    <script src="flowgo-inline.js"></script>
+    <script>FlowgoInline.renderFlowgo(el, flowgoText)</script>
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>flowgo inline renderer demo</title>
+    <style>
+      html, body { margin: 0; height: 100%; font-family: -apple-system, sans-serif; }
+      #map { width: 100%; height: 100%; }
+      #hint { position: fixed; bottom: 8px; right: 10px; font-size: 11px; color: #999; z-index: 5; }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <div id="hint">drag to pan &middot; wheel to zoom &middot; click a shadowed box to drill in</div>
+    <script src="../dist-inline/flowgo-inline.js"></script>
+    <script>
+      const flowgoText = `
+node b1 "flowgo" 40 40 4 2
+node b2 Editor 320 20
+node b3 Renderer 320 140 4 4
+node b4 Hexagon 620 20 4 3 5
+nodeshape b4 1
+node b5 Circle 620 220 4 6
+nodeshape b5 2
+node b6 Triangle 620 400
+nodeshape b6 3
+anchor b1
+
+edge b1:r b2:l
+edge b1:r b3:l
+edge b2:r b4:l
+edge b3:r b5:l
+edge b3:r b6:l
+
+text t1 "Click Renderer to open its submap" 300 320
+
+line l1 40 220 300 220 1
+
+stroke s1 40,260 60,300 100,320
+
+map /b3
+node c1 "src/render/inline.ts" 40 40
+node c2 "parseFlowgo" 320 40
+node c3 "rectAnchor / palette / hex" 320 160
+edge c1:r c2:l
+edge c1:r c3:l
+`;
+      FlowgoInline.renderFlowgo(document.getElementById("map"), flowgoText);
+    </script>
+  </body>
+</html>

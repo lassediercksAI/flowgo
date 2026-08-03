@@ -117,6 +117,26 @@ box d1 "Bug #42" 100 100
 Files without any `map` directive parse as a single root map — fully
 backwards-compatible with the flat form.
 
+### Embedding (standalone renderer)
+
+`pnpm build:inline` builds `dist-inline/flowgo-inline.js`: a single
+dependency-free script that renders `.flowgo` text read-only, with
+pan/zoom and submap drill-in. No editor, no network calls, no bundler
+required by the consumer — drop it on any page:
+
+```html
+<div id="map" style="width: 100%; height: 400px"></div>
+<script src="flowgo-inline.js"></script>
+<script>
+  FlowgoInline.renderFlowgo(document.getElementById("map"), flowgoText);
+</script>
+```
+
+See `demo/inline-demo.html` for a working example (build the bundle
+first, then open the file). This is the same entry point Obsidian/VS
+Code/remark plugins and the browser extension render against — see
+`src/render/inline.ts`.
+
 ### MCP (AI integration)
 
 `flowgo <file>` also serves a [Model Context Protocol](https://spec.modelcontextprotocol.io)
