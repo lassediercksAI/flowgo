@@ -296,6 +296,43 @@ const applyLineStyle = (style: number): boolean => {
   return changed;
 };
 
+// Set every selected box's shape (0 rect, 1 hex, 2 circle, 3
+// triangle — persisted ids, see SHAPE_FOR_KEY for the user-facing key
+// order). Self-contained: mutates, settles the hex lattice, clears
+// any in-progress resize, triggers a render, and reports status —
+// callers (the Alt+1-4 keydown handler, contextbar.ts's touch shape
+// row) don't need to know any of that. Becoming a special shape drops
+// any pinned size (fixed footprint); becoming a hexagon settles the
+// lattice so the no-overlap invariant holds immediately. Non-boxes in
+// the selection are skipped, same as the palette-key precedent.
+export const applyShapeToSelection = (shape: number): boolean => {
+  const w = must();
+  const map = w.currentMap();
+  let changed = false;
+  let anyHex = false;
+  for (const id of w.selected) {
+    const box = map.boxes.find((b) => b.id === id);
+    if (!box) continue;
+    if ((box.shape ?? 0) === shape) continue;
+    if (shape === 0) delete box.shape;
+    else box.shape = shape;
+    if (shape !== 0) {
+      delete box.w;
+      delete box.h;
+    }
+    if (shape === SHAPE_HEX) anyHex = true;
+    changed = true;
+  }
+  if (changed) {
+    if (anyHex) settleHexBoxes(map.boxes);
+    clearBoxResize();
+    mutatedCurrentMap();
+    renderAll();
+    w.setStatus("shape: " + (SHAPE_NAMES[shape] ?? "rectangle"));
+  }
+  return changed;
+};
+
 export const attachKeyboardListener = (): void => {
   document.addEventListener("keydown", (e) => {
     const w = must();
@@ -461,50 +498,19 @@ export const attachKeyboardListener = (): void => {
       return;
     }
 
-    // Shape keys (Alt/⌥ + 1-4) with a selection: set the shape of
-    // every selected box — 1 rect, 2 circle, 3 triangle, 4 hexagon
-    // (user-facing key order; the persisted ids differ, see
-    // SHAPE_FOR_KEY). e.code because Alt+digit types symbols on
-    // macOS layouts. Non-boxes in the selection are skipped, the
-    // palette-key precedent. Becoming a special shape drops any
-    // pinned size (fixed footprint); becoming a hexagon settles the
-    // lattice so the no-overlap invariant holds immediately.
+    // Shape keys (Alt/⌥ + 1-4): set every selected box's shape, or (with
+    // nothing selected, in plain cursor mode) the file's default shape.
+    // e.code because Alt+digit types symbols on macOS layouts.
     if (!mod && e.altKey && !e.shiftKey && /^Digit[1-4]$/.test(e.code)) {
+      const shape = SHAPE_FOR_KEY[parseInt(e.code.slice(5), 10)]!;
       if (w.selected.size === 0) {
-        // Nothing selected: Alt+1..4 in plain cursor mode targets the
-        // FILE's default shape instead — one modifier, two targets,
-        // disambiguated by selection state (same rule as Shift+1..4).
         if (!isBrushMode() && !isLineMode() && !isTextMode()) {
           e.preventDefault();
-          setDefaultShape(SHAPE_FOR_KEY[parseInt(e.code.slice(5), 10)]!);
+          setDefaultShape(shape);
         }
         return;
       }
-      const shape = SHAPE_FOR_KEY[parseInt(e.code.slice(5), 10)]!;
-      const map = w.currentMap();
-      let changed = false;
-      let anyHex = false;
-      for (const id of w.selected) {
-        const box = map.boxes.find((b) => b.id === id);
-        if (!box) continue;
-        if ((box.shape ?? 0) === shape) continue;
-        if (shape === 0) delete box.shape;
-        else box.shape = shape;
-        if (shape !== 0) {
-          delete box.w;
-          delete box.h;
-        }
-        if (shape === SHAPE_HEX) anyHex = true;
-        changed = true;
-      }
-      if (changed) {
-        e.preventDefault();
-        if (anyHex) settleHexBoxes(map.boxes);
-        clearBoxResize();
-        mutatedCurrentMap();
-        renderAll();
-        w.setStatus("shape: " + (SHAPE_NAMES[shape] ?? "rectangle"));
-      }
+      if (applyShapeToSelection(shape)) e.preventDefault();
       return;
     }
 

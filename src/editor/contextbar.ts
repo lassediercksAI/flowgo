@@ -4,7 +4,14 @@
 // V / B / L / T, but it also grows a contextual control cluster for
 // whichever mode is active:
 //
-//   - cursor mode: just the four mode buttons.
+//   - cursor mode, boxes selected: a shape row (rect/circle/triangle/
+//                  hexagon) applying to every selected box — the
+//                  touch-reachable equivalent of Alt+1..4 (#209; the
+//                  ⬡ latch this replaced was retired in #208).
+//   - cursor mode, nothing selected: the same shape row, but it sets
+//                  the FILE's default shape instead (what a
+//                  double-click/double-tap creates) — mirrors Alt+1..4
+//                  with no selection.
 //   - text mode:   + a font-size stepper and palette swatches for the
 //                  NEXT text item placed.
 //   - line mode:   + a line-style picker (straight/bezier/orthogonal)
@@ -45,6 +52,37 @@ import {
   setTextPalette,
 } from "./text-mode.ts";
 import { icon } from "./icons.ts";
+import { getDefaultShape, setDefaultShape } from "./default-shape.ts";
+
+interface BoxLike {
+  readonly id: string;
+  readonly shape?: number;
+}
+
+interface ContextBarBindings {
+  readonly selected: Set<string>;
+  readonly currentMap: () => { boxes: BoxLike[] };
+  // Passed in rather than imported directly from keys.ts: render.ts
+  // already imports this module (to call refreshContextBar from
+  // applyClasses), and keys.ts imports render.ts — importing keys.ts
+  // here too would close that into a module cycle. main.ts, which
+  // already imports both, wires the function through instead.
+  readonly applyShapeToSelection: (shape: number) => boolean;
+}
+
+let ctxBindings: ContextBarBindings | null = null;
+export const wireContextBar = (b: ContextBarBindings): void => {
+  ctxBindings = b;
+};
+
+// Called from render.ts's applyClasses() whenever the selection
+// changes, so the bar's shape row flips between "sets the selection's
+// shape" and "sets the file's default shape" the moment a box gets
+// selected or deselected — mirrors align.ts's updateSelectionToolbar.
+let syncFn: (() => void) | null = null;
+export const refreshContextBar = (): void => {
+  syncFn?.();
+};
 
 type Mode = "cursor" | "brush" | "line" | "text";
 
@@ -191,6 +229,62 @@ const buildLineStyleRow = (sync: () => void): HTMLElement => {
   return row;
 };
 
+// Shape glyphs: rectangle, circle, triangle, hexagon — built the same
+// inline-SVG way as the line-style icons (kept visually consistent
+// with each other rather than mixing in more vendored lucide icons).
+// Persisted shape ids: 0 rect, 1 hexagon, 2 circle, 3 triangle
+// (SHAPE_FOR_KEY reorders these for the keyboard's 1-4 user-facing
+// slots; the touch row lists them in the same user-facing order).
+const SHAPES: ReadonlyArray<{ shape: number; label: string; d: string }> = [
+  { shape: 0, label: "Rectangle", d: "M2 4 L14 4 L14 12 L2 12 Z" },
+  { shape: 2, label: "Circle", d: "M8 2 A6 6 0 1 1 7.99 2 Z" },
+  { shape: 3, label: "Triangle", d: "M8 2 L14 14 L2 14 Z" },
+  { shape: 1, label: "Hexagon", d: "M4 2.5 L12 2.5 L15 8 L12 13.5 L4 13.5 L1 8 Z" },
+];
+
+const buildShapeIcon = (d: string): SVGSVGElement => {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("width", "16");
+  svg.setAttribute("height", "16");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS(SVG_NS, "path");
+  path.setAttribute("d", d);
+  path.setAttribute("fill", "none");
+  path.setAttribute("stroke", "currentColor");
+  path.setAttribute("stroke-width", "1.3");
+  path.setAttribute("stroke-linejoin", "round");
+  svg.appendChild(path);
+  return svg;
+};
+
+// `forSelection` picks the target: true applies to every selected
+// box (Alt+1..4-with-selection's touch equivalent), false sets the
+// file's default shape (Alt+1..4-with-nothing-selected's equivalent).
+const buildShapeRow = (forSelection: boolean, current: number, sync: () => void): HTMLElement => {
+  const row = document.createElement("div");
+  row.className = "ctx-row ctx-shapes";
+  for (const { shape, label, d } of SHAPES) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.title = forSelection ? label : `Default shape: ${label}`;
+    btn.setAttribute("aria-label", btn.title);
+    btn.classList.toggle("active", shape === current);
+    btn.appendChild(buildShapeIcon(d));
+    btn.addEventListener("mousedown", (e) => e.stopPropagation());
+    btn.addEventListener("touchstart", (e) => e.stopPropagation(), { passive: true });
+    btn.addEventListener("pointerup", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (forSelection) ctxBindings!.applyShapeToSelection(shape);
+      else setDefaultShape(shape);
+      sync();
+    });
+    row.appendChild(btn);
+  }
+  return row;
+};
+
 const iconCursor = (): SVGSVGElement => icon("mouse-pointer");
 const iconBrush = (): SVGSVGElement => icon("brush");
 const iconText = (): SVGSVGElement => icon("type");
@@ -250,7 +344,22 @@ export const attachContextBar = (): void => {
       cluster.remove();
       cluster = null;
     }
-    if (m === "cursor") return;
+
+    if (m === "cursor") {
+      if (!ctxBindings) return;
+      const selectedBoxes = ctxBindings.currentMap().boxes.filter((b) => ctxBindings!.selected.has(b.id));
+      // Mirrors keys.ts's Alt+1..4: "nothing selected" (not "nothing
+      // selected THAT'S A BOX") is what flips to the default-shape
+      // target, so an empty selection or a selection of only
+      // texts/lines/strokes both land here.
+      const forSelection = ctxBindings.selected.size > 0;
+      const current = forSelection ? (selectedBoxes[0]?.shape ?? 0) : getDefaultShape();
+      cluster = document.createElement("div");
+      cluster.className = "ctx-cluster";
+      cluster.appendChild(buildShapeRow(forSelection, current, sync));
+      bar.appendChild(cluster);
+      return;
+    }
 
     cluster = document.createElement("div");
     cluster.className = "ctx-cluster";
@@ -282,6 +391,7 @@ export const attachContextBar = (): void => {
     }
     bar.appendChild(cluster);
   };
+  syncFn = sync;
   sync();
 
   // Keyboard shortcuts (V / B / L / T) toggle modes by flipping body

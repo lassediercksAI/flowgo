@@ -62,7 +62,7 @@ import {
   wireRender,
 } from "./render.ts";
 import { deleteSelection, wireFactories } from "./factories.ts";
-import { attachKeyboardListener, wireKeys } from "./keys.ts";
+import { applyShapeToSelection, attachKeyboardListener, wireKeys } from "./keys.ts";
 import { attachMouseListeners, wireMouse } from "./mouse.ts";
 import { attachTouchListeners, wireTouch } from "./touch.ts";
 import {
@@ -75,7 +75,7 @@ import {
 } from "./attach.ts";
 import { attachMediaListeners, wireMedia } from "./media.ts";
 import { attachAlignToolbar, wireAlign } from "./align.ts";
-import { attachContextBar } from "./contextbar.ts";
+import { attachContextBar, wireContextBar } from "./contextbar.ts";
 
 // ---------------------------------------------------------------
 // Module-level state. Every feature module reaches these through its
@@ -415,6 +415,7 @@ applyTouchClass();
 
 // The bar itself is CSS-gated on `body.touch-input`, so attaching it
 // unconditionally is safe — fine-pointer devices never see it.
+wireContextBar({ selected, currentMap: () => state, applyShapeToSelection });
 attachContextBar();
 
 document.getElementById("upBtn").addEventListener("click", goUp);

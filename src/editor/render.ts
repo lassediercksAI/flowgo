@@ -16,6 +16,7 @@ import { hasSubmapContent } from "../graph/submap.ts";
 import { resolveFont, resolvePalette } from "../graph/palette.ts";
 import { endpointAnchor } from "./anchors.ts";
 import { updateSelectionToolbar } from "./align.ts";
+import { refreshContextBar } from "./contextbar.ts";
 import { clearBoxResize, resizingBoxId } from "./resize.ts";
 import { shapeLabelClampFrac, updateFixedShapeLabelClamp, updateSizedLabelClamp } from "./label-clamp.ts";
 import { fixedShapeSize } from "../graph/shape.ts";
@@ -448,6 +449,7 @@ export const applyClasses = (): void => {
     el.classList.toggle("selected", w.selected.has(el.dataset["id"] ?? ""));
   }
   updateSelectionToolbar();
+  refreshContextBar();
 };
 
 export const renderEdges = (): void => {
