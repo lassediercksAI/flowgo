@@ -15,6 +15,7 @@ import {
 import { mutatedLine } from "./mutations.ts";
 import {
   makeBoxMover,
+  makeHexGroupMovers,
   makeBoxResizeMover,
   makeHexMover,
   makeImageMover,
@@ -129,15 +130,29 @@ export const collectMovers = (): Mover[] => {
   const w = must();
   const movers: Mover[] = [];
   const map = w.currentMap();
+  // Selected hexagons move as ONE formation: a single group controller
+  // (makeHexGroupMovers) translates them by a shared delta and snaps
+  // only where the whole formation fits — group cohesion beats
+  // individual snapping. A lone hex keeps the classic per-hex snap.
+  const hexMembers: Array<{ b: (typeof map.boxes)[number]; el: HTMLElement }> = [];
+  for (const id of w.selected) {
+    const b = map.boxes.find((x) => x.id === id);
+    if (b && b.shape === 1) {
+      const me = w.canvas.querySelector<HTMLElement>(`.box[data-id="${id}"]`);
+      if (me) hexMembers.push({ b, el: me });
+    }
+  }
+  if (hexMembers.length > 1) {
+    movers.push(
+      ...makeHexGroupMovers(hexMembers, hexCenters(map.boxes, w.selected)),
+    );
+  }
   for (const id of w.selected) {
     const b = map.boxes.find((x) => x.id === id);
     if (b) {
+      if (b.shape === 1 && hexMembers.length > 1) continue; // group above
       const me = w.canvas.querySelector<HTMLElement>(`.box[data-id="${id}"]`);
       if (me) {
-        // Hexagons get the magnetic lattice mover. Every selected hex
-        // is excluded from its obstacle set so a multi-hex drag doesn't
-        // snap against itself — any overlap such a drag produces is
-        // settled onto free cells at drop time (settleHexBoxes).
         movers.push(
           b.shape === 1
             ? makeHexMover(b, me, hexCenters(map.boxes, w.selected))

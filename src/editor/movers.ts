@@ -7,7 +7,7 @@
 // because all movers need it and nothing else in the editor cares.
 
 import type { HandleCode } from "../graph/handle.ts";
-import { HEX_H, HEX_W, snapHexCenter } from "../graph/hex.ts";
+import { HEX_H, HEX_W, snapHexCenter, snapHexGroup } from "../graph/hex.ts";
 import { strokePathD } from "../graph/stroke.ts";
 import { updateSizedLabelClamp } from "./label-clamp.ts";
 
@@ -199,6 +199,48 @@ export const makeHexMover = (
       el.style.top = b.y + "px";
     },
   };
+};
+
+// Multi-hex drags: ONE controller moves every selected hexagon by a
+// shared delta so the formation never deforms mid-drag. Snapping goes
+// through snapHexGroup, which only accepts a lattice placement where
+// the ENTIRE formation fits — otherwise the group keeps moving freely.
+// (Per-hex movers used to snap members independently, tearing the
+// group apart the moment it came near other hexes.)
+//
+// Returns one mover per member so the drag loop's `.dragging` class
+// toggling reaches every element; only the first (controller) does
+// any work, the rest are position-keepers.
+export const makeHexGroupMovers = (
+  members: ReadonlyArray<{ b: BoxLike; el: HTMLElement }>,
+  otherHexCenters: ReadonlyArray<{ x: number; y: number }>,
+): Mover[] => {
+  const orig = members.map((m) => ({ m, x: m.b.x, y: m.b.y }));
+  const controller: Mover = {
+    el: members[0]!.el,
+    apply(dx, dy, _ev) {
+      const centers = orig.map((o) => ({
+        x: o.x + dx + HEX_W / 2,
+        y: o.y + dy + HEX_H / 2,
+      }));
+      const snap = snapHexGroup(centers, otherHexCenters);
+      const ddx = dx + (snap?.x ?? 0);
+      const ddy = dy + (snap?.y ?? 0);
+      for (const o of orig) {
+        o.m.b.x = o.x + ddx;
+        o.m.b.y = o.y + ddy;
+        o.m.el.style.left = o.m.b.x + "px";
+        o.m.el.style.top = o.m.b.y + "px";
+      }
+    },
+  };
+  const shadows: Mover[] = members.slice(1).map((m) => ({
+    el: m.el,
+    apply() {
+      /* moved by the controller */
+    },
+  }));
+  return [controller, ...shadows];
 };
 
 export interface ImageLike {

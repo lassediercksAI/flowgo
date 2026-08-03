@@ -13,6 +13,7 @@ import {
   nearestFreeCell,
   settleHexCenters,
   snapHexCenter,
+  snapHexGroup,
   worldToAxial,
 } from "./hex";
 
@@ -257,5 +258,60 @@ describe("hexClusterIds", () => {
 
   it("returns just the start id for unknown / non-hex starts", () => {
     expect(hexClusterIds([{ id: "r", x: 0, y: 0, shape: 0 }], "r")).toEqual(["r"]);
+  });
+});
+
+describe("snapHexGroup", () => {
+  const obstacle = { x: 0, y: 0 };
+
+  it("snaps the whole formation by one delta, preserving offsets", () => {
+    // Two flush neighbours (+q, +q+r) hovering near an obstacle,
+    // slightly off-lattice.
+    const members = [
+      { x: HEX_COL + 11, y: 104 + 7 },
+      { x: HEX_COL + 11, y: 312 + 7 },
+    ];
+    const delta = snapHexGroup(members, [obstacle]);
+    expect(delta).not.toBeNull();
+    // The elected reference (closest member) lands exactly on its cell…
+    expect(members[0]!.x + delta!.x).toBeCloseTo(HEX_COL, 6);
+    expect(members[0]!.y + delta!.y).toBeCloseTo(104, 6);
+    // …and the second member keeps its exact relative offset (rigid).
+    expect(members[1]!.x + delta!.x - (members[0]!.x + delta!.x)).toBeCloseTo(0, 9);
+    expect(members[1]!.y + delta!.y - (members[0]!.y + delta!.y)).toBeCloseTo(208, 9);
+  });
+
+  it("returns null when the whole group is out of magnetic range", () => {
+    const members = [
+      { x: 2000, y: 2000 },
+      { x: 2000 + HEX_COL, y: 2104 },
+    ];
+    expect(snapHexGroup(members, [obstacle])).toBeNull();
+  });
+
+  it("skips placements where any member would overlap, without deforming", () => {
+    // The obstacle's +q cell is where the reference wants to go, but a
+    // second obstacle occupies the cell the OTHER member would land on.
+    // The group must take a placement where BOTH fit — same delta —
+    // rather than splitting up.
+    const blocking = { x: HEX_COL, y: 312 }; // +q+r cell
+    const members = [
+      { x: HEX_COL + 9, y: 104 + 5 },
+      { x: HEX_COL + 9, y: 312 + 5 },
+    ];
+    const delta = snapHexGroup(members, [obstacle, blocking]);
+    expect(delta).not.toBeNull();
+    const placed = members.map((m) => ({ x: m.x + delta!.x, y: m.y + delta!.y }));
+    for (const p of placed) {
+      expect(hexesOverlap(p, obstacle)).toBe(false);
+      expect(hexesOverlap(p, blocking)).toBe(false);
+    }
+    // Rigid: relative offset unchanged.
+    expect(placed[1]!.x - placed[0]!.x).toBeCloseTo(0, 9);
+    expect(placed[1]!.y - placed[0]!.y).toBeCloseTo(208, 9);
+  });
+
+  it("returns null with no obstacles (nothing to anchor to)", () => {
+    expect(snapHexGroup([{ x: 5, y: 5 }], [])).toBeNull();
   });
 });

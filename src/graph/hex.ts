@@ -276,3 +276,61 @@ export const hexClusterIds = (
   }
   return [...inCluster];
 };
+
+// Group snap for multi-hex drags. The overriding priority is that the
+// dragged FORMATION stays exactly as it is: all members translate by
+// ONE shared delta, never individually. Given the members' proposed
+// centres (already rigidly translated by the drag) and the centres of
+// every non-selected hexagon, returns the extra delta that lands the
+// whole group on the lattice — or null when the group is out of
+// magnetic range, or when no nearby placement fits the entire
+// formation (in which case the group keeps moving freely rather than
+// deforming).
+//
+// Anchoring mirrors snapHexCenter: the member closest to an obstacle
+// elects the anchor, candidate cells walk outward ring by ring from
+// that member's position, and a candidate is accepted only if EVERY
+// member — translated by the same delta — overlaps no obstacle.
+export const snapHexGroup = (
+  members: ReadonlyArray<HexPoint>,
+  obstacles: ReadonlyArray<HexPoint>,
+): HexPoint | null => {
+  if (members.length === 0 || obstacles.length === 0) return null;
+  let refIdx = 0;
+  let anchor: HexPoint = obstacles[0]!;
+  let bestD = Infinity;
+  for (let i = 0; i < members.length; i++) {
+    for (const o of obstacles) {
+      const d = Math.hypot(o.x - members[i]!.x, o.y - members[i]!.y);
+      if (d < bestD) {
+        bestD = d;
+        refIdx = i;
+        anchor = o;
+      }
+    }
+  }
+  if (bestD > HEX_SNAP_RADIUS) return null;
+  const ref = members[refIdx]!;
+  const start = nearestCell(anchor, ref);
+  for (let radius = 0; radius <= MAX_SEARCH_RINGS; radius++) {
+    let best: HexPoint | null = null;
+    let bestCellD = Infinity;
+    for (const cell of ring(start, radius)) {
+      const c = axialToWorld(anchor, cell);
+      const delta = { x: c.x - ref.x, y: c.y - ref.y };
+      const fits = members.every((m) =>
+        obstacles.every(
+          (o) => !hexesOverlap({ x: m.x + delta.x, y: m.y + delta.y }, o),
+        ),
+      );
+      if (!fits) continue;
+      const d = Math.hypot(delta.x, delta.y);
+      if (d < bestCellD) {
+        bestCellD = d;
+        best = delta;
+      }
+    }
+    if (best) return best;
+  }
+  return null;
+};
