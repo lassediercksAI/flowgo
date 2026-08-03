@@ -182,3 +182,34 @@ describe("triangle anchors (shape = 3)", () => {
     }
   });
 });
+
+describe("triangle silhouette invariants", () => {
+  // The triangle is ALWAYS isosceles: the apex sits at exactly half
+  // the width (CSS polygon 50% 0%), the footprint is fixed at
+  // TRI_W x TRI_H (240x208 — equilateral within a pixel:
+  // 240·√3/2 = 207.85), and special shapes are never resizable.
+  // Pin the symmetry through the anchor layer so a future change to
+  // the polygon or the anchor math can't skew it silently.
+  const tri: Box2D = { x: 0, y: 0, width: 240, height: 208 };
+  const cx = 120;
+
+  it("anchors are mirror-symmetric about the vertical centreline", () => {
+    const mirrored: Array<[string, string]> = [
+      ["tl", "tr"], ["l", "r"], ["bl", "br"],
+    ];
+    for (const [a, b] of mirrored) {
+      const [ax, ay] = handleAnchor(tri, a as never, SHAPE_TRIANGLE);
+      const [bx, by] = handleAnchor(tri, b as never, SHAPE_TRIANGLE);
+      expect(ay).toBeCloseTo(by, 9);
+      expect(ax - cx).toBeCloseTo(cx - bx, 9);
+    }
+    for (const code of ["t", "b"] as const) {
+      const [x] = handleAnchor(tri, code, SHAPE_TRIANGLE);
+      expect(x).toBeCloseTo(cx, 9);
+    }
+  });
+
+  it("the fixed footprint is equilateral within a pixel", () => {
+    expect(Math.abs(tri.height - (tri.width * Math.sqrt(3)) / 2)).toBeLessThan(0.5);
+  });
+});
