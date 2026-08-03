@@ -7,6 +7,7 @@ import {
   HEX_W,
   axialRound,
   axialToWorld,
+  hexClusterIds,
   hexesOverlap,
   nearestCell,
   nearestFreeCell,
@@ -221,5 +222,40 @@ describe("settleHexCenters", () => {
         expect(hexesOverlap(out[i]!, out[j]!)).toBe(false);
       }
     }
+  });
+});
+
+describe("hexClusterIds", () => {
+  const hex = (id: string, x: number, y: number) => ({ id, x, y, shape: 1 });
+
+  it("collects a chain of lattice-adjacent hexes", () => {
+    // a-(col step)-b-(row step)-c, d far away
+    const boxes = [
+      hex("a", 0, 0),
+      hex("b", HEX_COL, 104),   // +q neighbour
+      hex("c", HEX_COL, 312),   // +r from b
+      hex("d", 1000, 1000),
+    ];
+    expect(new Set(hexClusterIds(boxes, "a"))).toEqual(new Set(["a", "b", "c"]));
+    expect(new Set(hexClusterIds(boxes, "c"))).toEqual(new Set(["a", "b", "c"]));
+    expect(hexClusterIds(boxes, "d")).toEqual(["d"]);
+  });
+
+  it("ignores rectangles even when they sit between hexes", () => {
+    const boxes = [
+      hex("a", 0, 0),
+      { id: "r", x: HEX_COL, y: 104, shape: 0 },
+      hex("b", 2 * HEX_COL, 208),
+    ];
+    expect(hexClusterIds(boxes, "a")).toEqual(["a"]);
+  });
+
+  it("tolerates slightly off-lattice snapped positions", () => {
+    const boxes = [hex("a", 0, 0), hex("b", HEX_COL + 9, 104 + 8)];
+    expect(new Set(hexClusterIds(boxes, "a"))).toEqual(new Set(["a", "b"]));
+  });
+
+  it("returns just the start id for unknown / non-hex starts", () => {
+    expect(hexClusterIds([{ id: "r", x: 0, y: 0, shape: 0 }], "r")).toEqual(["r"]);
   });
 });

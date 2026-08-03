@@ -237,3 +237,42 @@ export const settleHexCenters = (
   }
   return settled;
 };
+
+// Connected "snapped together" cluster: starting from one hexagon,
+// every hexagon reachable through chains of lattice-adjacent
+// neighbours. Adjacent means centre distance of one lattice step
+// (~HEX_ROW); the tolerance sits well below the next-nearest lattice
+// distance (2·HEX_COL = 360) so slightly off-lattice hexes still
+// count while visually separate ones never do. Used by the editor's
+// shift-drag to grab and move a whole snapped formation at once.
+const NEIGHBOR_DIST = HEX_ROW * 1.06; // ~220
+
+export interface ClusterHex {
+  readonly id: string;
+  readonly x: number;
+  readonly y: number;
+  readonly shape?: number | undefined;
+}
+
+export const hexClusterIds = (
+  boxes: ReadonlyArray<ClusterHex>,
+  startId: string,
+): string[] => {
+  const hexes = boxes.filter((b) => b.shape === 1);
+  const start = hexes.find((b) => b.id === startId);
+  if (!start) return [startId];
+  const inCluster = new Set<string>([start.id]);
+  const queue = [start];
+  while (queue.length > 0) {
+    const cur = queue.pop()!;
+    for (const other of hexes) {
+      if (inCluster.has(other.id)) continue;
+      const d = Math.hypot(other.x - cur.x, other.y - cur.y);
+      if (d <= NEIGHBOR_DIST) {
+        inCluster.add(other.id);
+        queue.push(other);
+      }
+    }
+  }
+  return [...inCluster];
+};

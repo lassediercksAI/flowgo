@@ -27,6 +27,7 @@ import {
   type ResizeCorner,
 } from "./movers.ts";
 import { hexCenters } from "./hex.ts";
+import { hexClusterIds } from "../graph/hex.ts";
 import { isBrushMode } from "./brush.ts";
 import { handleAnchor, nearestHandle } from "./anchors.ts";
 import { startEdit, startTextEdit } from "./edit.ts";
@@ -616,8 +617,21 @@ export const attachBoxHandlers = (
     // Body drag (single or multi-select).
     e.preventDefault();
     e.stopPropagation();
-    // If this box isn't already in the selection, replace the selection with just it.
-    if (!w.selected.has(b.id)) {
+    // Shift+drag on a hexagon grabs its whole snapped-together
+    // cluster: the selection becomes the connected formation and the
+    // drag machinery below moves it as one. (For rectangles, Shift
+    // keeps its historical add-to-selection meaning.)
+    if (e.shiftKey && b.shape === 1) {
+      const cluster = hexClusterIds(w.currentMap().boxes, b.id);
+      w.selected.clear();
+      for (const id of cluster) w.selected.add(id);
+      if (w.selectedEdge()) {
+        w.setSelectedEdge(null);
+        renderEdges();
+      }
+      applyClasses();
+    } else if (!w.selected.has(b.id)) {
+      // Not already selected: replace the selection with just it.
       if (!e.shiftKey) w.selected.clear();
       w.selected.add(b.id);
       if (w.selectedEdge()) {
