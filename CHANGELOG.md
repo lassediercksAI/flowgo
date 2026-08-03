@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.3.0](https://github.com/lassediercks/flowgo/compare/v0.2.1...v0.3.0) (2026-08-03)
+
+
+### ⚠ BREAKING CHANGES
+
+* **format:** pkg/graph.Graph.Hexagons is renamed to DefaultShape (int) and the set_hexagons MCP tool is replaced by set_default_shape. Files carrying `hexagons on` keep parsing and migrate to `defaultshape 1` on next save.
+
+### Features
+
+* **cli:** --hexagon seeds the file's default shape instead of a browser flag ([#208](https://github.com/lassediercks/flowgo/issues/208)) ([c828a6b](https://github.com/lassediercks/flowgo/commit/c828a6b7b6383be79bea2c6efa7b41b6ebf08161))
+* **cli:** migrate files to the current format on open ([bfabdd4](https://github.com/lassediercks/flowgo/commit/bfabdd4f781087f9a92e129b9d53a325807b6dc8))
+* **editor:** Alt+1..4 with nothing selected sets the file's default shape ([b88f2ef](https://github.com/lassediercks/flowgo/commit/b88f2ef7a6c09f22d5c3baa0305cb11bb0ee757a))
+* **editor:** shape keys, default-shape creation, circle + triangle rendering; retire the hexagon toggle ([#208](https://github.com/lassediercks/flowgo/issues/208)) ([18535c8](https://github.com/lassediercks/flowgo/commit/18535c8629e00427a12feb21120c3415c673d7cd))
+* **format:** node is the canonical directive — box, boxsize, boxshape become legacy aliases ([ff92355](https://github.com/lassediercks/flowgo/commit/ff92355b8c743def1cf49c2a825a660d59924a9e))
+* **format:** per-file default shape + circle and triangle shape ids ([#208](https://github.com/lassediercks/flowgo/issues/208)) ([b487c28](https://github.com/lassediercks/flowgo/commit/b487c283c8b71a45e89764ca9374086811eb7421))
+
+
+### Bug Fixes
+
+* **editor:** multi-hex drags snap as one formation, never member by member ([2a68e3e](https://github.com/lassediercks/flowgo/commit/2a68e3e22e8379f13bfa44910cfc318b703d8753))
+* **editor:** triangle labels stay inside the silhouette — px padding, not percent ([ed15495](https://github.com/lassediercks/flowgo/commit/ed154955f4c412c9b765e5e6f27f96a3e65c294b))
+* **mcp:** fixed-size guards cover circles and triangles, not just hexagons ([#208](https://github.com/lassediercks/flowgo/issues/208)) ([5176008](https://github.com/lassediercks/flowgo/commit/5176008d8d3f84dec8d4f144ce44f4f90cd25ee4))
+
 ## [0.2.1](https://github.com/lassediercks/flowgo/compare/v0.2.0...v0.2.1) (2026-08-03)
 
 
