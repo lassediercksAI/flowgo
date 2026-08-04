@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.5](https://github.com/lassediercks/flowgo/compare/v0.3.4...v0.3.5) (2026-08-04)
+
+
+### Features
+
+* **mcp:** add authenticate tool linking an MCP session to an account ([9adf379](https://github.com/lassediercks/flowgo/commit/9adf37908e818824b791ddca80b2b75743e5b276))
+
 ## [0.3.4](https://github.com/lassediercks/flowgo/compare/v0.3.3...v0.3.4) (2026-08-04)
 
 
