@@ -2,6 +2,7 @@ package flowgo
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -60,6 +61,9 @@ WHEN TO USE WHICH ENTITY
 - line: a static segment with optional control points. Use for arrows, dividers, geometric shapes.
 - stroke: freehand polyline. Use for sketchy annotations; agents rarely need this.
 - anchor (a flag on one node per map): marks the recenter target the GUI scrolls to on load. Optional.
+
+ACCOUNTS
+If an "authenticate" tool is listed, this server can link the session to the user's flowgo account — call it when they ask to save a map to their account or sign in, and hand them the URL it returns. Without it, shared maps are anonymous but still reachable by link.
 
 GRANULAR VS SET_STATE
 Prefer add_*/update_*/delete_* for edits. set_state rewrites the entire graph and runs strict validation; it's the right tool for bulk imports or wholesale layout changes, not for tweaking one node's color.
@@ -194,10 +198,27 @@ func handleMCP(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	// Streamable-HTTP session termination. flowgo keeps no transport
+	// state per session, so the only thing to tear down is an account
+	// link (brain#22c) — and the answer is always "done" either way.
+	if r.Method == http.MethodDelete {
+		endMCPSession(r.Context(), r.Header.Get(mcpSessionHeader))
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
 	}
+
+	// Per the streamable-HTTP transport the server may assign a session
+	// id at initialize; compliant clients then echo it on every later
+	// request. That echo is what gives account linking a stable handle
+	// on "this MCP session" without threading an argument through every
+	// tool. Unknown or client-invented ids are accepted (never 404'd) —
+	// they simply resolve to an unlinked, anonymous session, exactly
+	// like the pre-auth behaviour.
+	sessionID := r.Header.Get(mcpSessionHeader)
 
 	var req mcpReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -211,6 +232,10 @@ func handleMCP(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Method {
 	case "initialize":
+		if sessionID == "" {
+			sessionID = newMCPSessionID()
+		}
+		w.Header().Set(mcpSessionHeader, sessionID)
 		resp.Result = map[string]any{
 			"protocolVersion": mcpProtocolVersion,
 			"capabilities": map[string]any{
@@ -254,7 +279,7 @@ func handleMCP(w http.ResponseWriter, r *http.Request) {
 		if err := json.Unmarshal(req.Params, &p); err != nil {
 			resp.Error = &mcpRpcErr{Code: -32602, Message: "invalid params: " + err.Error()}
 		} else {
-			result, err := dispatchTool(p.Name, p.Arguments)
+			result, err := dispatchToolSession(r.Context(), sessionID, p.Name, p.Arguments)
 			if err != nil {
 				resp.Result = mcpToolError(err.Error())
 			} else {
@@ -1061,7 +1086,16 @@ func actDeleteStroke(g *Graph, args map[string]any) (any, error) {
 // Dispatch
 // ---------------------------------------------------------------------------
 
+// dispatchTool is the session-less entry point, kept for local mode and
+// for callers (tests, the CLI) with no transport session to attribute.
 func dispatchTool(name string, raw json.RawMessage) (any, error) {
+	return dispatchToolSession(context.Background(), "", name, raw)
+}
+
+// dispatchToolSession runs a tool with the calling MCP session's
+// identity in hand. sessionID is "" when the transport didn't supply
+// one; every account-aware path degrades to anonymous in that case.
+func dispatchToolSession(ctx context.Context, sessionID string, name string, raw json.RawMessage) (any, error) {
 	var args map[string]any
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &args); err != nil {
@@ -1073,10 +1107,12 @@ func dispatchTool(name string, raw json.RawMessage) (any, error) {
 		switch name {
 		case "start_workspace":
 			return mcpToolText(cfg.Workspaces.Start()), nil
+		case "authenticate":
+			return actAuthenticate(ctx, sessionID, args)
 		case "share":
-			return shareWorkspace(args)
+			return shareWorkspace(ctx, sessionID, args)
 		case "create_map":
-			return createMap(args)
+			return createMap(ctx, sessionID, args)
 		}
 	}
 
@@ -1163,6 +1199,18 @@ func mcpTools() []mcpToolDef {
 				}, []string{"flowgo_text"}),
 			},
 		)
+		// Only advertised when the host wired an account system
+		// (brain#22c). A flowgo server without one has nothing to link
+		// to, and offering the tool would just produce a dead end.
+		if cfg.Auth != nil {
+			tools = append(tools, mcpToolDef{
+				Name:        "authenticate",
+				Description: "Link this session to the human's flowgo account, so maps you share or create are saved to it instead of being anonymous. First call returns a URL for them to open and approve in a browser; call it again afterwards to confirm, or any time to check who this session is signed in as. Reach for it when the user asks to save a map to their account, see it in \"my maps\", or sign in.",
+				InputSchema: schemaObject(map[string]any{
+					"workspace_id": schemaString("Optional. Only needed if your MCP client does not round-trip the Mcp-Session-Id header — then a workspace_id from start_workspace identifies the session instead."),
+				}, nil),
+			})
+		}
 	}
 
 	wsArg := func(props map[string]any, required []string) (map[string]any, []string) {
@@ -1441,7 +1489,7 @@ func schemaNumber(desc string) map[string]any {
 // share — POST workspace graph to the configured webhook with bearer + sha256.
 // ---------------------------------------------------------------------------
 
-func shareWorkspace(args map[string]any) (any, error) {
+func shareWorkspace(ctx context.Context, sessionID string, args map[string]any) (any, error) {
 	wsID := stringArg(args, "workspace_id", "")
 	if wsID == "" {
 		return nil, fmt.Errorf("workspace_id is required")
@@ -1454,7 +1502,7 @@ func shareWorkspace(args map[string]any) (any, error) {
 	}); err != nil {
 		return nil, err
 	}
-	return shareGraph(graphCopy)
+	return shareGraph(graphCopy, sessionOwnerID(ctx, sessionID, args))
 }
 
 // createMap is the one-shot sibling of start_workspace + add_* + share:
@@ -1463,7 +1511,7 @@ func shareWorkspace(args map[string]any) (any, error) {
 // Reuses the local-mode parser/validator (parse/validateGraph) so a
 // syntax or semantic error here surfaces the exact same messages a
 // local `flowgo` user would see from a malformed file.
-func createMap(args map[string]any) (any, error) {
+func createMap(ctx context.Context, sessionID string, args map[string]any) (any, error) {
 	text := stringArg(args, "flowgo_text", "")
 	if text == "" {
 		return nil, fmt.Errorf("flowgo_text is required")
@@ -1482,7 +1530,7 @@ func createMap(args map[string]any) (any, error) {
 		}
 		return nil, fmt.Errorf("graph rejected: %s", strings.Join(msgs, "; "))
 	}
-	return shareGraph(g)
+	return shareGraph(g, sessionOwnerID(ctx, sessionID, args))
 }
 
 // shareGraph POSTs a Graph to the configured webhook with bearer +
@@ -1490,7 +1538,12 @@ func createMap(args map[string]any) (any, error) {
 // (existing workspace) and create_map (one-shot text) — both end at
 // the same persistence path, they just differ in where the Graph
 // comes from.
-func shareGraph(g Graph) (any, error) {
+//
+// ownerID is the account this session authenticated as (brain#22c), or
+// "" for an anonymous session. It rides the same bearer-authenticated
+// webhook the graph does, so the receiving side can trust it exactly
+// as much as it already trusts the payload.
+func shareGraph(g Graph, ownerID string) (any, error) {
 	if cfg.ShareWebhookURL == "" {
 		return nil, fmt.Errorf("sharing is unconfigured: --share-webhook missing")
 	}
@@ -1506,10 +1559,14 @@ func shareGraph(g Graph) (any, error) {
 	h := sha256.Sum256(graphJSON)
 	fingerprint := "sha256:" + hex.EncodeToString(h[:])
 
-	payload, err := json.Marshal(map[string]any{
+	body := map[string]any{
 		"graph":                 g,
 		"workspace_fingerprint": fingerprint,
-	})
+	}
+	if ownerID != "" {
+		body["owner_id"] = ownerID
+	}
+	payload, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("marshal payload: %v", err)
 	}

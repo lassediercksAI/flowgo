@@ -69,6 +69,11 @@ type Config struct {
 	ShareWebhookURL    string
 	ShareWebhookSecret string
 
+	// Auth links MCP sessions to host accounts (see mcpauth.go). Nil —
+	// the default, and the only option for the CLI — keeps every MCP
+	// session anonymous and hides the `authenticate` tool.
+	Auth MCPAuth
+
 	// Version returns the version string to stamp into serialized graphs
 	// and to report in initialize / serverInfo. If nil, "dev" is used.
 	Version func() string

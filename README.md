@@ -168,6 +168,34 @@ tool — one call, no local binary, returns a public share URL. See
 [`agent-skill/`](agent-skill/) for a ready-to-install Claude Code Skill
 (`/map`) and Cursor command wired up to it.
 
+#### Signing in from an agent (hosted only)
+
+Hosted sessions are anonymous by default: maps you create are reachable by
+link but belong to nobody. The hosted server additionally offers an
+`authenticate` tool implementing a `gh auth login`-style device pairing:
+
+1. the agent calls `authenticate` and gets back a
+   `https://flowgo-map.com/authenticate?code=…` URL;
+2. the human opens it in a browser where they're signed in to flowgo and
+   approves — the code is single-use and expires in 10 minutes;
+3. the agent calls `authenticate` again to confirm. From then on `share` and
+   `create_map` in that session save maps into the account.
+
+The session identity is the streamable-HTTP `Mcp-Session-Id` header the
+server assigns at `initialize`; clients that don't round-trip it can pass a
+`workspace_id` from `start_workspace` instead. `DELETE` on the MCP endpoint
+unlinks the session again.
+
+This is a pairing flow, *not* an OAuth 2.1 authorization server — listing
+flowgo as an official Claude/OpenAI connector additionally needs RFC 8414 /
+RFC 9728 metadata, RFC 7591 dynamic client registration, and a PKCE
+authorization-code flow. That layer would sit in front of the same
+account-linking seam (`flowgo.MCPAuth`), not replace it.
+
+The library exposes this as `flowgo.Config.Auth` (a `flowgo.MCPAuth`
+implementation supplied by the host). It is `nil` for the CLI and for
+`flowgo serve`, which is why `authenticate` doesn't appear there.
+
 ### Releases
 
 Releases are managed by [release-please](https://github.com/googleapis/release-please).

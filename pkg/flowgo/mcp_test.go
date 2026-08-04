@@ -1,6 +1,7 @@
 package flowgo
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -829,7 +830,7 @@ func TestShareWorkspace(t *testing.T) {
 		t.Fatalf("seed workspace: %v", err)
 	}
 
-	result, err := shareWorkspace(map[string]any{"workspace_id": wsID})
+	result, err := shareWorkspace(context.Background(), "", map[string]any{"workspace_id": wsID})
 	if err != nil {
 		t.Fatalf("shareWorkspace: %v", err)
 	}
@@ -849,7 +850,7 @@ func TestShareWorkspace(t *testing.T) {
 }
 
 func TestShareWorkspace_RequiresWorkspaceID(t *testing.T) {
-	if _, err := shareWorkspace(map[string]any{}); err == nil {
+	if _, err := shareWorkspace(context.Background(), "", map[string]any{}); err == nil {
 		t.Fatal("expected error when workspace_id is missing")
 	}
 }
@@ -858,7 +859,7 @@ func TestShareWorkspace_UnknownWorkspaceID(t *testing.T) {
 	withServeModeAndWebhook(t, func(w http.ResponseWriter, r *http.Request) {
 		t.Error("webhook should never be called for an unknown workspace")
 	})
-	if _, err := shareWorkspace(map[string]any{"workspace_id": "ws-does-not-exist"}); err == nil {
+	if _, err := shareWorkspace(context.Background(), "", map[string]any{"workspace_id": "ws-does-not-exist"}); err == nil {
 		t.Fatal("expected error for an unknown workspace id")
 	}
 }
@@ -1189,11 +1190,24 @@ func TestMCPHandler_HTTPLayer(t *testing.T) {
 	})
 
 	t.Run("unsupported method rejected", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodDelete, "/mcp", nil)
+		req := httptest.NewRequest(http.MethodPut, "/mcp", nil)
 		w := httptest.NewRecorder()
 		MCPHandler(w, req)
 		if w.Code != http.StatusMethodNotAllowed {
 			t.Errorf("status = %d, want %d", w.Code, http.StatusMethodNotAllowed)
+		}
+	})
+
+	// DELETE is the streamable-HTTP transport's "terminate this
+	// session" verb, not an unsupported method — it must succeed even
+	// with no auth backend wired (nothing to unlink).
+	t.Run("DELETE terminates the session", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodDelete, "/mcp", nil)
+		req.Header.Set(mcpSessionHeader, "some-session")
+		w := httptest.NewRecorder()
+		MCPHandler(w, req)
+		if w.Code != http.StatusNoContent {
+			t.Errorf("status = %d, want %d", w.Code, http.StatusNoContent)
 		}
 	})
 
