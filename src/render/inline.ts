@@ -46,7 +46,7 @@ const STYLE_CSS = `
 .fgi-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .fgi-svg { position: absolute; left: 0; top: 0; overflow: visible; width: 1px; height: 1px; z-index: 1; }
 .fgi-layer { position: absolute; left: 0; top: 0; z-index: 2; }
-.fgi-box { position: absolute; min-width: 80px; padding: 0.55em 0.85em; background: #fff; border: 2px solid #333; border-radius: 6px; font-size: 14px; line-height: 1.25; text-align: center; white-space: pre-wrap; word-break: break-word; }
+.fgi-box { position: absolute; min-width: 80px; padding: 0.55em 0.85em; background: #fff; color: #333; border: 2px solid #333; border-radius: 6px; font-size: 14px; line-height: 1.25; text-align: center; white-space: pre-wrap; word-break: break-word; }
 .fgi-box.fgi-has-submap { cursor: pointer; box-shadow: 4px 4px 0 0 #222; }
 .fgi-box.fgi-sized { display: flex; align-items: center; justify-content: center; overflow: hidden; }
 .fgi-box.fgi-hex { border: none; background: #fff; clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%); box-shadow: inset 0 0 0 2px #333; }
