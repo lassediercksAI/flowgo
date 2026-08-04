@@ -6,6 +6,257 @@ import (
 	"testing"
 )
 
+// TestValidate_CatchesEachViolation is the negative-path counterpart to
+// TestMapFlowgoIsValid below: that test only proves a real, valid file
+// passes. Before this, Validate/validateMap's ~25 distinct violation
+// checks (the entire reason the function exists) had never actually
+// been exercised with bad data.
+func TestValidate_CatchesEachViolation(t *testing.T) {
+	cases := []struct {
+		name string
+		g    Graph
+		want string // substring expected somewhere in the error list
+	}{
+		{
+			name: "no maps at all",
+			g:    Graph{},
+			want: "no maps",
+		},
+		{
+			name: "invalid map path (missing leading slash)",
+			g:    Graph{Maps: []NamedMap{{Path: "a"}}},
+			want: "invalid path",
+		},
+		{
+			name: "invalid map path (empty segment)",
+			g:    Graph{Maps: []NamedMap{{Path: "/a//b"}}},
+			want: "invalid path",
+		},
+		{
+			name: "duplicate map path",
+			g: Graph{Maps: []NamedMap{
+				{Path: "/", Boxes: []Box{{ID: "b1"}}},
+				{Path: "/", Boxes: []Box{{ID: "b2"}}},
+			}},
+			want: "duplicate",
+		},
+		{
+			name: "orphaned submap: an intermediate parent map was never declared",
+			// Box "A" exists on "/", so segment 1 resolves fine and the
+			// walk advances to parent "/A" — but "/A" itself was never
+			// declared as its own map (only "/A/B/C" was), so segment 2
+			// hits the "parent does not exist" branch specifically,
+			// distinct from "segment is not a box on its parent".
+			g:    Graph{Maps: []NamedMap{{Path: "/", Boxes: []Box{{ID: "A"}}}, {Path: "/A/B/C", Boxes: []Box{{ID: "x"}}}}},
+			want: "parent",
+		},
+		{
+			name: "orphaned submap: segment isn't a box on the parent",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Boxes: []Box{{ID: "b1"}}}, {Path: "/not-a-box", Boxes: []Box{{ID: "x"}}}}},
+			want: "is not a box on",
+		},
+		{
+			name: "empty box id",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Boxes: []Box{{ID: ""}}}}},
+			want: "empty id",
+		},
+		{
+			name: "duplicate box id",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Boxes: []Box{{ID: "b1"}, {ID: "b1"}}}}},
+			want: "duplicate box id",
+		},
+		{
+			name: "invalid box palette",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Boxes: []Box{{ID: "b1", Palette: 1}}}}},
+			want: "invalid palette",
+		},
+		{
+			name: "invalid box font",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Boxes: []Box{{ID: "b1", Font: 99}}}}},
+			want: "invalid font",
+		},
+		{
+			name: "box label too long",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Boxes: []Box{{ID: "b1", Label: strings.Repeat("x", MaxLabelLen+1)}}}}},
+			want: "cap is",
+		},
+		{
+			name: "box label with a carriage return",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Boxes: []Box{{ID: "b1", Label: "a\rb"}}}}},
+			want: "carriage return",
+		},
+		{
+			name: "edge references an unknown from-box",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Boxes: []Box{{ID: "b1"}}, Edges: []Edge{{From: "ghost", To: "b1"}}}}},
+			want: "references unknown box",
+		},
+		{
+			name: "edge references an unknown to-box",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Boxes: []Box{{ID: "b1"}}, Edges: []Edge{{From: "b1", To: "ghost"}}}}},
+			want: "references unknown box",
+		},
+		{
+			name: "edge self-loop",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Boxes: []Box{{ID: "b1"}}, Edges: []Edge{{From: "b1", To: "b1"}}}}},
+			want: "self-loop",
+		},
+		{
+			name: "edge invalid fromHandle",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Boxes: []Box{{ID: "b1"}, {ID: "b2"}}, Edges: []Edge{{From: "b1", To: "b2", FromHandle: "nw"}}}}},
+			want: "fromHandle",
+		},
+		{
+			name: "edge invalid toHandle",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Boxes: []Box{{ID: "b1"}, {ID: "b2"}}, Edges: []Edge{{From: "b1", To: "b2", ToHandle: "nw"}}}}},
+			want: "toHandle",
+		},
+		{
+			name: "edge invalid palette",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Boxes: []Box{{ID: "b1"}, {ID: "b2"}}, Edges: []Edge{{From: "b1", To: "b2", Palette: 1}}}}},
+			want: "invalid palette",
+		},
+		{
+			name: "empty text id",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Texts: []Text{{ID: ""}}}}},
+			want: "empty id",
+		},
+		{
+			name: "text id collides with another item",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Texts: []Text{{ID: "x"}}, Lines: []Line{{ID: "x", X2: 1, Y2: 1}}}}},
+			want: "collides with",
+		},
+		{
+			name: "text invalid palette",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Texts: []Text{{ID: "t1", Palette: 1}}}}},
+			want: "invalid palette",
+		},
+		{
+			name: "text invalid font",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Texts: []Text{{ID: "t1", Font: 1}}}}},
+			want: "invalid font",
+		},
+		{
+			name: "text label too long",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Texts: []Text{{ID: "t1", Label: strings.Repeat("x", MaxLabelLen+1)}}}}},
+			want: "cap is",
+		},
+		{
+			name: "text label with a carriage return",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Texts: []Text{{ID: "t1", Label: "a\rb"}}}}},
+			want: "carriage return",
+		},
+		{
+			name: "empty line id",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Lines: []Line{{ID: "", X2: 1, Y2: 1}}}}},
+			want: "empty id",
+		},
+		{
+			name: "duplicate line id",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Lines: []Line{{ID: "l1", X2: 1, Y2: 1}, {ID: "l1", X2: 2, Y2: 2}}}}},
+			want: "collides with",
+		},
+		{
+			name: "line invalid palette",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Lines: []Line{{ID: "l1", X2: 1, Y2: 1, Palette: 1}}}}},
+			want: "invalid palette",
+		},
+		{
+			name: "empty stroke id",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Strokes: []Stroke{{ID: "", Points: [][]float64{{0, 0}, {1, 1}}}}}}},
+			want: "empty id",
+		},
+		{
+			name: "duplicate stroke id",
+			g: Graph{Maps: []NamedMap{{Path: "/", Strokes: []Stroke{
+				{ID: "s1", Points: [][]float64{{0, 0}, {1, 1}}},
+				{ID: "s1", Points: [][]float64{{0, 0}, {1, 1}}},
+			}}}},
+			want: "collides with",
+		},
+		{
+			name: "stroke with too few points",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Strokes: []Stroke{{ID: "s1", Points: [][]float64{{0, 0}}}}}}},
+			want: "need at least 2",
+		},
+		{
+			name: "stroke point with wrong coord count",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Strokes: []Stroke{{ID: "s1", Points: [][]float64{{0, 0, 0}, {1, 1}}}}}}},
+			want: "need 2",
+		},
+		{
+			name: "stroke invalid palette",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Strokes: []Stroke{{ID: "s1", Points: [][]float64{{0, 0}, {1, 1}}, Palette: 1}}}}},
+			want: "invalid palette",
+		},
+		{
+			name: "empty image id",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Images: []Image{{ID: "", Src: "a.png", Width: 10, Height: 10}}}}},
+			want: "empty id",
+		},
+		{
+			name: "duplicate image id",
+			g: Graph{Maps: []NamedMap{{Path: "/", Images: []Image{
+				{ID: "i1", Src: "a.png", Width: 10, Height: 10},
+				{ID: "i1", Src: "b.png", Width: 10, Height: 10},
+			}}}},
+			want: "collides with",
+		},
+		{
+			name: "image with empty src",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Images: []Image{{ID: "i1", Src: "", Width: 10, Height: 10}}}}},
+			want: "empty src",
+		},
+		{
+			name: "image with non-positive size",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Images: []Image{{ID: "i1", Src: "a.png", Width: 0, Height: 10}}}}},
+			want: "non-positive size",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			errs := Validate(tc.g)
+			if len(errs) == 0 {
+				t.Fatalf("Validate() returned no errors, want one containing %q", tc.want)
+			}
+			found := false
+			for _, e := range errs {
+				if strings.Contains(e.Error(), tc.want) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("Validate() errors = %v, want one containing %q", errs, tc.want)
+			}
+		})
+	}
+}
+
+// TestValidate_ValidNestedSubmapChain is the positive counterpart to
+// the orphaned-submap cases above: a properly chained "/A/B" submap,
+// where box A lives on "/" and box B lives on "/A", must validate
+// clean.
+func TestValidate_ValidNestedSubmapChain(t *testing.T) {
+	g := Graph{Maps: []NamedMap{
+		{Path: "/", Boxes: []Box{{ID: "A"}}},
+		{Path: "/A", Boxes: []Box{{ID: "B"}}},
+		{Path: "/A/B", Boxes: []Box{{ID: "C"}}},
+	}}
+	if errs := Validate(g); len(errs) != 0 {
+		t.Fatalf("Validate() = %v, want no errors for a properly chained submap", errs)
+	}
+}
+
+func TestValidate_ValidHandlesAllAccepted(t *testing.T) {
+	for _, h := range []string{"t", "r", "b", "l", "tl", "tr", "bl", "br"} {
+		g := Graph{Maps: []NamedMap{{Path: "/", Boxes: []Box{{ID: "a"}, {ID: "b"}}, Edges: []Edge{{From: "a", To: "b", FromHandle: h, ToHandle: h}}}}}
+		if errs := Validate(g); len(errs) != 0 {
+			t.Errorf("Validate() with handle %q = %v, want no errors", h, errs)
+		}
+	}
+}
+
 // TestMapFlowgoIsValid parses the checked-in map.flowgo, validates it
 // against our semantic rules, and round-trips it through the serializer
 // to ensure parse/serialize/parse is idempotent.

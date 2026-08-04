@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -661,6 +662,375 @@ func TestActDeleteText(t *testing.T) {
 	}
 }
 
+func TestActDeleteBox(t *testing.T) {
+	g := freshGraph()
+	idA, err := actAddBox(g, map[string]any{"label": "a", "x": float64(0), "y": float64(0)})
+	if err != nil {
+		t.Fatalf("actAddBox: %v", err)
+	}
+	idB, err := actAddBox(g, map[string]any{"label": "b", "x": float64(100), "y": float64(0)})
+	if err != nil {
+		t.Fatalf("actAddBox: %v", err)
+	}
+	boxA := mcpFirstText(idA)
+	boxB := mcpFirstText(idB)
+	if _, err := actAddEdge(g, map[string]any{"from": boxA, "to": boxB}); err != nil {
+		t.Fatalf("actAddEdge: %v", err)
+	}
+
+	if _, err := actDeleteBox(g, map[string]any{"id": boxA}); err != nil {
+		t.Fatalf("actDeleteBox: %v", err)
+	}
+	if len(g.Maps[0].Boxes) != 1 || g.Maps[0].Boxes[0].ID != boxB {
+		t.Fatalf("box not deleted, or wrong box removed: %+v", g.Maps[0].Boxes)
+	}
+	if len(g.Maps[0].Edges) != 0 {
+		t.Fatalf("deleting a box should also delete edges touching it: %+v", g.Maps[0].Edges)
+	}
+
+	if _, err := actDeleteBox(g, map[string]any{"id": "nonexistent"}); err == nil {
+		t.Fatal("expected error deleting a missing box")
+	}
+	if _, err := actDeleteBox(g, map[string]any{}); err == nil {
+		t.Fatal("expected error when id is missing")
+	}
+}
+
+// TestActDeleteBox_RemovesNestedSubmaps covers the cascading-delete
+// behavior in actDeleteBox: deleting a node also deletes its submap
+// and any deeper maps nested under it (by path prefix), not just the
+// node itself and its edges.
+func TestActDeleteBox_RemovesNestedSubmaps(t *testing.T) {
+	g := freshGraph()
+	id, err := actAddBox(g, map[string]any{"label": "parent", "x": float64(0), "y": float64(0)})
+	if err != nil {
+		t.Fatalf("actAddBox: %v", err)
+	}
+	boxID := mcpFirstText(id)
+	subPath := joinPath("/", boxID)
+	deeperPath := subPath + "/child"
+	g.Maps = append(g.Maps,
+		NamedMap{Path: subPath, Boxes: []Box{{ID: "s1", Label: "in submap"}}},
+		NamedMap{Path: deeperPath, Boxes: []Box{{ID: "s2", Label: "even deeper"}}},
+	)
+	// An unrelated map sharing a string prefix (but not a path
+	// component) must survive — hasPrefix's "+\"/\"" check is what
+	// this guards against a naive strings.HasPrefix would miss.
+	siblingLikePath := subPath + "-unrelated"
+	g.Maps = append(g.Maps, NamedMap{Path: siblingLikePath, Boxes: []Box{{ID: "s3", Label: "unrelated"}}})
+
+	if _, err := actDeleteBox(g, map[string]any{"id": boxID}); err != nil {
+		t.Fatalf("actDeleteBox: %v", err)
+	}
+
+	var remaining []string
+	for _, m := range g.Maps {
+		remaining = append(remaining, m.Path)
+	}
+	for _, gone := range []string{subPath, deeperPath} {
+		for _, p := range remaining {
+			if p == gone {
+				t.Errorf("map %q should have been deleted along with its parent box, remaining maps: %v", gone, remaining)
+			}
+		}
+	}
+	found := false
+	for _, p := range remaining {
+		if p == siblingLikePath {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("map %q shares a string prefix but is not actually nested under the deleted box — it should survive; remaining maps: %v", siblingLikePath, remaining)
+	}
+}
+
+func TestActDeleteEdge(t *testing.T) {
+	g := freshGraph()
+	if _, err := actAddEdge(g, map[string]any{"from": "a", "to": "b"}); err != nil {
+		t.Fatalf("actAddEdge: %v", err)
+	}
+	if _, err := actDeleteEdge(g, map[string]any{"from": "a", "to": "b"}); err != nil {
+		t.Fatalf("actDeleteEdge: %v", err)
+	}
+	if len(g.Maps[0].Edges) != 0 {
+		t.Fatalf("edge not deleted: %+v", g.Maps[0].Edges)
+	}
+}
+
+func TestActDeleteEdge_IsUndirected(t *testing.T) {
+	g := freshGraph()
+	if _, err := actAddEdge(g, map[string]any{"from": "a", "to": "b"}); err != nil {
+		t.Fatalf("actAddEdge: %v", err)
+	}
+	// Delete specifying the endpoints in the opposite order.
+	if _, err := actDeleteEdge(g, map[string]any{"from": "b", "to": "a"}); err != nil {
+		t.Fatalf("actDeleteEdge (reversed order): %v", err)
+	}
+	if len(g.Maps[0].Edges) != 0 {
+		t.Fatalf("edge not deleted when endpoints were reversed: %+v", g.Maps[0].Edges)
+	}
+}
+
+func TestActDeleteEdge_MissingArgsOrEdge(t *testing.T) {
+	g := freshGraph()
+	if _, err := actDeleteEdge(g, map[string]any{"from": "a"}); err == nil {
+		t.Fatal("expected error when 'to' is missing")
+	}
+	if _, err := actDeleteEdge(g, map[string]any{"from": "a", "to": "b"}); err == nil {
+		t.Fatal("expected error deleting a nonexistent edge")
+	}
+}
+
+func TestActGetState(t *testing.T) {
+	g := freshGraph()
+	if _, err := actAddBox(g, map[string]any{"label": "hi", "x": float64(1), "y": float64(2)}); err != nil {
+		t.Fatalf("actAddBox: %v", err)
+	}
+	result, err := actGetState(g, nil)
+	if err != nil {
+		t.Fatalf("actGetState: %v", err)
+	}
+	var got Graph
+	if err := json.Unmarshal([]byte(mcpToolResultText(t, result)), &got); err != nil {
+		t.Fatalf("unmarshal actGetState result: %v", err)
+	}
+	if len(got.Maps) != 1 || len(got.Maps[0].Boxes) != 1 || got.Maps[0].Boxes[0].Label != "hi" {
+		t.Fatalf("actGetState result = %+v, want the same graph passed in", got)
+	}
+}
+
+func TestIsReadOnlyTool(t *testing.T) {
+	if !isReadOnlyTool("get_state") {
+		t.Error("get_state should be read-only")
+	}
+	for _, name := range []string{"add_box", "delete_box", "set_state", "share", "create_map", ""} {
+		if isReadOnlyTool(name) {
+			t.Errorf("%q should not be classified as read-only", name)
+		}
+	}
+}
+
+func TestShareWorkspace(t *testing.T) {
+	var gotBody struct {
+		Graph graph.Graph `json:"graph"`
+	}
+	withServeModeAndWebhook(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": "xyz", "url": "https://flowgo-map.com/m/xyz"})
+	})
+
+	wsID := cfg.Workspaces.Start()
+	if err := cfg.Workspaces.With(wsID, func(ws *Workspace) error {
+		ws.Graph.Maps[0].Boxes = append(ws.Graph.Maps[0].Boxes, Box{ID: "b1", Label: "shared box"})
+		return nil
+	}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+
+	result, err := shareWorkspace(map[string]any{"workspace_id": wsID})
+	if err != nil {
+		t.Fatalf("shareWorkspace: %v", err)
+	}
+	if len(gotBody.Graph.Maps) != 1 || len(gotBody.Graph.Maps[0].Boxes) != 1 || gotBody.Graph.Maps[0].Boxes[0].Label != "shared box" {
+		t.Fatalf("webhook did not receive the workspace's own graph: %+v", gotBody.Graph)
+	}
+	var out struct {
+		ID  string `json:"id"`
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal([]byte(mcpToolResultText(t, result)), &out); err != nil {
+		t.Fatalf("unmarshal shareWorkspace result: %v", err)
+	}
+	if out.ID != "xyz" {
+		t.Errorf("shareWorkspace result id = %q, want xyz", out.ID)
+	}
+}
+
+func TestShareWorkspace_RequiresWorkspaceID(t *testing.T) {
+	if _, err := shareWorkspace(map[string]any{}); err == nil {
+		t.Fatal("expected error when workspace_id is missing")
+	}
+}
+
+func TestShareWorkspace_UnknownWorkspaceID(t *testing.T) {
+	withServeModeAndWebhook(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("webhook should never be called for an unknown workspace")
+	})
+	if _, err := shareWorkspace(map[string]any{"workspace_id": "ws-does-not-exist"}); err == nil {
+		t.Fatal("expected error for an unknown workspace id")
+	}
+}
+
+func TestFilterBoxesEdgesMaps(t *testing.T) {
+	boxes := []Box{{ID: "a"}, {ID: "b"}, {ID: "c"}}
+	got := filterBoxes(boxes, func(b Box) bool { return b.ID != "b" })
+	if len(got) != 2 || got[0].ID != "a" || got[1].ID != "c" {
+		t.Fatalf("filterBoxes = %+v, want [a c]", got)
+	}
+
+	edges := []Edge{{From: "a", To: "b"}, {From: "b", To: "c"}}
+	gotE := filterEdges(edges, func(e Edge) bool { return e.From != "a" })
+	if len(gotE) != 1 || gotE[0].From != "b" {
+		t.Fatalf("filterEdges = %+v, want [{b c}]", gotE)
+	}
+
+	maps := []NamedMap{{Path: "/"}, {Path: "/x"}, {Path: "/y"}}
+	gotM := filterMaps(maps, func(m NamedMap) bool { return m.Path != "/x" })
+	if len(gotM) != 2 || gotM[0].Path != "/" || gotM[1].Path != "/y" {
+		t.Fatalf("filterMaps = %+v, want [/ /y]", gotM)
+	}
+
+	// Filtering to zero results is the actAddEdge dedup path's normal
+	// case (removing a would-be-duplicate edge before re-adding it) —
+	// make sure it doesn't panic or return a stale/aliased slice.
+	if empty := filterBoxes(boxes, func(Box) bool { return false }); len(empty) != 0 {
+		t.Fatalf("filterBoxes with an always-false predicate = %+v, want empty", empty)
+	}
+}
+
+func TestJoinPath(t *testing.T) {
+	cases := []struct{ parent, id, want string }{
+		{"/", "a", "/a"},
+		{"/a", "b", "/a/b"},
+		{"/a/b", "c", "/a/b/c"},
+	}
+	for _, tc := range cases {
+		if got := joinPath(tc.parent, tc.id); got != tc.want {
+			t.Errorf("joinPath(%q, %q) = %q, want %q", tc.parent, tc.id, got, tc.want)
+		}
+	}
+}
+
+func TestHasPrefix(t *testing.T) {
+	cases := []struct {
+		s, prefix string
+		want      bool
+	}{
+		{"/a/b", "/a/", true},
+		{"/a", "/a/", false},
+		{"/ab", "/a/", false},
+		{"/a/", "/a/", true},
+		{"", "/a/", false},
+		{"/a", "", true},
+	}
+	for _, tc := range cases {
+		if got := hasPrefix(tc.s, tc.prefix); got != tc.want {
+			t.Errorf("hasPrefix(%q, %q) = %v, want %v", tc.s, tc.prefix, got, tc.want)
+		}
+	}
+}
+
+func TestWriteMCPError(t *testing.T) {
+	w := httptest.NewRecorder()
+	writeMCPError(w, json.RawMessage(`7`), -32700, "boom")
+
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+	var resp mcpResp
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.JSONRPC != "2.0" || string(resp.ID) != "7" {
+		t.Errorf("response envelope = %+v, want jsonrpc 2.0 / id 7", resp)
+	}
+	if resp.Error == nil || resp.Error.Code != -32700 || resp.Error.Message != "boom" {
+		t.Errorf("response error = %+v, want code -32700 message boom", resp.Error)
+	}
+}
+
+func TestMcpToolError(t *testing.T) {
+	result := mcpToolError("something went wrong")
+	if isErr, _ := result["isError"].(bool); !isErr {
+		t.Errorf("isError = %v, want true", result["isError"])
+	}
+	if mcpToolResultText(t, result) != "something went wrong" {
+		t.Errorf("text = %q, want the original message", mcpToolResultText(t, result))
+	}
+}
+
+func TestUpdateFileAndReadFile(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/mindmap.flowgo"
+	if err := os.WriteFile(path, []byte("node b1 hello 0 0\n"), 0644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+
+	orig := cfg
+	t.Cleanup(func() { cfg = orig })
+	Configure(Config{LocalFile: path})
+
+	g, err := readFile()
+	if err != nil {
+		t.Fatalf("readFile: %v", err)
+	}
+	if len(g.Maps[0].Boxes) != 1 || g.Maps[0].Boxes[0].Label != "hello" {
+		t.Fatalf("readFile graph = %+v, want the seeded box", g.Maps[0])
+	}
+
+	updated, err := updateFile(func(g *Graph) error {
+		g.Maps[0].Boxes[0].Label = "updated"
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("updateFile: %v", err)
+	}
+	if updated.Maps[0].Boxes[0].Label != "updated" {
+		t.Fatalf("updateFile did not return the mutated graph: %+v", updated)
+	}
+
+	// The mutation must actually have been persisted to disk, not just
+	// returned in memory.
+	reread, err := readFile()
+	if err != nil {
+		t.Fatalf("readFile after update: %v", err)
+	}
+	if reread.Maps[0].Boxes[0].Label != "updated" {
+		t.Fatalf("update was not persisted to disk: %+v", reread.Maps[0])
+	}
+}
+
+func TestUpdateFile_MutatorErrorDoesNotWriteFile(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/mindmap.flowgo"
+	original := "node b1 hello 0 0\n"
+	if err := os.WriteFile(path, []byte(original), 0644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+
+	orig := cfg
+	t.Cleanup(func() { cfg = orig })
+	Configure(Config{LocalFile: path})
+
+	sentinel := errFromFn{}
+	if _, err := updateFile(func(g *Graph) error { return sentinel }); err != sentinel {
+		t.Fatalf("updateFile error = %v, want the mutator's own error", err)
+	}
+
+	onDisk, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read file: %v", err)
+	}
+	if string(onDisk) != original {
+		t.Errorf("file was modified despite the mutator erroring:\n  got  %q\n  want %q", onDisk, original)
+	}
+}
+
+func TestUpdateFile_MissingFile(t *testing.T) {
+	orig := cfg
+	t.Cleanup(func() { cfg = orig })
+	Configure(Config{LocalFile: t.TempDir() + "/does-not-exist.flowgo"})
+
+	if _, err := readFile(); err == nil {
+		t.Fatal("expected an error reading a missing file")
+	}
+	if _, err := updateFile(func(g *Graph) error { return nil }); err == nil {
+		t.Fatal("expected an error updating a missing file")
+	}
+}
+
 func TestActUpdateLine_StyleAndMids(t *testing.T) {
 	g := freshGraph()
 	id, err := actAddLine(g, map[string]any{
@@ -791,6 +1161,85 @@ func TestActAddEdge_PaletteAtCreate(t *testing.T) {
 // the 1..9 scales). Lossy keyword presence is intentional — the goal
 // is to prevent the field from regressing to empty or to a stub, not
 // to pin exact prose.
+// TestMCPHandler_HTTPLayer exercises MCPHandler/handleMCP as real HTTP
+// requests (httptest, not calling handleMCP directly) — the transport
+// layer (GET server-info, POST JSON-RPC dispatch, malformed-JSON
+// parse errors, and fire-and-forget notifications) had no coverage at
+// all; every other MCP test in this file calls the action functions
+// directly and never goes through the HTTP handler itself.
+func TestMCPHandler_HTTPLayer(t *testing.T) {
+	orig := cfg
+	t.Cleanup(func() { cfg = orig })
+	Configure(Config{})
+
+	t.Run("GET returns server info", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+		w := httptest.NewRecorder()
+		MCPHandler(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+		}
+		var body struct{ Name string }
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if body.Name != "flowgo" {
+			t.Errorf("name = %q, want flowgo", body.Name)
+		}
+	})
+
+	t.Run("unsupported method rejected", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodDelete, "/mcp", nil)
+		w := httptest.NewRecorder()
+		MCPHandler(w, req)
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Errorf("status = %d, want %d", w.Code, http.StatusMethodNotAllowed)
+		}
+	})
+
+	t.Run("POST initialize dispatches through JSON-RPC", func(t *testing.T) {
+		body := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize"}`)
+		req := httptest.NewRequest(http.MethodPost, "/mcp", body)
+		w := httptest.NewRecorder()
+		MCPHandler(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+		}
+		var resp mcpResp
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if resp.Error != nil {
+			t.Fatalf("unexpected error: %+v", resp.Error)
+		}
+		if string(resp.ID) != "1" {
+			t.Errorf("id = %s, want 1", resp.ID)
+		}
+	})
+
+	t.Run("malformed JSON body produces a parse-error response, not a panic", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader("not json"))
+		w := httptest.NewRecorder()
+		MCPHandler(w, req)
+		var resp mcpResp
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if resp.Error == nil || resp.Error.Code != -32700 {
+			t.Errorf("error = %+v, want a -32700 parse error", resp.Error)
+		}
+	})
+
+	t.Run("a notification (no id) gets a 202 with no body dispatch error", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","method":"notifications/initialized"}`))
+		w := httptest.NewRecorder()
+		MCPHandler(w, req)
+		if w.Code != http.StatusAccepted {
+			t.Errorf("status = %d, want %d", w.Code, http.StatusAccepted)
+		}
+	})
+}
+
 func TestInitialize_HasInstructions(t *testing.T) {
 	rr := mcpCall(t, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`)
 	inst, _ := rr["result"].(map[string]any)["instructions"].(string)
