@@ -51,6 +51,7 @@ interface LineLike {
   mids?: Array<[number, number]>;
   style?: number;
 }
+interface StrokeLike { id: string; points: Array<[number, number]> }
 interface EdgeLike {
   from: string;
   to: string;
@@ -63,6 +64,7 @@ interface CurrentMap {
   edges: EdgeLike[];
   texts: TextLike[];
   lines: LineLike[];
+  strokes: StrokeLike[];
   images?: ImageLike[];
 }
 
@@ -358,6 +360,17 @@ const onMouseUp = (e: MouseEvent): void => {
           ];
           if (polylineIntersectsRect(pts, x1, y1, x2, y2)) {
             w.selected.add(l.id);
+          }
+        }
+        // Brush strokes get the same background-ink treatment as lines
+        // (and the same segment-based hit test, not bbox) — a band
+        // that swept up boxes/texts/images must not also drag along
+        // an unrelated stroke sitting underneath, but a band that
+        // caught nothing solid should still be able to multi-select a
+        // cluster of strokes at once.
+        for (const s of map.strokes) {
+          if (polylineIntersectsRect(s.points, x1, y1, x2, y2)) {
+            w.selected.add(s.id);
           }
         }
       }
