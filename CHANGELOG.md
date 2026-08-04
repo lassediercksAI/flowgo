@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.4](https://github.com/lassediercks/flowgo/compare/v0.3.3...v0.3.4) (2026-08-04)
+
+
+### Bug Fixes
+
+* **editor:** band-select can catch brush strokes, not just lines ([09e3b28](https://github.com/lassediercks/flowgo/commit/09e3b287f9571942e9ac5763180105af8c47bc28))
+* **render:** give default-palette boxes an explicit text color ([b4eab0f](https://github.com/lassediercks/flowgo/commit/b4eab0f1d349dc68bc0c26181fa7fa04a10866a7))
+
 ## [0.3.3](https://github.com/lassediercks/flowgo/compare/v0.3.2...v0.3.3) (2026-08-03)
 
 
