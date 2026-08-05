@@ -115,6 +115,15 @@ const verify = (h: Harness, label: string): void => {
     chk(el.classList.contains("drop-target"), isDrop, `box ${id} drop-target`);
     chk(el.classList.contains("proximity-target"), id === h.state.nearId, `box ${id} proximity-target`);
     chk(el.classList.contains("resizing"), id === resizeId, `box ${id} resizing`);
+    // Chrome presence invariant (#239): handles/grips exist exactly on
+    // the boxes in an interactive state — selected, drop target,
+    // proximity target or resizing — and on no others.
+    const entitled =
+      h.selected.has(id) || isDrop || id === h.state.nearId || id === resizeId;
+    const handleCount = el.querySelectorAll(".handle").length;
+    const gripCount = el.querySelectorAll(".resize-grip").length;
+    chk(handleCount === HANDLE_CODES.length, entitled, `box ${id} handle count ${handleCount}`);
+    chk(gripCount === 4, entitled, `box ${id} grip count ${gripCount}`);
     for (const hd of el.querySelectorAll<HTMLElement>(".handle")) {
       chk(
         hd.classList.contains("target"),

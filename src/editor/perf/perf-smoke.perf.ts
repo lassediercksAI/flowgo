@@ -119,9 +119,11 @@ interface SizeResult {
   moveChangeQueries: number;
   selQueries: number;
   selToggles: number;
+  selElements: number;
   selMs: number;
   bandQueries: number;
   bandToggles: number;
+  bandElements: number;
   mutationElements: number;
   mutationMs: number;
 }
@@ -177,16 +179,22 @@ const runScenarios = (n: number): SizeResult => {
     const selMs = performance.now() - t0;
     const selQueries = c.domQueries;
     const selToggles = c.classToggles;
+    // Selecting a box lazily materializes its chrome (#239): 8 link
+    // handles + 4 resize grips, created on this transition instead of
+    // for every box at render time.
+    const selElements = c.elementsCreated;
 
     // Band-select half the map: with the diff-based applyClasses
     // (#237) this costs one toggle per newly-selected box — O(delta),
     // asserted against a selection-sized (not canvas-sized) ceiling
-    // below.
+    // below. Since #239 it also attaches chrome to each newly-selected
+    // box — O(delta) element creations, never O(canvas).
     for (let i = 1; i < n / 2; i++) h.selected.add("b" + i);
     handle.reset();
     applyClasses();
     const bandQueries = c.domQueries;
     const bandToggles = c.classToggles;
+    const bandElements = c.elementsCreated;
     h.selected.clear();
     applyClasses();
 
@@ -211,9 +219,11 @@ const runScenarios = (n: number): SizeResult => {
       moveChangeQueries,
       selQueries,
       selToggles,
+      selElements,
       selMs,
       bandQueries,
       bandToggles,
+      bandElements,
       mutationElements,
       mutationMs,
     };
@@ -227,11 +237,15 @@ describe("perf smoke: editor interaction DOM cost", () => {
     const r = runScenarios(n);
     results.set(n, r);
 
-    // Fixture mix: n boxes (≤14 els each), n/2 lines (≤6), n/5 edges
-    // (3), n/20 texts (1), n/50 strokes (3) ≈ 17.8·n elements today.
-    // Ceiling 25·n ≈ 40% headroom against per-item DOM bloat.
-    expect(r.renderElements, "initial render: elements created").toBeLessThanOrEqual(25 * n);
-    expect(r.domNodes, "initial render: canvas DOM nodes").toBeLessThanOrEqual(25 * n);
+    // Fixture mix since #239 (lazy chrome — boxes are div+label only,
+    // no more 8 handles + 4 grips each): n boxes (2 els), n/2 lines
+    // (≤6), n/5 edges (3), n/20 texts (1), n/50 strokes (3) ≈ 5.4·n
+    // elements (was 17.8·n). Ceiling 7·n ≈ 30% headroom against
+    // per-item DOM bloat.
+    expect(r.renderElements, "initial render: elements created").toBeLessThanOrEqual(7 * n);
+    // The canvas layer itself (boxes + texts + images) is ~2.05·n now
+    // (was ~14·n) — an idle map must stay chrome-free.
+    expect(r.domNodes, "initial render: canvas DOM nodes").toBeLessThanOrEqual(3 * n);
 
     // updateProximity queries the DOM once per box today (the #236
     // O(boxes × DOM) path). Ceiling 1.2·n: fails if the per-move work
@@ -251,11 +265,16 @@ describe("perf smoke: editor interaction DOM cost", () => {
     // boxes); now it's 0 queries and 1 toggle.
     expect(r.selQueries, "selection change: DOM queries").toBeLessThanOrEqual(10);
     expect(r.selToggles, "selection change: class toggles").toBeLessThanOrEqual(10);
+    // Lazy chrome attach (#239): selecting one rect box creates its 12
+    // chrome children (8 handles + 4 grips) and nothing else.
+    expect(r.selElements, "selection change: elements created").toBeLessThanOrEqual(15);
 
     // Band-select scales with the SELECTION DELTA (n/2 boxes newly
-    // selected here → n/2−1 toggles), never with total canvas size.
+    // selected here → n/2−1 toggles + 12 chrome children each), never
+    // with total canvas size.
     expect(r.bandQueries, "band-select: DOM queries").toBeLessThanOrEqual(10);
     expect(r.bandToggles, "band-select: class toggles").toBeLessThanOrEqual(0.65 * n + 30);
+    expect(r.bandElements, "band-select: elements created").toBeLessThanOrEqual(6.5 * n + 30);
 
     // A one-label mutation currently pays a full rebuild. Ceiling =
     // no WORSE than a full rebuild (+25%); #238 should collapse this
@@ -281,6 +300,7 @@ describe("perf smoke: editor interaction DOM cost", () => {
     // selection size) and is the meaningful linearity guard here.
     expect(l.selToggles / Math.max(s.selToggles, 1), "applyClasses toggle growth").toBeLessThanOrEqual(cap);
     expect(l.bandToggles / Math.max(s.bandToggles, 1), "band-select toggle growth").toBeLessThanOrEqual(cap);
+    expect(l.bandElements / Math.max(s.bandElements, 1), "band-select chrome-attach growth").toBeLessThanOrEqual(cap);
     expect(l.mutationElements / s.mutationElements, "mutation-render element growth").toBeLessThanOrEqual(cap);
   });
 });
@@ -296,8 +316,8 @@ afterAll(() => {
       `    initial render      ${fmt(r.renderElements)} els created, ${fmt(r.domNodes)} DOM nodes, ${r.renderMs.toFixed(1)}ms`,
       `    idle mousemove      ${fmt(r.idleMoveQueries)} DOM queries/move, ${r.idleMoveMs.toFixed(2)}ms/move`,
       `    move w/ new target  ${fmt(r.moveChangeQueries)} DOM queries`,
-      `    select 1 box        ${fmt(r.selQueries)} queries, ${fmt(r.selToggles)} class toggles, ${r.selMs.toFixed(1)}ms`,
-      `    band-select ${fmt(r.n / 2)}   ${fmt(r.bandQueries)} queries, ${fmt(r.bandToggles)} class toggles`,
+      `    select 1 box        ${fmt(r.selQueries)} queries, ${fmt(r.selToggles)} class toggles, ${fmt(r.selElements)} els (chrome), ${r.selMs.toFixed(1)}ms`,
+      `    band-select ${fmt(r.n / 2)}   ${fmt(r.bandQueries)} queries, ${fmt(r.bandToggles)} class toggles, ${fmt(r.bandElements)} els (chrome)`,
       `    1-box mutation      ${fmt(r.mutationElements)} els recreated, ${r.mutationMs.toFixed(1)}ms`,
     );
   }

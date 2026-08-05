@@ -213,6 +213,73 @@ const imageEls = new Map<string, HTMLElement>();
 const lineEls = new Map<string, SVGGElement>();
 const strokeEls = new Map<string, SVGGElement>();
 
+// Lazy box chrome (brain#239): the 8 link handles + 4 resize grips
+// are invisible except on the proximity-target / drop-target /
+// selected / resizing box, yet used to be materialized on EVERY box —
+// a ~7× DOM inflation (48k elements instead of ~7k at 3,400 boxes).
+// Boxes now render as div+label only; chrome is created on a box when
+// it first enters one of those interactive states and removed when it
+// leaves them all. applyClasses is the single funnel every one of
+// those state transitions already flows through, so attach/detach
+// lives there — no separate tracking layer.
+//
+// Interaction wiring needs no per-handle work: attachBoxHandlers
+// (attach.ts) installs ONE delegated mousedown listener on the box
+// element and dispatches on target.classList, and the touch path
+// classifies via closest('.handle') — late-created children are
+// picked up automatically. Fresh chrome carries no interaction
+// classes, which is exactly the invariant the appliedState===null
+// resync path (below) assumes.
+const chromed = new Set<string>();
+
+const attachBoxChrome = (el: HTMLElement): void => {
+  for (const code of HANDLE_CODES) {
+    const h = document.createElement("div");
+    h.className = "handle h-" + code;
+    h.dataset["handle"] = code;
+    el.appendChild(h);
+  }
+  // Resize grips, one per corner. Hidden until the box enters resize
+  // mode (E key → `.resizing` class via applyClasses). Special shapes
+  // (hex/circle/tri — the classes renderAll bakes in for fixed
+  // silhouettes) get none: their size is fixed, and the E handler
+  // refuses them anyway — no grips means no misleading affordance
+  // even if that guard ever regresses.
+  const fixedShape = el.classList.contains("hex")
+    || el.classList.contains("circle")
+    || el.classList.contains("tri");
+  if (!fixedShape) {
+    for (const corner of RESIZE_CORNERS) {
+      const grip = document.createElement("div");
+      grip.className = "resize-grip rg-" + corner;
+      grip.dataset["corner"] = corner;
+      el.appendChild(grip);
+    }
+  }
+};
+
+const ensureBoxChrome = (id: string | null): void => {
+  if (id === null || chromed.has(id)) return;
+  const el = boxEls.get(id);
+  if (!el) return;
+  attachBoxChrome(el);
+  chromed.add(id);
+};
+
+const removeBoxChrome = (id: string): void => {
+  chromed.delete(id);
+  const el = boxEls.get(id);
+  if (!el) return;
+  const kids = el.children;
+  for (let i = kids.length - 1; i >= 0; i--) {
+    const k = kids[i] as HTMLElement;
+    const d = k.dataset;
+    if (d && (d["handle"] !== undefined || d["corner"] !== undefined)) {
+      k.remove();
+    }
+  }
+};
+
 // Snapshot of the class state applyClasses most recently projected
 // onto the DOM. null = the DOM was just rebuilt from scratch
 // (renderAll) and carries no interaction classes yet, so the next
@@ -245,6 +312,10 @@ export const renderAll = (): void => {
   boxEls.clear();
   textEls.clear();
   imageEls.clear();
+  // Every box element (and therefore every attached chrome child) was
+  // just destroyed; applyClasses below re-attaches chrome to whichever
+  // boxes are currently entitled to it.
+  chromed.clear();
   // The previously-applied class snapshot refers to elements that
   // were just destroyed — applyClasses below must apply the current
   // state to the fresh DOM, not diff against the dead one.
@@ -289,25 +360,9 @@ export const renderAll = (): void => {
     label.className = "box-label";
     label.textContent = b.label;
     el.appendChild(label);
-    for (const code of HANDLE_CODES) {
-      const h = document.createElement("div");
-      h.className = "handle h-" + code;
-      h.dataset["handle"] = code;
-      el.appendChild(h);
-    }
-    // Resize grips, one per corner. Hidden until the box enters
-    // resize mode (E key → `.resizing` class via applyClasses).
-    // Hexagons get none: their size is fixed by the lattice contract,
-    // and the E handler refuses them anyway — no grips means no
-    // misleading affordance even if that guard ever regresses.
-    if (!fixed) {
-      for (const corner of RESIZE_CORNERS) {
-        const grip = document.createElement("div");
-        grip.className = "resize-grip rg-" + corner;
-        grip.dataset["corner"] = corner;
-        el.appendChild(grip);
-      }
-    }
+    // No handles / resize grips here: chrome attaches lazily via
+    // applyClasses when the box becomes proximity-target / selected /
+    // drop-target / resizing (brain#239, see attachBoxChrome above).
     w.canvas.appendChild(el);
     w.attachBoxHandlers(el, b);
     // Sized boxes clamp their label to the lines that fit the fixed
@@ -528,6 +583,23 @@ export const applyClasses = (): void => {
   }
   const resizeId = resizingBoxId();
 
+  // Materialize chrome on every box that can need it BEFORE any class
+  // toggles below — toggleTargetHandle can only mark a `.target`
+  // handle that exists, and the coarse-pointer CSS shows handles on
+  // every selected box. The link source keeps its chrome too so the
+  // `.active` handle cue survives a drag that wanders away from it
+  // (during a re-route the picked-up handle lives on a DIFFERENT box
+  // than link.fromId — entitle both). Ensure is O(1) per already-
+  // chromed box, so re-walking the selection each call stays cheap.
+  const link = proxBindings ? proxBindings.link() : null;
+  const linkHandleBoxId = link?.handleEl?.parentElement?.dataset?.["id"] ?? null;
+  for (const id of w.selected) ensureBoxChrome(id);
+  ensureBoxChrome(dropId);
+  ensureBoxChrome(nearId);
+  ensureBoxChrome(resizeId);
+  ensureBoxChrome(link?.fromId ?? null);
+  ensureBoxChrome(linkHandleBoxId);
+
   const prev = appliedState;
   if (prev === null) {
     // Fresh DOM (renderAll just rebuilt everything): no interaction
@@ -580,6 +652,22 @@ export const applyClasses = (): void => {
     nearId,
     resizeId,
   };
+  // Detach chrome from boxes that no longer need it. Runs AFTER the
+  // toggles so class-off writes above hit live elements; iterating
+  // `chromed` while deleting is safe (Set iteration tolerates deletes
+  // of the current entry). The set only ever holds interactive boxes,
+  // so this sweep is O(selection + a handful), never O(canvas).
+  for (const id of chromed) {
+    if (
+      w.selected.has(id)
+      || id === dropId
+      || id === nearId
+      || id === resizeId
+      || id === (link?.fromId ?? null)
+      || id === linkHandleBoxId
+    ) continue;
+    removeBoxChrome(id);
+  }
   updateSelectionToolbar();
   refreshContextBar();
 };
@@ -654,7 +742,10 @@ export const PROXIMITY_PX = 60;
 
 interface ProximityBindings {
   readonly currentMap: () => { boxes: BoxData[] };
-  readonly link: () => { fromId: string } | null;
+  // handleEl is optional: applyClasses uses it to keep chrome alive on
+  // the box whose handle dot carries `.active` during a link drag —
+  // on a re-route pickup that box differs from fromId.
+  readonly link: () => { fromId: string; handleEl?: HTMLElement } | null;
   readonly nearTargetId: () => string | null;
   readonly setNearTargetId: (id: string | null) => void;
 }
