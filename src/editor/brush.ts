@@ -150,6 +150,19 @@ export const extendStroke = (clientX: number, clientY: number): void => {
   active.polyEl.setAttribute("points", previewPoints(active.points));
 };
 
+// Throw away an in-flight stroke without committing it. Used when a
+// second finger lands mid-stroke (brain#24c): the user is starting a
+// pinch, not painting, and the first finger's few millimetres of
+// travel must not survive as a stray mark. Distinct from
+// finishStroke(), which is still the right call for touchcancel — an
+// interrupted-but-intentional stroke should keep whatever it drew.
+export const abandonStroke = (): void => {
+  if (!active) return;
+  const g = active.polyEl.parentNode;
+  if (g && g.parentNode) g.parentNode.removeChild(g);
+  active = null;
+};
+
 export const finishStroke = (): void => {
   if (!active) return;
   // ε ≈ 1.5px — drops hand-tremor samples without rounding intentional curves.

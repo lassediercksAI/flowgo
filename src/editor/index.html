@@ -92,19 +92,30 @@
      viewport instead of escaping into the iOS Safari toolbar /
      home-indicator area. */
   body { position: relative; }
-  /* Block one-finger pan/scroll so our drag handlers get the full
-     stream, but leave pinch-zoom to the browser — it's the natural
-     mobile zoom and re-implementing it on top of the data viewport
-     would mean reflowing every transform pipeline.
+  /* Hand the browser NOTHING on canvas surfaces: one-finger pan/scroll
+     and two-finger pinch both belong to our own gesture handlers
+     (src/editor/touch.ts). This used to be `pinch-zoom`, which let iOS
+     Safari zoom the whole page — chrome and all — instead of the map
+     (brain#24c); pinch now drives the data viewport, the same one the
+     bottom-left zoom control and the wheel drive.
 
      Set on html / body too so touches on the chrome (toolbar,
      feedback button, version text, empty surroundings) can't
      trigger iOS Safari's URL-bar / page scroll behavior — that was
      the "second scroll area at the bottom" that pulled the canvas
-     out of view. The help modal still needs to scroll vertically,
-     so it overrides via `touch-action: pan-y`. */
-  html, body, #bg-layer, #canvas, #bg-svg, .box, .text-item { touch-action: pinch-zoom; }
-  #helpModal { touch-action: pan-y; }
+     out of view.
+
+     The help modal is the deliberate exception. It scrolls vertically
+     AND keeps `pinch-zoom` so the browser can still magnify it: it's a
+     dense wall of small text, and a page that refuses browser zoom
+     everywhere strands anyone who needs it larger. The canvas can
+     afford to opt out because it has its own zoom bound to the same
+     gesture; a text modal can't. touch-action is not inherited, so
+     this override is read straight off #helpModal, and #helpModal is
+     its own scroll container — the `none` on html/body above does not
+     restrict it (that was already true with the old `pinch-zoom`). */
+  html, body, #bg-layer, #canvas, #bg-svg, #edges, .box, .text-item { touch-action: none; }
+  #helpModal { touch-action: pan-y pinch-zoom; }
   #toolbar {
     position: absolute; z-index: 10;
     top: calc(8px + env(safe-area-inset-top, 0px));
@@ -905,9 +916,19 @@
   }
 
   /* Delete drop zone: only meaningful while a touch drag is in
-     flight (body.dragging). Pushed below the notch / status bar via
-     the safe-area inset (works because the viewport meta sets
-     `viewport-fit=cover`) so the bar never overlaps iOS chrome. */
+     flight (body.dragging).
+
+     The `env(safe-area-inset-top, 0px)` here — and in every other
+     chrome rule on this page — currently resolves to 0px, because the
+     viewport meta deliberately omits `viewport-fit=cover` (see the
+     rationale at the top of this file) and the insets are only
+     non-zero under `cover`. That is correct, not broken: without
+     cover, iOS Safari already lays the page out inside the safe area,
+     so `top: 0` is below the notch and the URL bar. The env() calls
+     are kept as forward-compatible no-ops so the chrome stays clear of
+     system UI if cover is ever adopted. (An earlier version of this
+     comment claimed the inset "works because the viewport meta sets
+     viewport-fit=cover" — it never has.) */
   #deleteZone {
     position: absolute; left: 0; right: 0;
     top: env(safe-area-inset-top, 0px);
@@ -1197,8 +1218,14 @@
       <tr><td>Tap</td><td>Clear the current selection</td></tr>
       <tr><td>Double-tap</td><td>Add a new node of the file's default shape at the tap point (auto-edits)</td></tr>
       <tr><td>T button in the bottom bar</td><td>Text mode: the next tap places a text label (auto-edits) instead of a node, then the bar returns to cursor mode</td></tr>
+    </table>
 
-      <tr><td>Pinch with two fingers</td><td>Browser zoom in / out</td></tr>
+    <h3>View</h3>
+    <table>
+      <tr><td>Pinch with two fingers</td><td>Zoom the map in / out around the point between your fingers — only the nodes scale, the buttons stay put (clamps 50% – 800%)</td></tr>
+      <tr><td>Drag with two fingers</td><td>Pan the viewport (works at any zoom level)</td></tr>
+      <tr><td>− / + buttons (bottom left)</td><td>Zoom out / in around the screen centre</td></tr>
+      <tr><td>Double-tap the zoom percentage</td><td>Reset zoom to 100% and recenter on the anchor node</td></tr>
     </table>
 
     <h3>Connections</h3>

@@ -17,11 +17,21 @@
 //      Texts have no submap, so long-press there is a no-op and the
 //      gesture falls through to whatever the user does next.
 //
-// Pinch-zoom is delegated to the browser via `touch-action: pinch-zoom`
-// in index.html — re-implementing it on top of the data viewport
-// would mean reflowing every transform pipeline. If a second finger
-// lands while we have a pan or drag in flight, we abort our gesture
-// so the browser's pinch can take over cleanly.
+//   5. Two-finger pinch zooms the DATA VIEWPORT (brain#24c). This used
+//      to be delegated to the browser via `touch-action: pinch-zoom`,
+//      which zoomed the whole page — toolbar, mode bar and help modal
+//      scaled along with the nodes, which is not what a canvas app
+//      should do. The bottom-left zoom control already owns working
+//      cursor-anchored zoom math (viewport.zoomAt), so pinch drives
+//      the same viewport rather than a second pipeline: canvas content
+//      scales, chrome stays put, and the percentage readout / min-max
+//      clamps stay in agreement with the buttons and the wheel.
+//      The math lives in pinch.ts (pure, unit-tested); this module
+//      only owns the gesture lifecycle. Canvas surfaces therefore set
+//      `touch-action: none` in index.html and we preventDefault iOS
+//      Safari's non-standard `gesture*` events — but only for touches
+//      that started on the canvas, so the help modal keeps browser
+//      magnification for anyone who needs to enlarge the text.
 //
 // Link-drag from a handle dot mirrors the mouse path in attach.ts:
 // on coarse pointers the handles are larger (CSS in index.html) and
@@ -29,7 +39,14 @@
 // proximity highlighter (render.ts) is fed the touch position during
 // the drag so the same near-target glow appears.
 
-import { extendStroke, finishStroke, isBrushMode, isPainting, startStroke } from "./brush.ts";
+import {
+  abandonStroke,
+  extendStroke,
+  finishStroke,
+  isBrushMode,
+  isPainting,
+  startStroke,
+} from "./brush.ts";
 import {
   cancelPendingLine,
   commitLineOnRelease,
@@ -38,7 +55,14 @@ import {
   placeLinePoint,
   updateLinePreview,
 } from "./line.ts";
-import { applyViewport, toDataX, toDataY, viewport } from "./viewport.ts";
+import {
+  applyViewport,
+  flashZoomIndicator,
+  toDataX,
+  toDataY,
+  viewport,
+} from "./viewport.ts";
+import { pinchAnchor, pinchViewport, type PinchAnchor } from "./pinch.ts";
 import {
   applyClasses,
   clearProximity,
@@ -148,11 +172,47 @@ const STILL_TOLERANCE_PX = 4;
 
 let lastTap: TapRecord | null = null;
 let longPressTimer: number | null = null;
+
 const clearLongPressTimer = (): void => {
   if (longPressTimer !== null) {
     clearTimeout(longPressTimer);
     longPressTimer = null;
   }
+};
+
+// --- Pinch state (brain#24c) ------------------------------------------
+//
+// `pinch` is non-null exactly while two or more fingers are down on a
+// canvas surface. `pinchFingers` is the finger count the anchor was
+// captured with: any change (third finger down, one of three lifted)
+// re-captures the anchor from the CURRENT viewport, so the canvas never
+// jumps when the hand changes shape mid-gesture.
+//
+// `pinchTail` outlives the pinch itself. Lifting one finger of a pinch
+// leaves the other one on the glass, and without this latch that
+// survivor would immediately be read as a fresh single-finger gesture —
+// panning the map, or painting a stroke across it in brush mode, right
+// as the user finishes zooming. It clears only when every finger is up.
+let pinch: PinchAnchor | null = null;
+let pinchFingers = 0;
+let pinchTail = false;
+
+const beginPinch = (e: TouchEvent): void => {
+  const a = e.touches[0];
+  const b = e.touches[1];
+  if (!a || !b) return;
+  pinch = pinchAnchor(a.clientX, a.clientY, b.clientX, b.clientY, viewport);
+  pinchFingers = e.touches.length;
+  pinchTail = true;
+  // A tap either side of a pinch must not pair up into a double-tap
+  // (which would spawn a box or open the label editor after a zoom).
+  lastTap = null;
+  clearLongPressTimer();
+};
+
+const endPinch = (): void => {
+  pinch = null;
+  pinchFingers = 0;
 };
 
 // Delete drop zone — populated lazily so the editor still boots if
@@ -292,14 +352,18 @@ const classifyTarget = (
   return null;
 };
 
-const abortGesture = (): void => {
+// `discardStroke` distinguishes the two callers. On touchcancel the
+// user meant to paint and the system interrupted them, so we commit
+// what they drew (short strokes are dropped inside finishStroke). When
+// a second finger lands they meant to pinch, and the millimetre of
+// travel the first finger made before the second arrived must not be
+// left on the canvas as a stray dot.
+const abortGesture = (opts?: { readonly discardStroke?: boolean }): void => {
   const w = must();
   clearLongPressTimer();
   if (isPainting()) {
-    // Commit whatever we have so the in-progress stroke doesn't dangle
-    // when a second finger lands or iOS cancels the touch. Short
-    // strokes are discarded inside finishStroke().
-    finishStroke();
+    if (opts?.discardStroke) abandonStroke();
+    else finishStroke();
     return;
   }
   if (isDrawingLine()) {
@@ -334,12 +398,51 @@ const abortGesture = (): void => {
   }
 };
 
+// A pinch is ours to handle only when the fingers are on the canvas.
+// Chrome (toolbar, mode bar, zoom control, help modal) returns null
+// from classifyTarget, and there we deliberately leave the browser's
+// own zoom alone — see the accessibility note in attachTouchListeners.
+const onCanvasSurface = (target: EventTarget | null): boolean =>
+  bindings !== null && classifyTarget(target, bindings.selected) !== null;
+
+// True while a single-finger canvas gesture is live. If one is, the
+// first finger is by definition on the canvas, so a second finger
+// landing anywhere means the user is pinching the canvas.
+const gestureInFlight = (): boolean => {
+  const w = must();
+  return (
+    isPainting() ||
+    isDrawingLine() ||
+    w.pan() !== null ||
+    w.drag() !== null ||
+    w.link() !== null
+  );
+};
+
+// Should this multi-touch sequence drive the data viewport? Evaluate
+// BEFORE abortGesture(), which clears the in-flight state this reads.
+const claimPinch = (e: TouchEvent): boolean =>
+  pinchTail || gestureInFlight() || onCanvasSurface(e.target);
+
 const onTouchStart = (e: TouchEvent): void => {
-  if (e.touches.length !== 1) {
-    // Second finger landed — hand off to the browser for pinch-zoom.
-    abortGesture();
+  if (e.touches.length >= 2) {
+    // Second finger landed. Tear down whatever single-finger gesture is
+    // in flight (discarding an in-progress stroke rather than committing
+    // it), then take over as a pinch — unless the fingers are on chrome,
+    // where the browser's own zoom still applies.
+    const ours = claimPinch(e);
+    // Only discard the in-flight stroke when WE take the gesture. If the
+    // extra finger landed on chrome the user isn't pinching the canvas,
+    // so the stroke keeps the old commit-on-interrupt behaviour.
+    abortGesture({ discardStroke: ours });
+    if (!ours) return;
+    e.preventDefault();
+    beginPinch(e);
     return;
   }
+  // A finger came back down while the previous pinch's survivor is
+  // still on the glass — still part of the same two-finger episode.
+  if (pinchTail) return;
   // Brush mode: a single-finger press anywhere paints. CSS already
   // sets pointer-events: none on boxes/texts/lines/strokes/edges
   // while body.brush-mode is on, so the touch lands on #bg-layer
@@ -594,9 +697,44 @@ const onTouchStart = (e: TouchEvent): void => {
 
 const onTouchMove = (e: TouchEvent): void => {
   const w = must();
-  if (e.touches.length !== 1) {
-    // Second finger arrived mid-pan/drag — abort so pinch-zoom wins.
-    abortGesture();
+  if (e.touches.length >= 2) {
+    // Defensive: iOS can deliver a multi-touch move whose touchstart we
+    // never saw (e.g. fingers landing inside the same frame while a
+    // modal was closing). Capture a baseline rather than dropping the
+    // gesture.
+    if (!pinch) {
+      const ours = claimPinch(e);
+      abortGesture({ discardStroke: true });
+      if (!ours) return;
+      e.preventDefault();
+      beginPinch(e);
+      return;
+    }
+    e.preventDefault();
+    // Finger count changed since the anchor was taken — re-baseline off
+    // the current viewport so the scale doesn't step.
+    if (e.touches.length !== pinchFingers) {
+      beginPinch(e);
+      return;
+    }
+    const a = e.touches[0]!;
+    const b = e.touches[1]!;
+    const next = pinchViewport(pinch, a.clientX, a.clientY, b.clientX, b.clientY);
+    viewport.x = next.x;
+    viewport.y = next.y;
+    viewport.s = next.s;
+    // One applyViewport per move event, exactly like the pan branch
+    // below: a CSS transform write plus the culling hook, which is
+    // rAF-throttled downstream (render.scheduleCullUpdate). No item is
+    // re-rendered, so a pinch costs no element churn.
+    applyViewport();
+    flashZoomIndicator();
+    return;
+  }
+  // Single finger left over from a pinch: swallow it. preventDefault
+  // keeps iOS from reinterpreting the survivor as a page gesture.
+  if (pinchTail) {
+    e.preventDefault();
     return;
   }
   const t = e.touches[0];
@@ -692,6 +830,28 @@ const onTouchMove = (e: TouchEvent): void => {
 const onTouchEnd = (e: TouchEvent): void => {
   const w = must();
   clearLongPressTimer();
+
+  if (pinchTail) {
+    // Still ≥2 fingers down (a third was lifted) — keep pinching, but
+    // re-baseline for the new hand shape.
+    if (e.touches.length >= 2) {
+      beginPinch(e);
+      return;
+    }
+    endPinch();
+    // The last finger is up: the episode is over and normal gestures
+    // resume with the next touchstart. Until then every remaining
+    // finger stays inert.
+    if (e.touches.length === 0) {
+      pinchTail = false;
+      lastTap = null;
+      // Materialize anything the zoom brought into view. applyViewport
+      // already scheduled a rAF cull pass per move; this is the same
+      // belt-and-braces call the drag-end path makes.
+      updateCulling();
+    }
+    return;
+  }
 
   if (isPainting()) {
     finishStroke();
@@ -910,16 +1070,44 @@ const finalizeLink = (link: LinkState, t: Touch | null): void => {
   clearProximity();
 };
 
-const onTouchCancel = (_e: TouchEvent): void => {
+const onTouchCancel = (e: TouchEvent): void => {
+  if (pinchTail) {
+    endPinch();
+    if (e.touches.length === 0) pinchTail = false;
+    lastTap = null;
+    return;
+  }
   abortGesture();
   lastTap = null;
 };
 
+// iOS Safari's non-standard gesturestart / gesturechange / gestureend.
+// `touch-action: none` is the standards-track lever and does the real
+// work, but Safari has historically kept its own pinch alive through
+// touch-action in a few situations (notably standalone / home-screen
+// mode), and preventDefault on these is the documented way to stop it.
+// Cheap belt-and-braces; harmless everywhere else since no other engine
+// fires them.
+//
+// Deliberately scoped to canvas surfaces. Anything else — most
+// importantly the help modal, which is a wall of small text — keeps the
+// browser's own magnification. A page that is `touch-action: none`
+// end-to-end traps low-vision users with no way to enlarge text, and
+// the canvas doesn't need that trade because it has its own zoom (with
+// a visible percentage and 50–800% clamps) bound to the same gesture.
+const onGesture = (e: Event): void => {
+  if (!onCanvasSurface(e.target)) return;
+  e.preventDefault();
+};
+
 export const attachTouchListeners = (): void => {
   // passive: false because we call preventDefault() to keep the page
-  // from scrolling / pinch-zooming under the gesture.
+  // from scrolling / zooming under the gesture.
   document.addEventListener("touchstart", onTouchStart, { passive: false });
   document.addEventListener("touchmove", onTouchMove, { passive: false });
   document.addEventListener("touchend", onTouchEnd);
   document.addEventListener("touchcancel", onTouchCancel);
+  for (const type of ["gesturestart", "gesturechange", "gestureend"]) {
+    document.addEventListener(type, onGesture, { passive: false });
+  }
 };

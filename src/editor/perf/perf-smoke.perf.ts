@@ -144,6 +144,9 @@ interface CulledResult {
   renderMs: number;
   panElements: number;
   panMs: number;
+  pinchElements: number;
+  pinchWorstFrame: number;
+  pinchMs: number;
   selAllToggles: number;
   selAllElements: number;
 }
@@ -382,6 +385,48 @@ describe("perf smoke: editor interaction DOM cost", () => {
       // rebuild regression (which would jump back to ~630).
       expect(panElements, "culled pan: elements created").toBeLessThanOrEqual(250);
 
+      // Pinch-zoom out from 100% to 50% over 12 frames (brain#24c).
+      // Pinch drives the SAME applyViewport → scheduleCullUpdate path
+      // as pan, so what this guards is that it stays on the
+      // incremental path: a pinch frame that fell back to renderAll
+      // would cost ~6,452 elements EVERY frame, which is exactly the
+      // regression the perf chain (#237/#238/#239/#23a) just removed.
+      // Zooming out to 50% quadruples the visible data area, so the
+      // whole gesture legitimately materializes the boxes entering the
+      // window — the ceiling is on that, not on the map size.
+      const PINCH_FRAMES = 12;
+      const cx = 912; // centre of the post-pan rect
+      const cy = 384;
+      let pinchElements = 0;
+      let pinchWorstFrame = 0;
+      t0 = performance.now();
+      for (let i = 1; i <= PINCH_FRAMES; i++) {
+        const s = 1 - 0.5 * (i / PINCH_FRAMES);
+        const halfW = 512 / s;
+        const halfH = 384 / s;
+        rect.current = {
+          x1: cx - halfW,
+          y1: cy - halfH,
+          x2: cx + halfW,
+          y2: cy + halfH,
+        };
+        handle.reset();
+        updateCulling();
+        pinchElements += c.elementsCreated;
+        if (c.elementsCreated > pinchWorstFrame) pinchWorstFrame = c.elementsCreated;
+      }
+      const pinchMs = performance.now() - t0;
+      // Measured: 408 elements total, 65 on the worst frame. Ceilings
+      // sit ~50% above and are absolute (no ·n term): a full-map
+      // rebuild on any single frame lands at 6,452 and trips the
+      // worst-frame check immediately, while a per-frame-churn
+      // regression trips the total.
+      expect(pinchElements, "culled pinch: elements created").toBeLessThanOrEqual(620);
+      expect(pinchWorstFrame, "culled pinch: worst single frame").toBeLessThanOrEqual(110);
+      // Restore the pre-pinch window for the select-all case below.
+      rect.current = { x1: 400, y1: 0, x2: 1424, y2: 768 };
+      updateCulling();
+
       // Select-all under culling: selection state covers all 1,200
       // boxes but class toggles / chrome creation only touch the
       // materialized subset.
@@ -403,6 +448,9 @@ describe("perf smoke: editor interaction DOM cost", () => {
         renderMs,
         panElements,
         panMs,
+        pinchElements,
+        pinchWorstFrame,
+        pinchMs,
         selAllToggles,
         selAllElements,
       };
@@ -458,6 +506,7 @@ afterAll(() => {
       `  ${fmt(LARGE)} boxes, culled 1024×768 viewport (#23a):`,
       `    initial render      ${fmt(r.renderElements)} els created, ${fmt(r.domNodes)} canvas DOM nodes, ${r.renderMs.toFixed(1)}ms`,
       `    pan +400px          ${fmt(r.panElements)} els created, ${r.panMs.toFixed(1)}ms`,
+      `    pinch 100%→50%      ${fmt(r.pinchElements)} els over 12 frames (worst ${fmt(r.pinchWorstFrame)}), ${r.pinchMs.toFixed(1)}ms`,
       `    select all ${fmt(LARGE)}     ${fmt(r.selAllToggles)} class toggles, ${fmt(r.selAllElements)} els (chrome)`,
     );
   }
