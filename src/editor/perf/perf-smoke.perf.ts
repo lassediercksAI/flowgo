@@ -98,7 +98,6 @@ const setup = (n: number): Harness => {
     setStatus: noop,
   });
   wireProximity({
-    canvas,
     currentMap: () => map,
     link: () => null,
     nearTargetId: () => nearId,
