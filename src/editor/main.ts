@@ -62,7 +62,7 @@ import {
   applyClasses,
   clearProximity,
   renderAll,
-  renderStrokes,
+  renderItems,
   scheduleCullUpdate,
   wireProximity,
   wireRender,
@@ -259,6 +259,7 @@ wireEdit({
   ensureMap,
   selected,
   renderAll: () => renderAll(),
+  renderItem: (id) => renderItems([id]),
   setStatus,
 });
 
@@ -329,7 +330,10 @@ wireBrush({
   mintId: () => uid("s"),
   strokeLayer: () => strokeLayer,
   currentMap: () => state,
-  afterCommit: () => renderStrokes(),
+  // Materialize just the committed stroke (#238); a discarded
+  // too-short stroke changed nothing (brush.ts already removed its
+  // preview polyline).
+  afterCommit: (id) => { if (id) renderItems([id]); },
   setStatus,
 });
 

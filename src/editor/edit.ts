@@ -39,6 +39,10 @@ interface EditBindings {
   readonly ensureMap: (path: string) => ReturnType<EditBindings["getCurrentMap"]>;
   readonly selected: Set<string>;
   readonly renderAll: () => void;
+  /** Incremental single-item rebuild (render.ts renderItems, #238) —
+   *  used on edit commit so ending a label edit touches one box, not
+   *  the whole canvas. */
+  readonly renderItem: (id: string) => void;
   readonly setStatus: (s: string) => void;
 }
 
@@ -185,7 +189,9 @@ export const startEdit = (
       w.setCurrentMap(w.ensureMap(cur));
       w.selected.delete(b.id);
       mutatedDoc();
-      w.renderAll();
+      // Only the spawned box (and its edges) went away — the
+      // incremental path removes exactly those elements (#238).
+      w.renderItem(b.id);
       w.setStatus("cancelled");
       return;
     }
@@ -197,9 +203,11 @@ export const startEdit = (
     // pluck out only the stray nodes the contenteditable inserted
     // is brittle (the browser sometimes wraps the label span in a
     // div, and a direct-child sweep then deletes the wrapper *and*
-    // the span). A full renderAll is heavier but guarantees the
-    // DOM matches state.
-    must().renderAll();
+    // the span). renderItem recreates this one box's element whole
+    // from state (#238) — same guarantee a full renderAll gave,
+    // minus the canvas-wide churn — and re-routes its incident
+    // edges (a longer label can change the box's size).
+    must().renderItem(b.id);
   };
   const onBlur = (): void => finish(true);
   const onKey = (e: KeyboardEvent): void => {

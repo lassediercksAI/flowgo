@@ -1,12 +1,26 @@
 // Rendering: produces the live DOM/SVG representation of the current
-// map. Each render function clears its layer and rebuilds from state,
-// which is heavy but predictable — there's no diffing to drift out of
-// sync. main.ts triggers re-renders whenever it mutates state and the
-// edit module ends a label edit.
+// map.
+//
+// Two granularities (brain#238):
+//
+//   renderAll / renderLines / renderStrokes / renderEdges clear their
+//   layer and rebuild from state — heavy but predictable, and the
+//   right tool for structural changes (map load/switch, import,
+//   undo/redo, collab remote patches, paste/clone, hex settling).
+//
+//   renderItems(ids) / renderEdgesFor(boxIds) update ONLY the named
+//   items: recreate (or add/remove) each item's element in place —
+//   positioned by map order so stacking matches a full render — and
+//   re-route only the edges incident to touched boxes. Single-item
+//   mutations (move / add / delete / relabel / repalette one box) go
+//   through this path, so their cost is O(changed items), not
+//   O(map). The sync guarantee stays simple: an item's element is
+//   always rebuilt whole from state; there is no per-property DOM
+//   diffing to drift.
 //
 // applyClasses runs alone when only selection / drop-target /
-// proximity classes change, so the heavy re-render isn't needed for
-// every selection click.
+// proximity classes change, so no re-render is needed for a
+// selection click.
 
 import {
   HANDLE_CODES,
@@ -204,13 +218,14 @@ export const wireRender = (b: RenderBindings): void => {
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-// id → live box element, rebuilt by every renderAll. Interaction code
-// (proximity, link targeting, band select) reads box elements through
-// this map instead of `canvas.querySelector('.box[data-id=…]')` —
-// each of those was a full-canvas scan, and doing one PER BOX per
-// mousemove made large maps unusable (brain#236: 215ms/event at 3,400
-// boxes). renderAll is the only place box elements are created, so
-// the map can never go stale while an element is alive.
+// id → live box element. Interaction code (proximity, link targeting,
+// band select) reads box elements through this map instead of
+// `canvas.querySelector('.box[data-id=…]')` — each of those was a
+// full-canvas scan, and doing one PER BOX per mousemove made large
+// maps unusable (brain#236: 215ms/event at 3,400 boxes). Every box
+// element is created by materializeBox and removed alongside its map
+// entry (renderAll wipe, updateCulling, renderItems), so an entry can
+// never outlive its element.
 const boxEls = new Map<string, HTMLElement>();
 
 export const getBoxEl = (id: string): HTMLElement | null =>
@@ -226,6 +241,23 @@ const textEls = new Map<string, HTMLElement>();
 const imageEls = new Map<string, HTMLElement>();
 const lineEls = new Map<string, SVGGElement>();
 const strokeEls = new Map<string, SVGGElement>();
+
+// Edge bookkeeping (brain#238). Edges have no ids, but their data
+// objects are stable for as long as the edge exists (mutation sites
+// splice/replace the array, then call renderEdges() full), so the
+// object itself is the key. Lets renderEdgesFor re-route one box's
+// incident edges in place instead of rebuilding the whole layer.
+const edgeEls = new Map<EdgeData, SVGGElement>();
+
+// id → box data, rebuilt by every full renderEdges and kept in sync
+// by renderItems. Replaces the per-edge `map.boxes.find()` scans that
+// made renderEdges O(boxes × edges) (#236 seam note).
+let boxById = new Map<string, BoxData>();
+
+const rebuildBoxIndex = (map: CurrentMap): void => {
+  boxById = new Map();
+  for (const b of map.boxes) boxById.set(b.id, b);
+};
 
 // Lazy box chrome (brain#239): the 8 link handles + 4 resize grips
 // are invisible except on the proximity-target / drop-target /
@@ -376,22 +408,52 @@ const imageWanted = (img: ImageData, cull: CullPass | null): boolean =>
 // re-culls every ~half margin of travel instead of every frame.
 let lastCullRect: CullRect | null = null;
 
+// First live element at or after `from` in `arr` — the insertBefore
+// anchor that puts a late-created element at its map position. A data
+// scan over Map lookups (no DOM reads); O(items) worst case, hit only
+// when materializing.
+const nextEl = <T extends { id: string }, E extends Element>(
+  arr: readonly T[],
+  from: number,
+  els: Map<string, E>,
+): E | null => {
+  for (let i = from; i < arr.length; i++) {
+    const el = els.get(arr[i]!.id);
+    if (el) return el;
+  }
+  return null;
+};
+
+// Canvas child order is boxes → texts → images (renderAll appends in
+// that order), so a box's anchor may fall through to the first live
+// text/image, and a text's to the first live image.
+const boxAnchor = (map: CurrentMap, i: number): HTMLElement | null =>
+  nextEl(map.boxes, i + 1, boxEls)
+  ?? nextEl(map.texts, 0, textEls)
+  ?? nextEl(map.images ?? [], 0, imageEls);
+
+const textAnchor = (map: CurrentMap, i: number): HTMLElement | null =>
+  nextEl(map.texts, i + 1, textEls)
+  ?? nextEl(map.images ?? [], 0, imageEls);
+
+const imageAnchor = (map: CurrentMap, i: number): HTMLElement | null =>
+  nextEl(map.images ?? [], i + 1, imageEls);
+
 // Materialize one box: element, map entry, handlers, label clamps.
-// Shared verbatim between renderAll's build loop and updateCulling's
-// pan-in path so a late-materialized box is indistinguishable from a
-// renderAll-built one (minus interaction classes, which the caller
-// bakes via the appliedState=null resync).
+// Shared verbatim between renderAll's build loop, updateCulling's
+// pan-in path and renderItems' rebuild path so a late-materialized
+// box is indistinguishable from a renderAll-built one (minus
+// interaction classes, which the caller bakes — via the
+// appliedState=null resync or bakeBoxState).
 //
-// Known micro-divergence: a late-materialized element appends at the
-// END of the canvas, so overlapping-item stacking can differ from a
-// full render (which appends in map order) until the next renderAll
-// restores it. Positioned insertion is #238's incremental-render
-// territory; not worth a per-materialization sibling search here.
+// `before` positions the element in map order (insertBefore; null =
+// append) so late-created elements stack exactly like a full render.
 const materializeBox = (
   w: RenderBindings,
   g: { maps: { path: string }[] },
   cur: string,
   b: BoxData,
+  before: HTMLElement | null = null,
 ): void => {
   const el = document.createElement("div");
   const palette = resolvePalette(b.palette);
@@ -429,7 +491,7 @@ const materializeBox = (
   // No handles / resize grips here: chrome attaches lazily via
   // applyClasses when the box becomes proximity-target / selected /
   // drop-target / resizing (brain#239, see attachBoxChrome above).
-  w.canvas.appendChild(el);
+  w.canvas.insertBefore(el, before);
   w.attachBoxHandlers(el, b);
   // Sized boxes clamp their label to the lines that fit the fixed
   // frame — must run after append so the measurements are live.
@@ -443,7 +505,11 @@ const materializeBox = (
   }
 };
 
-const materializeText = (w: RenderBindings, t: TextData): void => {
+const materializeText = (
+  w: RenderBindings,
+  t: TextData,
+  before: HTMLElement | null = null,
+): void => {
   const el = document.createElement("div");
   const tPalette = resolvePalette(t.palette);
   const tFont = resolveFont(t.font);
@@ -455,11 +521,15 @@ const materializeText = (w: RenderBindings, t: TextData): void => {
   el.style.left = t.x + "px";
   el.style.top = t.y + "px";
   el.textContent = t.label;
-  w.canvas.appendChild(el);
+  w.canvas.insertBefore(el, before);
   w.attachTextHandlers(el, t);
 };
 
-const materializeImage = (w: RenderBindings, img: ImageData): void => {
+const materializeImage = (
+  w: RenderBindings,
+  img: ImageData,
+  before: HTMLElement | null = null,
+): void => {
   const el = document.createElement("div");
   el.className = "image-item";
   el.dataset["id"] = img.id;
@@ -478,7 +548,7 @@ const materializeImage = (w: RenderBindings, img: ImageData): void => {
   const grip = document.createElement("div");
   grip.className = "image-resize-handle";
   el.appendChild(grip);
-  w.canvas.appendChild(el);
+  w.canvas.insertBefore(el, before);
   w.attachImageHandlers(el, img);
 };
 
@@ -532,6 +602,50 @@ const cullLayerRect = (): CullRect | null => {
   return raw ? expandRect(raw, CULL_MARGIN) : null;
 };
 
+// Build one stroke group. `selected` bakes in at build time from the
+// live selection — safe because every build path calls applyClasses
+// before the selection can change again (#237's force-toggle diff
+// then converges the snapshot).
+const materializeStroke = (
+  w: RenderBindings,
+  s: StrokeData,
+  before: SVGGElement | null = null,
+): SVGGElement => {
+  const d = strokePathD(s.points);
+  const g = document.createElementNS(SVG_NS, "g");
+  const pal = resolvePalette(s.palette);
+  g.setAttribute(
+    "class",
+    "stroke-group"
+      + (pal !== 1 ? " palette-" + pal : "")
+      + (w.selected.has(s.id) ? " selected" : ""),
+  );
+  g.dataset["id"] = s.id;
+  strokeEls.set(s.id, g);
+
+  const hit = document.createElementNS(SVG_NS, "path");
+  hit.setAttribute("class", "stroke-hit");
+  hit.setAttribute("d", d);
+  hit.setAttribute("fill", "none");
+  hit.setAttribute("stroke", "transparent");
+  hit.setAttribute("stroke-width", "12");
+  g.appendChild(hit);
+
+  const line = document.createElementNS(SVG_NS, "path");
+  line.setAttribute("class", "stroke-line");
+  line.setAttribute("d", d);
+  line.setAttribute("fill", "none");
+  g.appendChild(line);
+
+  // Selection + body-drag wiring lives in attach.ts (shared drag
+  // machinery, same as line bodies) — supplied via bindings to keep
+  // the render → attach dependency direction acyclic.
+  w.attachStrokeHandlers(g, s);
+
+  w.strokeLayer.insertBefore(g, before);
+  return g;
+};
+
 export const renderStrokes = (): void => {
   const w = must();
   w.strokeLayer.innerHTML = "";
@@ -541,39 +655,77 @@ export const renderStrokes = (): void => {
   for (const s of map.strokes ?? []) {
     if (!s.points || s.points.length < 2) continue;
     if (rect && !strokeVisible(s.points, rect)) continue;
-    const d = strokePathD(s.points);
-    const g = document.createElementNS(SVG_NS, "g");
-    const pal = resolvePalette(s.palette);
-    g.setAttribute(
-      "class",
-      "stroke-group"
-        + (pal !== 1 ? " palette-" + pal : "")
-        + (w.selected.has(s.id) ? " selected" : ""),
-    );
-    g.dataset["id"] = s.id;
-    strokeEls.set(s.id, g);
-
-    const hit = document.createElementNS(SVG_NS, "path");
-    hit.setAttribute("class", "stroke-hit");
-    hit.setAttribute("d", d);
-    hit.setAttribute("fill", "none");
-    hit.setAttribute("stroke", "transparent");
-    hit.setAttribute("stroke-width", "12");
-    g.appendChild(hit);
-
-    const line = document.createElementNS(SVG_NS, "path");
-    line.setAttribute("class", "stroke-line");
-    line.setAttribute("d", d);
-    line.setAttribute("fill", "none");
-    g.appendChild(line);
-
-    // Selection + body-drag wiring lives in attach.ts (shared drag
-    // machinery, same as line bodies) — supplied via bindings to keep
-    // the render → attach dependency direction acyclic.
-    w.attachStrokeHandlers(g, s);
-
-    w.strokeLayer.appendChild(g);
+    materializeStroke(w, s);
   }
+};
+
+// Build one line group (body + hit path + endpoint/mid handles).
+// Same bake-selected-at-build convention as materializeStroke.
+const materializeLine = (
+  w: RenderBindings,
+  l: LineData,
+  before: SVGGElement | null = null,
+): SVGGElement => {
+  const g = document.createElementNS(SVG_NS, "g");
+  const lPal = resolvePalette(l.palette);
+  g.setAttribute(
+    "class",
+    "line-group"
+      + (lPal !== 1 ? " palette-" + lPal : "")
+      + (w.selected.has(l.id) ? " selected" : ""),
+  );
+  g.dataset["id"] = l.id;
+  lineEls.set(l.id, g);
+
+  const d = linePathD(l);
+
+  const hit = document.createElementNS(SVG_NS, "path");
+  hit.setAttribute("class", "line-hit");
+  hit.setAttribute("d", d);
+  hit.setAttribute("fill", "none");
+  hit.setAttribute("stroke", "transparent");
+  hit.setAttribute("stroke-width", "12");
+  g.appendChild(hit);
+
+  const line = document.createElementNS(SVG_NS, "path");
+  line.setAttribute("class", "line-line");
+  line.setAttribute("d", d);
+  line.setAttribute("fill", "none");
+  g.appendChild(line);
+
+  const h1 = document.createElementNS(SVG_NS, "circle");
+  h1.setAttribute("class", "line-handle");
+  h1.setAttribute("cx", String(l.x1));
+  h1.setAttribute("cy", String(l.y1));
+  h1.setAttribute("r", "6");
+  h1.dataset["endpoint"] = "1";
+  g.appendChild(h1);
+
+  const h2 = document.createElementNS(SVG_NS, "circle");
+  h2.setAttribute("class", "line-handle");
+  h2.setAttribute("cx", String(l.x2));
+  h2.setAttribute("cy", String(l.y2));
+  h2.setAttribute("r", "6");
+  h2.dataset["endpoint"] = "2";
+  g.appendChild(h2);
+
+  const midHandles: SVGCircleElement[] = [];
+  for (let i = 0; i < (l.mids?.length ?? 0); i++) {
+    const [mx, my] = l.mids![i]!;
+    const mh = document.createElementNS(SVG_NS, "circle");
+    mh.setAttribute("class", "line-handle line-handle-mid");
+    mh.setAttribute("cx", String(mx));
+    mh.setAttribute("cy", String(my));
+    mh.setAttribute("r", "6");
+    mh.dataset["endpoint"] = "m";
+    mh.dataset["midIndex"] = String(i);
+    g.appendChild(mh);
+    midHandles.push(mh);
+  }
+
+  w.attachLineHandlers(g, line, hit, h1, h2, midHandles, l);
+  w.lineLayer.insertBefore(g, before);
+  return g;
 };
 
 export const renderLines = (): void => {
@@ -587,65 +739,7 @@ export const renderLines = (): void => {
     // both far off-screen still renders when its path crosses the
     // viewport (see lineVisible for the per-style test).
     if (rect && !lineVisible(l, rect)) continue;
-    const g = document.createElementNS(SVG_NS, "g");
-    const lPal = resolvePalette(l.palette);
-    g.setAttribute(
-      "class",
-      "line-group"
-        + (lPal !== 1 ? " palette-" + lPal : "")
-        + (w.selected.has(l.id) ? " selected" : ""),
-    );
-    g.dataset["id"] = l.id;
-    lineEls.set(l.id, g);
-
-    const d = linePathD(l);
-
-    const hit = document.createElementNS(SVG_NS, "path");
-    hit.setAttribute("class", "line-hit");
-    hit.setAttribute("d", d);
-    hit.setAttribute("fill", "none");
-    hit.setAttribute("stroke", "transparent");
-    hit.setAttribute("stroke-width", "12");
-    g.appendChild(hit);
-
-    const line = document.createElementNS(SVG_NS, "path");
-    line.setAttribute("class", "line-line");
-    line.setAttribute("d", d);
-    line.setAttribute("fill", "none");
-    g.appendChild(line);
-
-    const h1 = document.createElementNS(SVG_NS, "circle");
-    h1.setAttribute("class", "line-handle");
-    h1.setAttribute("cx", String(l.x1));
-    h1.setAttribute("cy", String(l.y1));
-    h1.setAttribute("r", "6");
-    h1.dataset["endpoint"] = "1";
-    g.appendChild(h1);
-
-    const h2 = document.createElementNS(SVG_NS, "circle");
-    h2.setAttribute("class", "line-handle");
-    h2.setAttribute("cx", String(l.x2));
-    h2.setAttribute("cy", String(l.y2));
-    h2.setAttribute("r", "6");
-    h2.dataset["endpoint"] = "2";
-    g.appendChild(h2);
-
-    const midHandles: SVGCircleElement[] = [];
-    for (let i = 0; i < (l.mids?.length ?? 0); i++) {
-      const [mx, my] = l.mids![i]!;
-      const mh = document.createElementNS(SVG_NS, "circle");
-      mh.setAttribute("class", "line-handle line-handle-mid");
-      mh.setAttribute("cx", String(mx));
-      mh.setAttribute("cy", String(my));
-      mh.setAttribute("r", "6");
-      mh.dataset["endpoint"] = "m";
-      mh.dataset["midIndex"] = String(i);
-      g.appendChild(mh);
-      midHandles.push(mh);
-    }
-
-    w.attachLineHandlers(g, line, hit, h1, h2, midHandles, l);
-    w.lineLayer.appendChild(g);
+    materializeLine(w, l);
   }
 };
 
@@ -792,71 +886,362 @@ export const applyClasses = (): void => {
   refreshContextBar();
 };
 
+// Anchor endpoints of an edge, measured from the endpoint elements
+// (offsetWidth/Height → endpointAnchor).
+const edgeGeometry = (
+  e: EdgeData,
+  a: BoxData,
+  b: BoxData,
+  ea: HTMLElement,
+  eb: HTMLElement,
+): { ax: number; ay: number; bx: number; by: number } => {
+  const acx = a.x + ea.offsetWidth / 2;
+  const acy = a.y + ea.offsetHeight / 2;
+  const bcx = b.x + eb.offsetWidth / 2;
+  const bcy = b.y + eb.offsetHeight / 2;
+  const [ax, ay] = endpointAnchor(a, ea, e.fromHandle, bcx, bcy);
+  const [bx, by] = endpointAnchor(b, eb, e.toHandle, acx, acy);
+  return { ax, ay, bx, by };
+};
+
+// Write the four line coordinates onto an existing edge group's hit +
+// visible children (fixed structure, see materializeEdge) — the
+// re-route primitive renderEdgesFor uses per incident edge.
+const setEdgeCoords = (
+  g: SVGGElement,
+  c: { ax: number; ay: number; bx: number; by: number },
+): void => {
+  const kids = g.children;
+  for (let i = 0; i < 2; i++) {
+    const el = kids[i];
+    if (!el) continue;
+    el.setAttribute("x1", String(c.ax));
+    el.setAttribute("y1", String(c.ay));
+    el.setAttribute("x2", String(c.bx));
+    el.setAttribute("y2", String(c.by));
+  }
+};
+
+// Build one edge group. Z-order within the edge layer is append-only:
+// edges are visually uniform 1px lines, so stacking among them is
+// imperceptible — not worth positioned insertion (unlike canvas items).
+const materializeEdge = (
+  w: RenderBindings,
+  e: EdgeData,
+  a: BoxData,
+  b: BoxData,
+  ea: HTMLElement,
+  eb: HTMLElement,
+  sel: EdgeData | null,
+): void => {
+  const c = edgeGeometry(e, a, b, ea, eb);
+
+  const g = document.createElementNS(SVG_NS, "g");
+  const ePal = resolvePalette(e.palette);
+  g.setAttribute(
+    "class",
+    "edge-group"
+      + (ePal !== 1 ? " palette-" + ePal : "")
+      + (e === sel ? " selected" : ""),
+  );
+
+  const hit = document.createElementNS(SVG_NS, "line");
+  hit.setAttribute("class", "edge-hit");
+  hit.setAttribute("stroke", "transparent");
+  hit.setAttribute("stroke-width", "12");
+  g.appendChild(hit);
+
+  const line = document.createElementNS(SVG_NS, "line");
+  line.setAttribute("class", "edge-line");
+  g.appendChild(line);
+
+  setEdgeCoords(g, c);
+
+  g.addEventListener("mousedown", (ev) => {
+    ev.stopPropagation();
+    w.setSelectedEdge(e);
+    w.selected.clear();
+    applyClasses();
+    renderEdges();
+    w.setStatus("edge selected — press Delete to remove");
+  });
+
+  edgeEls.set(e, g);
+  w.edgeLayer.appendChild(g);
+};
+
 export const renderEdges = (): void => {
   const w = must();
   w.edgeLayer.innerHTML = "";
+  edgeEls.clear();
   const map = w.currentMap();
+  // Full rebuild is the one place the box index refreshes wholesale —
+  // renderAll funnels through here, so a map switch can't leave stale
+  // box data behind for the incremental paths.
+  rebuildBoxIndex(map);
   const sel = w.selectedEdge();
   const rect = cullLayerRect();
   for (const e of map.edges) {
-    const a = map.boxes.find((b) => b.id === e.from);
-    const b = map.boxes.find((b) => b.id === e.to);
+    const a = boxById.get(e.from);
+    const b = boxById.get(e.to);
     if (!a || !b) continue;
     // Cull by the segment between the endpoint boxes (expanded by
     // EDGE_REACH for the anchor offsets) — an edge crossing the
     // viewport with both boxes off-screen still renders; its endpoint
     // boxes are force-materialized via requiredEdgeBoxIds so the
-    // element measuring below keeps working.
+    // element measuring keeps working.
     if (rect && !edgeVisible(a.x, a.y, b.x, b.y, rect)) continue;
-    const ea = w.canvas.querySelector<HTMLElement>(`.box[data-id="${a.id}"]`);
-    const eb = w.canvas.querySelector<HTMLElement>(`.box[data-id="${b.id}"]`);
+    const ea = boxEls.get(e.from);
+    const eb = boxEls.get(e.to);
     if (!ea || !eb) continue;
-    const acx = a.x + ea.offsetWidth / 2;
-    const acy = a.y + ea.offsetHeight / 2;
-    const bcx = b.x + eb.offsetWidth / 2;
-    const bcy = b.y + eb.offsetHeight / 2;
-    const [ax, ay] = endpointAnchor(a, ea, e.fromHandle, bcx, bcy);
-    const [bx, by] = endpointAnchor(b, eb, e.toHandle, acx, acy);
-
-    const g = document.createElementNS(SVG_NS, "g");
-    const ePal = resolvePalette(e.palette);
-    g.setAttribute(
-      "class",
-      "edge-group"
-        + (ePal !== 1 ? " palette-" + ePal : "")
-        + (e === sel ? " selected" : ""),
-    );
-
-    const hit = document.createElementNS(SVG_NS, "line");
-    hit.setAttribute("class", "edge-hit");
-    hit.setAttribute("x1", String(ax));
-    hit.setAttribute("y1", String(ay));
-    hit.setAttribute("x2", String(bx));
-    hit.setAttribute("y2", String(by));
-    hit.setAttribute("stroke", "transparent");
-    hit.setAttribute("stroke-width", "12");
-    g.appendChild(hit);
-
-    const line = document.createElementNS(SVG_NS, "line");
-    line.setAttribute("class", "edge-line");
-    line.setAttribute("x1", String(ax));
-    line.setAttribute("y1", String(ay));
-    line.setAttribute("x2", String(bx));
-    line.setAttribute("y2", String(by));
-    g.appendChild(line);
-
-    g.addEventListener("mousedown", (ev) => {
-      ev.stopPropagation();
-      w.setSelectedEdge(e);
-      w.selected.clear();
-      applyClasses();
-      renderEdges();
-      w.setStatus("edge selected — press Delete to remove");
-    });
-
-    w.edgeLayer.appendChild(g);
+    materializeEdge(w, e, a, b, ea, eb, sel);
   }
 };
+
+// Re-route ONLY the edges incident to `ids` (box ids; non-box ids in
+// the set simply match nothing, so callers can pass a mixed selection
+// verbatim). Surviving incident edges get their coordinates rewritten
+// in place; edges whose data / endpoints / visibility went away are
+// dropped; incident edges that newly became renderable materialize.
+// Non-incident edges are never touched — moving one box during a drag
+// costs O(degree), not O(edges) (#236/#23a seam notes).
+export const renderEdgesFor = (ids: ReadonlySet<string>): void => {
+  if (!bindings || ids.size === 0) return;
+  const w = must();
+  const map = w.currentMap();
+  const rect = cullLayerRect();
+  const sel = w.selectedEdge();
+  // Membership check for the stale pass. O(edges) data scan — same
+  // order as the materialize pass below, and pure Set inserts.
+  const live = new Set(map.edges);
+  for (const [e, g] of edgeEls) {
+    if (!ids.has(e.from) && !ids.has(e.to)) continue;
+    const a = boxById.get(e.from);
+    const b = boxById.get(e.to);
+    const ea = boxEls.get(e.from);
+    const eb = boxEls.get(e.to);
+    if (
+      !live.has(e) || !a || !b || !ea || !eb
+      || (rect !== null && !edgeVisible(a.x, a.y, b.x, b.y, rect))
+    ) {
+      g.remove();
+      edgeEls.delete(e);
+      continue;
+    }
+    setEdgeCoords(g, edgeGeometry(e, a, b, ea, eb));
+  }
+  for (const e of map.edges) {
+    if (!ids.has(e.from) && !ids.has(e.to)) continue;
+    if (edgeEls.has(e)) continue;
+    const a = boxById.get(e.from);
+    const b = boxById.get(e.to);
+    if (!a || !b) continue;
+    if (rect !== null && !edgeVisible(a.x, a.y, b.x, b.y, rect)) continue;
+    const ea = boxEls.get(e.from);
+    const eb = boxEls.get(e.to);
+    if (!ea || !eb) continue;
+    materializeEdge(w, e, a, b, ea, eb, sel);
+  }
+};
+
+// ── Incremental per-item render (brain#238) ─────────────────────
+// Bake the current interaction state onto a freshly rebuilt box
+// element. renderItems preserves the appliedState snapshot (surviving
+// elements keep their classes, so a full resync would be wasted work
+// AND the additive resync path never *clears* — see #237's seam
+// note); the one element it rebuilt must therefore arrive already
+// carrying the classes/chrome the snapshot+state say it has, exactly
+// like renderLines baking `selected` at build time. The trailing
+// applyClasses converges the snapshot; its toggles are absolute, so
+// any overlap is a no-op.
+const bakeBoxState = (id: string): void => {
+  const w = must();
+  const el = boxEls.get(id);
+  if (!el) return;
+  const dropId = w.dropTargetId();
+  const nearId = w.nearTargetId();
+  const resizeId = resizingBoxId();
+  const isSel = w.selected.has(id);
+  if (isSel || id === dropId || id === nearId || id === resizeId) {
+    // Fresh element: its chromed entry was dropped on removal, so
+    // this attaches (grips decided from the just-baked shape classes).
+    ensureBoxChrome(id);
+  }
+  if (isSel) el.classList.add("selected");
+  if (id === dropId) {
+    el.classList.add("drop-target");
+    const h = w.dropTargetHandle();
+    if (h !== null) toggleTargetHandle(id, h, true);
+  }
+  if (id === nearId) el.classList.add("proximity-target");
+  if (id === resizeId) el.classList.add("resizing");
+};
+
+// Remove whatever element carries `id` (the id was deleted from the
+// map). Boxes feed `touchedBoxes` so the caller drops their incident
+// edge elements too.
+const removeItemEls = (id: string, touchedBoxes: Set<string>): void => {
+  const b = boxEls.get(id);
+  if (b) {
+    b.remove();
+    boxEls.delete(id);
+    chromed.delete(id);
+  }
+  if (boxById.has(id)) {
+    // Covers culled boxes too (no element, but possibly materialized
+    // incident edges).
+    boxById.delete(id);
+    touchedBoxes.add(id);
+    return;
+  }
+  const t = textEls.get(id);
+  if (t) {
+    t.remove();
+    textEls.delete(id);
+    return;
+  }
+  const img = imageEls.get(id);
+  if (img) {
+    img.remove();
+    imageEls.delete(id);
+    return;
+  }
+  const l = lineEls.get(id);
+  if (l) {
+    l.remove();
+    lineEls.delete(id);
+    return;
+  }
+  const s = strokeEls.get(id);
+  if (s) {
+    s.remove();
+    strokeEls.delete(id);
+  }
+};
+
+// The single-item fast path: rebuild ONLY the named items' elements
+// from state — create the missing, remove the deleted, recreate the
+// changed in place (positioned by map order) — then re-route the
+// edges incident to any touched box. Everything else in the DOM is
+// untouched: classes, chrome, handlers and the appliedState snapshot
+// all survive.
+//
+// Callers use this for every single-item mutation funnel (label edit
+// commit, create/delete, palette/font/shape/size changes); renderAll
+// remains the fallback for structural changes (map switch, paste,
+// undo/redo, collab patches, hex settling) where per-id bookkeeping
+// isn't worth it.
+//
+// An item id that is present in the map materializes only if the cull
+// pass wants it (#23a) — mutating an off-screen item leaves it
+// element-less exactly like renderAll would.
+export const renderItems = (ids: Iterable<string>): void => {
+  const w = must();
+  const map = w.currentMap();
+  const g = w.graph();
+  const cur = w.currentPath();
+  const cull = computeCullPass(map);
+  const rect = cull ? cull.rect : null;
+  const touchedBoxes = new Set<string>();
+  let touchedAny = false;
+  for (const id of ids) {
+    touchedAny = true;
+    const bi = map.boxes.findIndex((b) => b.id === id);
+    if (bi >= 0) {
+      const b = map.boxes[bi]!;
+      boxById.set(id, b);
+      touchedBoxes.add(id);
+      const old = boxEls.get(id);
+      if (old) {
+        old.remove();
+        boxEls.delete(id);
+        chromed.delete(id);
+      }
+      if (boxWanted(b, cull)) {
+        materializeBox(w, g, cur, b, boxAnchor(map, bi));
+        bakeBoxState(id);
+      }
+      continue;
+    }
+    const ti = map.texts.findIndex((t) => t.id === id);
+    if (ti >= 0) {
+      const t = map.texts[ti]!;
+      const old = textEls.get(id);
+      if (old) {
+        old.remove();
+        textEls.delete(id);
+      }
+      if (textWanted(t, cull)) {
+        materializeText(w, t, textAnchor(map, ti));
+        if (w.selected.has(id)) textEls.get(id)!.classList.add("selected");
+      }
+      continue;
+    }
+    const images = map.images ?? [];
+    const ii = images.findIndex((im) => im.id === id);
+    if (ii >= 0) {
+      const im = images[ii]!;
+      const old = imageEls.get(id);
+      if (old) {
+        old.remove();
+        imageEls.delete(id);
+      }
+      if (imageWanted(im, cull)) {
+        materializeImage(w, im, imageAnchor(map, ii));
+        if (w.selected.has(id)) imageEls.get(id)!.classList.add("selected");
+      }
+      continue;
+    }
+    const li = map.lines.findIndex((l) => l.id === id);
+    if (li >= 0) {
+      const l = map.lines[li]!;
+      const anchor = nextEl(map.lines, li + 1, lineEls);
+      const old = lineEls.get(id);
+      if (old) {
+        old.remove();
+        lineEls.delete(id);
+      }
+      if (rect === null || lineVisible(l, rect)) {
+        materializeLine(w, l, anchor);
+      }
+      continue;
+    }
+    const strokes = map.strokes ?? [];
+    const si = strokes.findIndex((s) => s.id === id);
+    if (si >= 0) {
+      const s = strokes[si]!;
+      const anchor = nextEl(strokes, si + 1, strokeEls);
+      const old = strokeEls.get(id);
+      if (old) {
+        old.remove();
+        strokeEls.delete(id);
+      }
+      if (
+        s.points && s.points.length >= 2
+        && (rect === null || strokeVisible(s.points, rect))
+      ) {
+        materializeStroke(w, s, anchor);
+      }
+      continue;
+    }
+    // Not in the map anywhere: the item was deleted.
+    removeItemEls(id, touchedBoxes);
+  }
+  if (!touchedAny) return;
+  // Elements (and possibly rendered sizes) changed for the touched
+  // ids — cached rects in the proximity index are suspect.
+  invalidateProximityIndex();
+  // Normal diff pass (snapshot preserved): projects any state change
+  // the caller made alongside the data mutation, and re-ensures
+  // chrome entitlements.
+  applyClasses();
+  // A touched box's size/position moves its incident edge anchors;
+  // a deleted box's edges are gone from the data and must drop their
+  // elements. O(degree), never O(edges layer).
+  if (touchedBoxes.size > 0) renderEdgesFor(touchedBoxes);
+};
+
+export const renderItem = (id: string): void => renderItems([id]);
 
 // ── Cull refresh on pan/zoom (brain#23a) ────────────────────────
 // Pan/zoom is a pure CSS transform (viewport.ts applyViewport) — no
@@ -878,11 +1263,55 @@ export const updateCulling = (): void => {
   const g = w.graph();
   const cur = w.currentPath();
   let materialized = false;
-  for (const b of map.boxes) {
+  // Canvas child order is boxes → texts → images in map order, so the
+  // passes run REVERSED (images first, then texts, then boxes) with a
+  // running `anchor` — the nearest live element that follows in that
+  // order — and every materialization inserts before it. That keeps
+  // pan-in elements at their exact map position, closing the #23a
+  // z-order divergence (late elements used to append at the end).
+  let anchor: HTMLElement | null = null;
+  const images = map.images ?? [];
+  for (let i = images.length - 1; i >= 0; i--) {
+    const img = images[i]!;
+    const el = imageEls.get(img.id);
+    if (imageWanted(img, cull)) {
+      if (el) {
+        anchor = el;
+      } else {
+        materializeImage(w, img, anchor);
+        anchor = imageEls.get(img.id)!;
+        materialized = true;
+      }
+    } else if (el) {
+      el.remove();
+      imageEls.delete(img.id);
+    }
+  }
+  for (let i = map.texts.length - 1; i >= 0; i--) {
+    const t = map.texts[i]!;
+    const el = textEls.get(t.id);
+    if (textWanted(t, cull)) {
+      if (el) {
+        anchor = el;
+      } else {
+        materializeText(w, t, anchor);
+        anchor = textEls.get(t.id)!;
+        materialized = true;
+      }
+    } else if (el) {
+      el.remove();
+      textEls.delete(t.id);
+    }
+  }
+  for (let i = map.boxes.length - 1; i >= 0; i--) {
+    const b = map.boxes[i]!;
     const el = boxEls.get(b.id);
     if (boxWanted(b, cull)) {
-      if (!el) {
-        materializeBox(w, g, cur, b);
+      if (el) {
+        anchor = el;
+      } else {
+        materializeBox(w, g, cur, b, anchor);
+        anchor = boxEls.get(b.id)!;
         materialized = true;
       }
     } else if (el) {
@@ -891,30 +1320,6 @@ export const updateCulling = (): void => {
       // The chrome children died with the element; a stale `chromed`
       // entry would make ensureBoxChrome skip a re-materialized box.
       chromed.delete(b.id);
-    }
-  }
-  for (const t of map.texts) {
-    const el = textEls.get(t.id);
-    if (textWanted(t, cull)) {
-      if (!el) {
-        materializeText(w, t);
-        materialized = true;
-      }
-    } else if (el) {
-      el.remove();
-      textEls.delete(t.id);
-    }
-  }
-  for (const img of map.images ?? []) {
-    const el = imageEls.get(img.id);
-    if (imageWanted(img, cull)) {
-      if (!el) {
-        materializeImage(w, img);
-        materialized = true;
-      }
-    } else if (el) {
-      el.remove();
-      imageEls.delete(img.id);
     }
   }
   // Which boxes have elements (and their measured sizes) just changed.
@@ -931,12 +1336,78 @@ export const updateCulling = (): void => {
     appliedState = null;
     applyClasses();
   }
-  // The SVG layers rebuild wholesale (their render functions cull
-  // internally) — after culling they hold O(visible) items, so the
-  // rebuild is bounded by viewport density, not map size.
-  renderLines();
-  renderStrokes();
-  renderEdges();
+  // SVG layers update incrementally too (#238): pan/zoom never moves
+  // data coordinates, so surviving line/stroke/edge elements need
+  // ZERO attribute writes — only items crossing the visibility
+  // boundary are added/removed. Same reversed-iteration anchor trick
+  // keeps lines/strokes in map order; edges are append-only (see
+  // materializeEdge).
+  const rect = cull.rect;
+  cullLines(w, map, rect);
+  cullStrokes(w, map, rect);
+  cullEdges(w, map, rect);
+};
+
+const cullLines = (w: RenderBindings, map: CurrentMap, rect: CullRect): void => {
+  let anchor: SVGGElement | null = null;
+  for (let i = map.lines.length - 1; i >= 0; i--) {
+    const l = map.lines[i]!;
+    const el = lineEls.get(l.id);
+    if (lineVisible(l, rect)) {
+      anchor = el ?? materializeLine(w, l, anchor);
+    } else if (el) {
+      el.remove();
+      lineEls.delete(l.id);
+    }
+  }
+};
+
+const cullStrokes = (w: RenderBindings, map: CurrentMap, rect: CullRect): void => {
+  let anchor: SVGGElement | null = null;
+  const strokes = map.strokes ?? [];
+  for (let i = strokes.length - 1; i >= 0; i--) {
+    const s = strokes[i]!;
+    if (!s.points || s.points.length < 2) continue;
+    const el = strokeEls.get(s.id);
+    if (strokeVisible(s.points, rect)) {
+      anchor = el ?? materializeStroke(w, s, anchor);
+    } else if (el) {
+      el.remove();
+      strokeEls.delete(s.id);
+    }
+  }
+};
+
+const cullEdges = (w: RenderBindings, map: CurrentMap, rect: CullRect): void => {
+  // Box data may have shifted since the last full renderEdges (e.g. a
+  // drag that ended in this cull pass) — refresh the index; the cull
+  // pass is O(map) anyway.
+  rebuildBoxIndex(map);
+  const sel = w.selectedEdge();
+  for (const [e, g] of edgeEls) {
+    const a = boxById.get(e.from);
+    const b = boxById.get(e.to);
+    const keep =
+      a && b
+      && edgeVisible(a.x, a.y, b.x, b.y, rect)
+      && boxEls.has(e.from)
+      && boxEls.has(e.to);
+    if (!keep) {
+      g.remove();
+      edgeEls.delete(e);
+    }
+  }
+  for (const e of map.edges) {
+    if (edgeEls.has(e)) continue;
+    const a = boxById.get(e.from);
+    const b = boxById.get(e.to);
+    if (!a || !b) continue;
+    if (!edgeVisible(a.x, a.y, b.x, b.y, rect)) continue;
+    const ea = boxEls.get(e.from);
+    const eb = boxEls.get(e.to);
+    if (!ea || !eb) continue;
+    materializeEdge(w, e, a, b, ea, eb, sel);
+  }
 };
 
 // How far (data px) the viewport may drift from the last evaluated

@@ -10,7 +10,7 @@ import { primaryMod } from "./platform.ts";
 import {
   applyClasses,
   renderEdges,
-  renderLines,
+  renderItems,
 } from "./render.ts";
 import { mutatedLine } from "./mutations.ts";
 import {
@@ -401,8 +401,9 @@ export const attachLineHandlers = (
       renderEdges();
     }
     mutatedLine();
-    // Full re-render so the new mid handle is wired up.
-    renderLines();
+    // Rebuild just this line's group so the new mid handle exists and
+    // is wired (#238) — the rest of the line layer is untouched.
+    renderItems([l.id]);
     applyClasses();
   });
   // Endpoint drags.
@@ -470,7 +471,9 @@ export const attachLineHandlers = (
         if (l.mids.length === 0) delete l.mids;
       }
       mutatedLine();
-      renderLines();
+      // Per-line rebuild — re-attaches the mid handlers with fresh
+      // closure indices, same as the old full renderLines did (#238).
+      renderItems([l.id]);
       applyClasses();
     });
   }

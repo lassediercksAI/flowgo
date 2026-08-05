@@ -40,6 +40,7 @@ import {
   applyClasses,
   renderAll,
   renderEdges,
+  renderItems,
 } from "./render.ts";
 import { resetZoom } from "./viewport.ts";
 import { clearBoxResize, resizingBoxId, toggleBoxResize } from "./resize.ts";
@@ -324,10 +325,14 @@ export const applyShapeToSelection = (shape: number): boolean => {
     changed = true;
   }
   if (changed) {
-    if (anyHex) settleHexBoxes(map.boxes);
+    // Hex settling can shove OTHER boxes onto free lattice cells, so
+    // a settle that moved anything falls back to the full rebuild;
+    // otherwise only the selected boxes changed shape (#238).
+    const settled = anyHex ? settleHexBoxes(map.boxes) : false;
     clearBoxResize();
     mutatedCurrentMap();
-    renderAll();
+    if (settled) renderAll();
+    else renderItems(w.selected);
     w.setStatus("shape: " + (SHAPE_NAMES[shape] ?? "rectangle"));
   }
   return changed;
@@ -479,7 +484,7 @@ export const attachKeyboardListener = (): void => {
           delete box.h;
           clearBoxResize();
           mutatedBox();
-          renderAll();
+          renderItems([id]);
           w.setStatus("auto-size restored for " + id);
         }
         return;
@@ -528,7 +533,12 @@ export const attachKeyboardListener = (): void => {
       if (applyPalette(palette)) {
         e.preventDefault();
         mutatedCurrentMap();
-        renderAll();
+        // Only the selected items changed (#238). A selected EDGE
+        // lives outside the id set — its palette bakes into the edge
+        // group's class, so rebuild the edge layer when one is
+        // selected.
+        renderItems(w.selected);
+        if (w.selectedEdge()) renderEdges();
       }
       return;
     }
@@ -557,7 +567,7 @@ export const attachKeyboardListener = (): void => {
       if (fontChanged || styleChanged) {
         e.preventDefault();
         mutatedCurrentMap();
-        renderAll();
+        renderItems(w.selected);
       }
       return;
     }
@@ -577,7 +587,7 @@ export const attachKeyboardListener = (): void => {
       if (stepFont(dir as 1 | -1)) {
         e.preventDefault();
         mutatedCurrentMap();
-        renderAll();
+        renderItems(w.selected);
       }
       return;
     }
@@ -589,7 +599,8 @@ export const attachKeyboardListener = (): void => {
       if (stepPalette(dir as 1 | -1)) {
         e.preventDefault();
         mutatedCurrentMap();
-        renderAll();
+        renderItems(w.selected);
+        if (w.selectedEdge()) renderEdges();
       }
       return;
     }

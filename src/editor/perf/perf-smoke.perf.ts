@@ -15,7 +15,8 @@
 //   initial render of a large map            (#238, #239, #23a)
 //   idle mousemove → updateProximity         (#236)
 //   selection change → applyClasses          (#237)
-//   single-box mutation → full renderAll     (#238)
+//   single-box mutation → renderItems        (#238)
+//   box move → renderEdgesFor re-route       (#238)
 //
 // Counts are identical on every machine for the same code + fixture,
 // so CI can gate on them without wall-clock flakiness. Ceilings are
@@ -37,6 +38,8 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   applyClasses,
   renderAll,
+  renderEdgesFor,
+  renderItems,
   updateCulling,
   updateProximity,
   wireProximity,
@@ -128,6 +131,9 @@ interface SizeResult {
   bandElements: number;
   mutationElements: number;
   mutationMs: number;
+  rerouteIncident: number;
+  rerouteAttrSets: number;
+  rerouteElements: number;
 }
 
 const results = new Map<number, SizeResult>();
@@ -212,16 +218,36 @@ const runScenarios = (n: number): SizeResult => {
     h.selected.clear();
     applyClasses();
 
-    // ── single-box mutation → renderAll ──────────────────────────
-    // What main.ts does after any mutation: full rebuild. #238 will
-    // make this incremental; the metric shows the (currently huge)
-    // element churn for a one-label change.
+    // ── single-box mutation → renderItems ────────────────────────
+    // What the editor does after a one-item mutation since #238:
+    // rebuild just that item's element (div + label span) and
+    // re-route its incident edges. Used to be a full renderAll —
+    // 6,452 elements recreated at 1,200 boxes for a one-label change.
     h.map.boxes[0]!.label = "mutated";
     handle.reset();
     t0 = performance.now();
-    renderAll();
+    renderItems(["b0"]);
     const mutationMs = performance.now() - t0;
     const mutationElements = c.elementsCreated;
+
+    // ── box move → renderEdgesFor ────────────────────────────────
+    // What a drag mousemove does since #238: re-route ONLY the moved
+    // box's incident edges, in place (setAttribute on the existing
+    // line elements — no element churn, no full edge-layer rebuild).
+    // Move a box that is guaranteed to have at least one edge (the
+    // fixture wires edges between random neighbours, so a fixed id
+    // like b1 may have none).
+    const movedId = h.map.edges[0]!.from;
+    const rerouteIncident = h.map.edges.filter(
+      (e) => e.from === movedId || e.to === movedId,
+    ).length;
+    const moved = h.map.boxes.find((b) => b.id === movedId)!;
+    moved.x += 30;
+    moved.y += 20;
+    handle.reset();
+    renderEdgesFor(new Set([movedId]));
+    const rerouteAttrSets = c.attrSets;
+    const rerouteElements = c.elementsCreated;
 
     return {
       n,
@@ -240,6 +266,9 @@ const runScenarios = (n: number): SizeResult => {
       bandElements,
       mutationElements,
       mutationMs,
+      rerouteIncident,
+      rerouteAttrSets,
+      rerouteElements,
     };
   } finally {
     handle.uninstall();
@@ -290,10 +319,19 @@ describe("perf smoke: editor interaction DOM cost", () => {
     expect(r.bandToggles, "band-select: class toggles").toBeLessThanOrEqual(0.65 * n + 30);
     expect(r.bandElements, "band-select: elements created").toBeLessThanOrEqual(6.5 * n + 30);
 
-    // A one-label mutation currently pays a full rebuild. Ceiling =
-    // no WORSE than a full rebuild (+25%); #238 should collapse this
-    // to O(1) and then pin it down hard.
-    expect(r.mutationElements, "single-box mutation: elements created").toBeLessThanOrEqual(r.renderElements * 1.25);
+    // Incremental single-item render (#238): a one-label mutation
+    // recreates the box's own elements (div + label span = 2) and
+    // NOTHING else — down from a full rebuild (6,452 at 1,200 boxes).
+    // Ceiling 20 = O(1) with headroom for per-item structure growth,
+    // never O(map).
+    expect(r.mutationElements, "single-box mutation: elements created").toBeLessThanOrEqual(20);
+
+    // Moving one box re-routes only its incident edges (#238), in
+    // place: 8 attribute writes per incident edge (x1/y1/x2/y2 on hit
+    // + visible line), zero element churn, regardless of map size.
+    expect(r.rerouteIncident, "box-move re-route: fixture sanity (moved box has edges)").toBeGreaterThanOrEqual(1);
+    expect(r.rerouteElements, "box-move re-route: elements created").toBe(0);
+    expect(r.rerouteAttrSets, "box-move re-route: attribute writes").toBeLessThanOrEqual(8 * r.rerouteIncident + 8);
   });
 
   // ── viewport culling (#23a) ──────────────────────────────────
@@ -337,10 +375,12 @@ describe("perf smoke: editor interaction DOM cost", () => {
       updateCulling();
       const panMs = performance.now() - t0;
       const panElements = c.elementsCreated;
-      // 626 measured — the SVG layers rebuild wholesale on a cull
-      // update (the boxes are incremental), so pan cost ≈ one culled
-      // render. #238's incremental machinery can shrink this further.
-      expect(panElements, "culled pan: elements created").toBeLessThanOrEqual(850);
+      // 147 measured since #238 made the SVG layers incremental per
+      // cull step (was 626 when lines/strokes/edges rebuilt
+      // wholesale): only items entering the viewport materialize.
+      // 250 keeps ~70% headroom while still catching any wholesale-
+      // rebuild regression (which would jump back to ~630).
+      expect(panElements, "culled pan: elements created").toBeLessThanOrEqual(250);
 
       // Select-all under culling: selection state covers all 1,200
       // boxes but class toggles / chrome creation only touch the
@@ -408,7 +448,8 @@ afterAll(() => {
       `    move w/ new target  ${fmt(r.moveChangeQueries)} DOM queries`,
       `    select 1 box        ${fmt(r.selQueries)} queries, ${fmt(r.selToggles)} class toggles, ${fmt(r.selElements)} els (chrome), ${r.selMs.toFixed(1)}ms`,
       `    band-select ${fmt(r.n / 2)}   ${fmt(r.bandQueries)} queries, ${fmt(r.bandToggles)} class toggles, ${fmt(r.bandElements)} els (chrome)`,
-      `    1-box mutation      ${fmt(r.mutationElements)} els recreated, ${r.mutationMs.toFixed(1)}ms`,
+      `    1-box mutation      ${fmt(r.mutationElements)} els recreated (renderItems), ${r.mutationMs.toFixed(1)}ms`,
+      `    1-box move reroute  ${fmt(r.rerouteAttrSets)} attr writes / ${fmt(r.rerouteIncident)} incident edges, ${fmt(r.rerouteElements)} els`,
     );
   }
   if (culledResult) {

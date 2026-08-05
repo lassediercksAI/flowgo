@@ -25,7 +25,7 @@ import {
   mutatedLine,
   mutatedText,
 } from "./mutations.ts";
-import { applyClasses, renderAll, renderEdges } from "./render.ts";
+import { applyClasses, getBoxEl, renderEdges, renderItems } from "./render.ts";
 
 interface BoxLike {
   id: string;
@@ -113,8 +113,10 @@ export const createBoxAt = (
   const id = w.mintId();
   const b: BoxLike = { id, label: "new", x, y };
   w.currentMap().boxes.push(b);
-  renderAll();
-  const el = w.canvas.querySelector<HTMLElement>(`.box[data-id="${id}"]`);
+  // One new box → incremental materialization (#238); the rest of the
+  // canvas is untouched.
+  renderItems([id]);
+  const el = getBoxEl(id);
   if (el && centerOn) {
     b.x = centerOn.x - el.offsetWidth / 2;
     b.y = centerOn.y - el.offsetHeight / 2;
@@ -153,9 +155,9 @@ const createHexBoxAt = (center: { x: number; y: number }): void => {
     shape: 1,
   };
   boxes.push(b);
-  renderAll();
+  renderItems([id]);
   mutatedBox();
-  const el = w.canvas.querySelector<HTMLElement>(`.box[data-id="${id}"]`);
+  const el = getBoxEl(id);
   if (el) {
     w.selected.clear();
     w.selected.add(id);
@@ -187,9 +189,9 @@ const createFixedShapeBoxAt = (
     shape,
   };
   w.currentMap().boxes.push(b);
-  renderAll();
+  renderItems([id]);
   mutatedBox();
-  const el = w.canvas.querySelector<HTMLElement>(`.box[data-id="${id}"]`);
+  const el = getBoxEl(id);
   if (el) {
     w.selected.clear();
     w.selected.add(id);
@@ -227,7 +229,7 @@ export const spawnBoxForLinkDrop = (
       { x: dropX, y: dropY };
     b = { id, label: "new", x: c.x - HEX_W / 2, y: c.y - HEX_H / 2, shape: 1 };
     boxes.push(b);
-    renderAll();
+    renderItems([id]);
   } else if (defSize) {
     b = {
       id,
@@ -237,14 +239,14 @@ export const spawnBoxForLinkDrop = (
       shape: defShape,
     };
     boxes.push(b);
-    renderAll();
+    renderItems([id]);
   } else {
     b = { id, label: "new", x: dropX, y: dropY };
     boxes.push(b);
-    renderAll();
+    renderItems([id]);
     // Rectangles auto-size to their label, so centre on the drop
     // point only after the element exists and can be measured.
-    const el = w.canvas.querySelector<HTMLElement>(`.box[data-id="${id}"]`);
+    const el = getBoxEl(id);
     if (el) {
       b.x = dropX - el.offsetWidth / 2;
       b.y = dropY - el.offsetHeight / 2;
@@ -252,7 +254,7 @@ export const spawnBoxForLinkDrop = (
       el.style.top = b.y + "px";
     }
   }
-  const el = w.canvas.querySelector<HTMLElement>(`.box[data-id="${id}"]`);
+  const el = getBoxEl(id);
   return el ? { box: b, el } : null;
 };
 
@@ -268,7 +270,7 @@ export const createTextAt = (
   if (palette && palette >= 2 && palette <= 9) t.palette = palette;
   if (font && font >= 2 && font <= 9) t.font = font;
   w.currentMap().texts.push(t);
-  renderAll();
+  renderItems([id]);
   const el = w.canvas.querySelector<HTMLElement>(`.text-item[data-id="${id}"]`);
   if (el) {
     t.x = cx - el.offsetWidth / 2;
@@ -307,7 +309,7 @@ export const createLineSegment = (
     w.clearSelectedEdge();
     renderEdges();
   }
-  renderAll();
+  renderItems([id]);
   mutatedLine();
 };
 
@@ -342,5 +344,8 @@ export const deleteSelection = (): void => {
   w.setCurrentMap(w.ensureMap(cur));
   sel.clear();
   mutatedDoc();
-  renderAll();
+  // Per-id removal (#238): each deleted id drops exactly its element
+  // (and, for boxes, its incident edge elements via renderEdgesFor) —
+  // O(deleted), not a full canvas rebuild.
+  renderItems(ids);
 };

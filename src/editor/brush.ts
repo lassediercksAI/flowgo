@@ -18,7 +18,12 @@ interface BrushBindings {
   readonly mintId: () => string;
   readonly strokeLayer: () => SVGGElement;
   readonly currentMap: () => { strokes?: Array<unknown> };
-  readonly afterCommit: () => void; // call renderStrokes
+  /** Called after a stroke finishes. `committedId` is the id of the
+   *  stroke just added to the map, or null when the stroke was too
+   *  short to keep — so the caller can materialize just the new
+   *  stroke (render.ts renderItems, #238) instead of rebuilding the
+   *  whole layer. */
+  readonly afterCommit: (committedId: string | null) => void;
   readonly setStatus: (s: string) => void;
 }
 
@@ -149,6 +154,13 @@ export const finishStroke = (): void => {
   if (!active) return;
   // ε ≈ 1.5px — drops hand-tremor samples without rounding intentional curves.
   const simplified = simplifyStroke(active.points, 1.5);
+  // The live preview polyline group is throwaway either way: on
+  // commit the renderer builds the real stroke group from state
+  // (previously the full renderStrokes wiped it along with the
+  // layer; the incremental path doesn't wipe, so remove it here).
+  const g = active.polyEl.parentNode;
+  if (g && g.parentNode) g.parentNode.removeChild(g);
+  let committedId: string | null = null;
   if (simplified.length >= 2) {
     const m = must().currentMap();
     const stroke: { id: string; points: typeof simplified; palette?: number } = {
@@ -158,10 +170,8 @@ export const finishStroke = (): void => {
     if (active.palette >= 2) stroke.palette = active.palette;
     (m.strokes ??= []).push(stroke);
     mutatedStroke();
-  } else {
-    const g = active.polyEl.parentNode;
-    if (g && g.parentNode) g.parentNode.removeChild(g);
+    committedId = stroke.id;
   }
   active = null;
-  must().afterCommit();
+  must().afterCommit(committedId);
 };

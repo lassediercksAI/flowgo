@@ -21,6 +21,9 @@ export interface DomCounters {
   domQueries: number;
   /** classList.toggle calls (the applyClasses write primitive). */
   classToggles: number;
+  /** Element.setAttribute calls (the SVG geometry write primitive —
+   *  what an edge re-route or line update costs, #238). */
+  attrSets: number;
 }
 
 export interface CounterHandle {
@@ -34,6 +37,7 @@ export const installCounters = (): CounterHandle => {
     elementsCreated: 0,
     domQueries: 0,
     classToggles: 0,
+    attrSets: 0,
   };
 
   const origCreate = document.createElement.bind(document);
@@ -41,6 +45,7 @@ export const installCounters = (): CounterHandle => {
   const elemProto = Element.prototype;
   const origQS = elemProto.querySelector;
   const origQSA = elemProto.querySelectorAll;
+  const origSetAttr = elemProto.setAttribute;
   const tokenProto = DOMTokenList.prototype;
   const origToggle = tokenProto.toggle;
 
@@ -60,6 +65,10 @@ export const installCounters = (): CounterHandle => {
     counters.domQueries++;
     return origQSA.apply(this, args);
   } as Element["querySelectorAll"];
+  elemProto.setAttribute = function (this: Element, ...args: [string, string]) {
+    counters.attrSets++;
+    return origSetAttr.apply(this, args);
+  };
   tokenProto.toggle = function (this: DOMTokenList, ...args: [string, boolean?]) {
     counters.classToggles++;
     return origToggle.apply(this, args);
@@ -71,12 +80,14 @@ export const installCounters = (): CounterHandle => {
       counters.elementsCreated = 0;
       counters.domQueries = 0;
       counters.classToggles = 0;
+      counters.attrSets = 0;
     },
     uninstall: () => {
       document.createElement = origCreate;
       document.createElementNS = origCreateNS;
       elemProto.querySelector = origQS;
       elemProto.querySelectorAll = origQSA;
+      elemProto.setAttribute = origSetAttr;
       tokenProto.toggle = origToggle;
     },
   };

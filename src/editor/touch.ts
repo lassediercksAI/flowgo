@@ -44,6 +44,7 @@ import {
   clearProximity,
   renderAll,
   renderEdges,
+  renderEdgesFor,
   updateCulling,
   updateProximity,
 } from "./render.ts";
@@ -647,7 +648,9 @@ const onTouchMove = (e: TouchEvent): void => {
     if (drag.active) {
       // Touch has no shift key — pass null so movers skip grid snap.
       for (const m of drag.movers) m.apply(sdx, sdy, null);
-      renderEdges();
+      // Re-route only the dragged boxes' incident edges (#238),
+      // mirroring mouse.ts's drag branch.
+      renderEdgesFor(w.selected);
       armDeleteZone(isOverDeleteZone(t.clientY));
     }
     return;

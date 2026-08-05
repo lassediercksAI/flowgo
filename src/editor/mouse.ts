@@ -17,6 +17,8 @@ import {
   nearestBoxId,
   renderAll,
   renderEdges,
+  renderEdgesFor,
+  renderItems,
   updateCulling,
   updateProximity,
 } from "./render.ts";
@@ -190,7 +192,12 @@ const onMouseMove = (e: MouseEvent): void => {
     }
     if (drag.active) {
       for (const m of drag.movers) m.apply(sdx, sdy, e);
-      renderEdges();
+      // Only the dragged (= selected) boxes' incident edges can move;
+      // non-box ids in the selection match nothing (#238). This runs
+      // per mousemove, so O(degree) instead of a full edge-layer
+      // rebuild is the difference between a smooth and a janky drag
+      // on big maps.
+      renderEdgesFor(w.selected);
     }
     return;
   }
@@ -650,7 +657,9 @@ const onBgDblClick = (e: MouseEvent): void => {
     if (hit) {
       cancelPendingLine();
       mutatedLine();
-      renderAll();
+      // Rebuild just the touched line so its new mid handle exists
+      // and is wired (#238).
+      renderItems([hit.id]);
     }
     return;
   }

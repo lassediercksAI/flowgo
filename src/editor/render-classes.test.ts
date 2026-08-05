@@ -17,6 +17,7 @@ import { HANDLE_CODES } from "../graph/handle.ts";
 import {
   applyClasses,
   renderAll,
+  renderItems,
   renderLines,
   renderStrokes,
   wireRender,
@@ -330,9 +331,20 @@ describe("applyClasses (diff-based)", () => {
         h.state.dropHandle = maybeNull(pick(HANDLE_CODES));
       } else if (r < 0.8) {
         h.state.nearId = maybeNull(pick(boxIds));
-      } else if (r < 0.9) {
+      } else if (r < 0.88) {
         toggleBoxResize(pick(boxIds));
-      } else if (r < 0.96) {
+      } else if (r < 0.93) {
+        // Incremental single-item rebuild (#238): mutate a random
+        // box's data and rebuild just its element. The fresh element
+        // must arrive with the exact classes + chrome the full sweep
+        // would give it (bakeBoxState), and the preserved snapshot
+        // must keep diffing correctly afterwards.
+        const id = pick(boxIds);
+        const box = h.map.boxes.find((b) => b.id === id)!;
+        if (rng() < 0.5) box.label = "fuzz " + step;
+        else box.palette = 1 + Math.floor(rng() * 9);
+        renderItems([id]);
+      } else if (r < 0.97) {
         renderLines();
         renderStrokes();
       } else {
