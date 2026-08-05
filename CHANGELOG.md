@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.8](https://github.com/lassediercks/flowgo/compare/v0.3.7...v0.3.8) (2026-08-05)
+
+
+### Bug Fixes
+
+* **editor:** pinch-zoom the canvas, not the whole page ([cf1f50a](https://github.com/lassediercks/flowgo/commit/cf1f50adeeb0375b322cf8501c57a2c9c873cf63))
+
 ## [0.3.7](https://github.com/lassediercks/flowgo/compare/v0.3.6...v0.3.7) (2026-08-05)
 
 
