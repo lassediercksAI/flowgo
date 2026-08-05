@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -326,38 +325,40 @@ func mcpToolError(msg string) map[string]any {
 }
 
 // ---------------------------------------------------------------------------
-// File-backed graph helpers (local mode).
+// File-backed graph helpers (local mode). Backed by the cached store
+// in localfile.go: reads reuse the last parsed graph unless the file
+// changed on disk, writes are atomic (temp+rename). See that file's
+// package comment for the model.
 // ---------------------------------------------------------------------------
 
 func updateFile(f func(g *Graph) error) (Graph, error) {
 	cfg.LocalFileMu.Lock()
 	defer cfg.LocalFileMu.Unlock()
-	data, err := os.ReadFile(cfg.LocalFile)
+	g, err := localGraphLocked()
 	if err != nil {
 		return Graph{}, err
 	}
-	g, err := parse(string(data))
-	if err != nil {
-		return Graph{}, err
-	}
-	if err := f(&g); err != nil {
+	if err := f(g); err != nil {
+		// The mutator may have half-applied before erroring; the cache
+		// no longer matches disk, so drop it. Disk keeps the old bytes.
+		resetLocalCacheLocked()
 		return Graph{}, err
 	}
 	g.Version = cfg.Version()
-	if err := os.WriteFile(cfg.LocalFile, []byte(serialize(g)), 0644); err != nil {
+	if err := persistLocalGraphLocked(); err != nil {
 		return Graph{}, err
 	}
-	return g, nil
+	return cloneGraph(*g), nil
 }
 
 func readFile() (Graph, error) {
 	cfg.LocalFileMu.Lock()
 	defer cfg.LocalFileMu.Unlock()
-	data, err := os.ReadFile(cfg.LocalFile)
+	g, err := localGraphLocked()
 	if err != nil {
 		return Graph{}, err
 	}
-	return parse(string(data))
+	return cloneGraph(*g), nil
 }
 
 func ensureMapAt(g *Graph, path string) *NamedMap {

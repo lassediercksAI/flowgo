@@ -159,7 +159,7 @@ func main() {
 				}},
 			})
 		}
-		if err := os.WriteFile(filePath, []byte(seed), 0644); err != nil {
+		if err := flowgo.AtomicWriteFile(filePath, []byte(seed)); err != nil {
 			die("create file: %v", err)
 		}
 		createdFile = true
@@ -195,7 +195,7 @@ func main() {
 		if g.DefaultShape == 0 {
 			g.DefaultShape = 1
 			g.Version = resolveVersionString()
-			if err := os.WriteFile(filePath, []byte(graph.Serialize(g)), 0644); err != nil {
+			if err := flowgo.AtomicWriteFile(filePath, []byte(graph.Serialize(g))); err != nil {
 				die("--hexagon: write %s: %v", filePath, err)
 			}
 			fmt.Printf("default shape of %s set to hexagon (defaultshape 1)\n", filePath)
@@ -346,15 +346,13 @@ func listenFirstFree(host string, start, end int) (net.Listener, error) {
 	return nil, lastErr
 }
 
+// handleState serves the parsed document as JSON. The read goes
+// through the library's cached store (which locks fileMu itself, via
+// Config.LocalFileMu): the file is only re-read and re-parsed when its
+// mtime/size changed since the last access, so repeated loads of a
+// large map don't pay the full parse each time.
 func handleState(w http.ResponseWriter, r *http.Request) {
-	fileMu.Lock()
-	defer fileMu.Unlock()
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	g, err := graph.Parse(string(data))
+	g, err := flowgo.LocalGraph()
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -363,6 +361,10 @@ func handleState(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(g)
 }
 
+// handleSave persists the editor's full-document payload. Version
+// stamping and the atomic write (temp+rename — a crash mid-save can
+// never truncate the map) live in flowgo.SaveLocalGraph, which also
+// takes fileMu via Config.LocalFileMu.
 func handleSave(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", 405)
@@ -373,10 +375,7 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	fileMu.Lock()
-	defer fileMu.Unlock()
-	g.Version = resolveVersionString()
-	if err := os.WriteFile(filePath, []byte(graph.Serialize(g)), 0644); err != nil {
+	if err := flowgo.SaveLocalGraph(g); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -489,9 +488,10 @@ func migrateFileToCurrentFormat(path string) (bool, error) {
 		return false, nil
 	}
 	// Rewriting anyway — stamp the writer honestly, exactly like a
-	// normal /save would.
+	// normal /save would. Atomic (temp+rename) so a crash during the
+	// one-shot migration can't leave a half-rewritten map.
 	g.Version = resolveVersionString()
-	if err := os.WriteFile(path, []byte(graph.Serialize(g)), 0644); err != nil {
+	if err := flowgo.AtomicWriteFile(path, []byte(graph.Serialize(g))); err != nil {
 		return false, err
 	}
 	return true, nil

@@ -99,6 +99,9 @@ func Configure(c Config) {
 		c.LocalFileMu = &sync.Mutex{}
 	}
 	cfg = c
+	// The parsed-file cache (localfile.go) is keyed to cfg.LocalFile;
+	// re-configuring may point at a different file, so start cold.
+	resetLocalCacheLocked()
 }
 
 // MCPHandler is the JSON-RPC MCP HTTP handler. Configure must run first.
