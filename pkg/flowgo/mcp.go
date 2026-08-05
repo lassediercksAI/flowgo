@@ -27,6 +27,12 @@ const mcpProtocolVersion = "2025-06-18"
 // snapshot body cap: matches the website's /save and /import.flowgo limits.
 const snapshotBodyCap = 1 << 20 // 1 MiB
 
+// mcpBodyCap bounds a single /mcp JSON-RPC request body. A set_state
+// carrying a whole graph is the largest legitimate call; 32 MiB leaves
+// generous headroom while preventing an unbounded body from OOMing the
+// host (reachable unauthenticated on the bind address with --host).
+const mcpBodyCap = 32 << 20 // 32 MiB
+
 // mcpInstructions is the agent-facing primer the MCP `initialize`
 // response carries in its top-level `instructions` field. Most MCP
 // clients surface this string to the model verbatim, so it's the
@@ -218,6 +224,12 @@ func handleMCP(w http.ResponseWriter, r *http.Request) {
 	// they simply resolve to an unlinked, anonymous session, exactly
 	// like the pre-auth behaviour.
 	sessionID := r.Header.Get(mcpSessionHeader)
+
+	// Bound the JSON-RPC body. Unbounded, a single client on the bind
+	// address can OOM the process with one oversized request (e.g. a
+	// set_state carrying a giant graph). mcpBodyCap is comfortably above
+	// any real tool call while keeping the decode's peak memory bounded.
+	r.Body = http.MaxBytesReader(w, r.Body, mcpBodyCap)
 
 	var req mcpReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

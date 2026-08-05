@@ -20,6 +20,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/lassediercks/flowgo/pkg/flowgo"
 	"github.com/lassediercks/flowgo/pkg/graph"
@@ -68,6 +69,27 @@ var mediaTypeByExt = map[string]string{
 
 func mediaDir() string {
 	return filepath.Join(filepath.Dir(filePath), mediaDirName)
+}
+
+// dirSize sums the sizes of the regular files directly in dir (the
+// media folder is flat — no subdirs). A missing dir is 0, not an error.
+func dirSize(dir string) (int64, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	var total int64
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		total += info.Size()
+	}
+	return total, nil
 }
 
 func main() {
@@ -279,7 +301,18 @@ func main() {
 		fmt.Printf("  (also reachable on http://localhost:%d from this machine)\n", addr.Port)
 	}
 	maybeNotifyNewVersion()
-	if err := http.Serve(ln, nil); err != nil {
+	// Timeouts matter once --host exposes this on 0.0.0.0: the zero-value
+	// http.Server has no read deadline, so slow/idle clients (slowloris)
+	// pin a goroutine + connection indefinitely and exhaust the host.
+	// Handler nil uses DefaultServeMux, where the routes above registered.
+	srv := &http.Server{
+		Handler:           nil,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		WriteTimeout:      120 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+	if err := srv.Serve(ln); err != nil {
 		die("serve: %v", err)
 	}
 }
@@ -370,6 +403,12 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST only", 405)
 		return
 	}
+	// Cap the body: json.Decode on an unbounded reader lets any client on
+	// the bind address (0.0.0.0 with --host) drive the process to OOM with
+	// one large POST — the decode holds the whole document, then serialize
+	// + atomic-write hold more copies. maxSaveBytes is generous for real
+	// maps (the largest fixtures are <200 KiB) while keeping RAM bounded.
+	r.Body = http.MaxBytesReader(w, r.Body, maxSaveBytes)
 	var g graph.Graph
 	if err := json.NewDecoder(r.Body).Decode(&g); err != nil {
 		http.Error(w, err.Error(), 400)
@@ -386,6 +425,19 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 // rejected rather than silently written — a mind-map isn't a photo
 // library, and huge inlined assets bloat the working directory.
 const maxMediaBytes = 25 << 20 // 25 MiB
+
+// maxSaveBytes caps the /save request body. A .flowgo document is text;
+// even a very large hand-built map is a few MiB. The cap exists to stop
+// an unauthenticated LAN client (the --host case) from OOMing the host
+// with a single oversized POST, not to constrain real use.
+const maxSaveBytes = 32 << 20 // 32 MiB
+
+// maxMediaDirBytes caps the total on-disk size of the flowgo-media/
+// folder. Uploads are content-addressed (dedup'd), but distinct bytes
+// each write a new, never-collected file — without a ceiling a LAN
+// client can fill the disk 25 MiB at a time. When the folder is already
+// at/over the cap, further uploads are refused.
+const maxMediaDirBytes = 512 << 20 // 512 MiB
 
 // handleMediaUpload accepts a raw image body (Content-Type set to the
 // image MIME) and writes it into the flowgo-media/ folder under a
@@ -429,6 +481,18 @@ func handleMediaUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	dst := filepath.Join(dir, name)
 	if _, err := os.Stat(dst); os.IsNotExist(err) {
+		// New (non-dedup) asset: refuse if the folder is already at its
+		// ceiling, so a LAN client can't fill the disk one upload at a
+		// time. Dedup hits (dst exists) skip this — they add no bytes.
+		used, err := dirSize(dir)
+		if err != nil {
+			http.Error(w, "stat media dir: "+err.Error(), 500)
+			return
+		}
+		if used+int64(len(data)) > maxMediaDirBytes {
+			http.Error(w, "media storage full", http.StatusInsufficientStorage)
+			return
+		}
 		if err := os.WriteFile(dst, data, 0644); err != nil {
 			http.Error(w, "write media: "+err.Error(), 500)
 			return

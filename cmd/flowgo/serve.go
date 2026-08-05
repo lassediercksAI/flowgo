@@ -126,7 +126,14 @@ func runServe(args []string) {
 	fmt.Printf("    GET  /m/<id>     → editor HTML (bootstraps from /api/snapshot/<id>)\n")
 	fmt.Printf("    GET  /version    → %s\n", resolveVersionString())
 	fmt.Println()
-	if err := http.Serve(ln, mux); err != nil {
+	srv := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		WriteTimeout:      120 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+	if err := srv.Serve(ln); err != nil {
 		die("serve: %v", err)
 	}
 }
