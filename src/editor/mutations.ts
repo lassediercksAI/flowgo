@@ -13,6 +13,8 @@
 //                   collab plugin) can scope its diff to the right
 //                   kind of change without a 30-site audit.
 
+import { invalidateProximityIndex } from "./proximity-index.ts";
+
 export type MutationKind =
   | "box"
   | "edge"
@@ -45,6 +47,14 @@ export const wireMutations = (b: MutationBindings): void => {
 
 const fire = (kind: MutationKind): void => {
   if (!bindings) throw new Error("mutations: wireMutations() not called");
+  // Positions/sizes may have changed, so cached box rects in the
+  // proximity index are suspect. This chokepoint is what covers the
+  // one geometry change that does NOT go through renderAll: a box
+  // drag mutates b.x/b.y live and only fires mutatedCurrentMap() on
+  // release. Invalidation is a flag-set; the rebuild is lazy, so
+  // over-invalidating (edge/text/stroke mutations) costs nothing
+  // until the next proximity query.
+  invalidateProximityIndex();
   bindings.scheduleSave();
   if (bindings.onMutate) {
     const mapPath = bindings.getMapPath ? bindings.getMapPath() : "/";

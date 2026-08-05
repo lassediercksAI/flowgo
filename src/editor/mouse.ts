@@ -11,9 +11,10 @@
 
 import { GRID_MAJOR, applyViewport, toDataX, toDataY, viewport, zoomAt } from "./viewport.ts";
 import {
-  PROXIMITY_PX,
   applyClasses,
   clearProximity,
+  getBoxEl,
+  nearestBoxId,
   renderAll,
   renderEdges,
   updateProximity,
@@ -151,22 +152,8 @@ const findBoxAt = (x: number, y: number): HTMLElement | null => {
     const box = (el as HTMLElement).closest?.(".box");
     if (box) return box as HTMLElement;
   }
-  const cx = toDataX(x);
-  const cy = toDataY(y);
-  let best: HTMLElement | null = null;
-  let bestD = Infinity;
-  for (const b of w.currentMap().boxes) {
-    const el = w.canvas.querySelector<HTMLElement>(`.box[data-id="${b.id}"]`);
-    if (!el) continue;
-    const ddx = Math.max(b.x - cx, 0, cx - (b.x + el.offsetWidth));
-    const ddy = Math.max(b.y - cy, 0, cy - (b.y + el.offsetHeight));
-    const d = Math.hypot(ddx, ddy);
-    if (d < bestD) {
-      bestD = d;
-      best = el;
-    }
-  }
-  return bestD <= PROXIMITY_PX ? best : null;
+  const id = nearestBoxId(toDataX(x), toDataY(y), null);
+  return id ? getBoxEl(id) : null;
 };
 
 const onMouseMove = (e: MouseEvent): void => {
@@ -319,7 +306,7 @@ const onMouseUp = (e: MouseEvent): void => {
       // boxes must not silently drag the axis line underneath along.
       let solidHits = 0;
       for (const b of map.boxes) {
-        const el = w.canvas.querySelector<HTMLElement>(`.box[data-id="${b.id}"]`);
+        const el = getBoxEl(b.id);
         if (!el) continue;
         const bx2 = b.x + el.offsetWidth;
         const by2 = b.y + el.offsetHeight;

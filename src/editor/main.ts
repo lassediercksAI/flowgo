@@ -172,7 +172,6 @@ wireRender({
 });
 
 wireProximity({
-  canvas,
   currentMap: () => state,
   link: () => link,
   nearTargetId: () => nearTargetId,

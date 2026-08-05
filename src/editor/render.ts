@@ -20,6 +20,7 @@ import { refreshContextBar } from "./contextbar.ts";
 import { clearBoxResize, resizingBoxId } from "./resize.ts";
 import { shapeLabelClampFrac, updateFixedShapeLabelClamp, updateSizedLabelClamp } from "./label-clamp.ts";
 import { fixedShapeSize } from "../graph/shape.ts";
+import { invalidateProximityIndex, nearestBoxWithin } from "./proximity-index.ts";
 
 // Corner codes for the resize grips, clockwise from top-left. Matches
 // the ResizeCorner type in movers.ts; the code doubles as the CSS
@@ -189,9 +190,35 @@ export const wireRender = (b: RenderBindings): void => {
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
+// id → live box element, rebuilt by every renderAll. Interaction code
+// (proximity, link targeting, band select) reads box elements through
+// this map instead of `canvas.querySelector('.box[data-id=…]')` —
+// each of those was a full-canvas scan, and doing one PER BOX per
+// mousemove made large maps unusable (brain#236: 215ms/event at 3,400
+// boxes). renderAll is the only place box elements are created, so
+// the map can never go stale while an element is alive.
+const boxEls = new Map<string, HTMLElement>();
+
+export const getBoxEl = (id: string): HTMLElement | null =>
+  boxEls.get(id) ?? null;
+
+// Measurer for the proximity index: rendered size of a box, or null
+// when it has no element (skipped, like the old querySelector loop
+// did). Only called on index rebuild — all reads happen in one batch,
+// so at most one forced layout per rebuild instead of per-box reads
+// on every mousemove.
+const getBoxSize = (id: string): { w: number; h: number } | null => {
+  const el = boxEls.get(id);
+  return el ? { w: el.offsetWidth, h: el.offsetHeight } : null;
+};
+
 export const renderAll = (): void => {
   const w = must();
   w.canvas.innerHTML = "";
+  boxEls.clear();
+  // Elements (and possibly sizes) were just rebuilt — cached rects in
+  // the proximity index are meaningless now.
+  invalidateProximityIndex();
   const map = w.currentMap();
   const g = w.graph();
   const cur = w.currentPath();
@@ -205,6 +232,7 @@ export const renderAll = (): void => {
       + (palette !== 1 ? " palette-" + palette : "")
       + (font !== 1 ? " font-" + font : "");
     el.dataset["id"] = b.id;
+    boxEls.set(b.id, el);
     el.style.left = b.x + "px";
     el.style.top = b.y + "px";
     const fixed = fixedShapeSize(b.shape);
@@ -521,7 +549,6 @@ export const renderEdges = (): void => {
 export const PROXIMITY_PX = 60;
 
 interface ProximityBindings {
-  readonly canvas: HTMLElement;
   readonly currentMap: () => { boxes: BoxData[] };
   readonly link: () => { fromId: string } | null;
   readonly nearTargetId: () => string | null;
@@ -538,27 +565,32 @@ export const wireProximity = (b: ProximityBindings): void => {
   proxBindings = b;
 };
 
+// Nearest box within the link-targeting radius of a data-space point,
+// via the spatial index (see proximity-index.ts) — O(cells near the
+// cursor) per call instead of the old O(boxes × DOM) querySelector
+// sweep. Shared by updateProximity below and findBoxAt's halo
+// fallback in mouse.ts so the hover cue and the actual drop keep
+// using one radius and one distance function.
+export const nearestBoxId = (
+  cx: number,
+  cy: number,
+  excludeId: string | null,
+): string | null => {
+  const w = proxMust();
+  return nearestBoxWithin(
+    w.currentMap().boxes,
+    getBoxSize,
+    cx,
+    cy,
+    PROXIMITY_PX,
+    excludeId,
+  );
+};
+
 export const updateProximity = (cx: number, cy: number): void => {
   const w = proxMust();
-  let best: string | null = null;
-  let bestD = Infinity;
   const link = w.link();
-  for (const b of w.currentMap().boxes) {
-    if (link && b.id === link.fromId) continue;
-    const el = w.canvas.querySelector<HTMLElement>(`.box[data-id="${b.id}"]`);
-    if (!el) continue;
-    const x1 = b.x;
-    const y1 = b.y;
-    const x2 = b.x + el.offsetWidth;
-    const y2 = b.y + el.offsetHeight;
-    const ddx = Math.max(x1 - cx, 0, cx - x2);
-    const ddy = Math.max(y1 - cy, 0, cy - y2);
-    const d = Math.hypot(ddx, ddy);
-    if (d < bestD && d <= PROXIMITY_PX) {
-      bestD = d;
-      best = b.id;
-    }
-  }
+  const best = nearestBoxId(cx, cy, link ? link.fromId : null);
   if (best !== w.nearTargetId()) {
     w.setNearTargetId(best);
     applyClasses();
