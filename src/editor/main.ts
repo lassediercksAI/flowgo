@@ -22,8 +22,13 @@ import {
 import { attachHelpListeners } from "./help.ts";
 import {
   recenter as recenterPure,
+  toDataX,
+  toDataY,
+  wireViewportCullHook,
   withSuppressedViewSync,
 } from "./viewport.ts";
+import { wireCulling } from "./culling.ts";
+import { editingId } from "./edit.ts";
 import { isBrushMode, wireBrush } from "./brush.ts";
 import { wireDefaultShape } from "./default-shape.ts";
 import { wireLine } from "./line.ts";
@@ -58,6 +63,7 @@ import {
   clearProximity,
   renderAll,
   renderStrokes,
+  scheduleCullUpdate,
   wireProximity,
   wireRender,
 } from "./render.ts";
@@ -177,6 +183,27 @@ wireProximity({
   nearTargetId: () => nearTargetId,
   setNearTargetId: (id) => { nearTargetId = id; },
 });
+
+// Viewport culling (#23a): only items within the on-screen data-space
+// rect (+ margin, see render.ts/culling.ts) get DOM. The provider maps
+// the window corners into data space — zoom and pan are both captured
+// by toDataX/toDataY. Pan/zoom funnels through applyViewport, whose
+// cull hook re-evaluates the visible set (rAF-throttled) without a
+// full re-render.
+wireCulling({
+  viewport: () => ({
+    x1: toDataX(0),
+    y1: toDataY(0),
+    x2: toDataX(window.innerWidth),
+    y2: toDataY(window.innerHeight),
+  }),
+  // Never cull the box/text with a live inline label edit.
+  exemptIds: () => {
+    const id = editingId();
+    return id ? [id] : [];
+  },
+});
+wireViewportCullHook(scheduleCullUpdate);
 
 wireNavigation({
   getGraph: () => graph,

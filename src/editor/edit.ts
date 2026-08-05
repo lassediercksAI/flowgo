@@ -55,6 +55,13 @@ export const wireEdit = (b: EditBindings): void => {
 let editing: HTMLElement | null = null;
 export const isEditing = (): boolean => editing !== null;
 
+// Id of the box/text currently being edited, if any. Viewport culling
+// (#23a) exempts it from removal: this module owns a live
+// contenteditable on that element, and destroying it mid-edit (e.g. a
+// wheel-pan while typing) would strand the blur/keydown lifecycle.
+export const editingId = (): string | null =>
+  editing?.dataset?.["id"] ?? null;
+
 // readEditableText reads the current contenteditable contents preserving
 // Shift+Enter line breaks. innerText is the right tool here: it walks
 // the rendered text tree and emits `\n` for `<br>` and block boundaries

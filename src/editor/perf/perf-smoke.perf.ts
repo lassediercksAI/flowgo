@@ -37,10 +37,12 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   applyClasses,
   renderAll,
+  updateCulling,
   updateProximity,
   wireProximity,
   wireRender,
 } from "../render.ts";
+import { wireCulling, type CullRect } from "../culling.ts";
 import { installCounters } from "./counters.ts";
 import { makeStressMap, type FixtureMap } from "./fixture.ts";
 
@@ -129,6 +131,18 @@ interface SizeResult {
 }
 
 const results = new Map<number, SizeResult>();
+
+interface CulledResult {
+  renderElements: number;
+  domNodes: number;
+  renderMs: number;
+  panElements: number;
+  panMs: number;
+  selAllToggles: number;
+  selAllElements: number;
+}
+
+let culledResult: CulledResult | null = null;
 
 const fmt = (v: number): string => Math.round(v).toLocaleString("en-US");
 
@@ -282,6 +296,82 @@ describe("perf smoke: editor interaction DOM cost", () => {
     expect(r.mutationElements, "single-box mutation: elements created").toBeLessThanOrEqual(r.renderElements * 1.25);
   });
 
+  // ── viewport culling (#23a) ──────────────────────────────────
+  // Large map, small viewport: with a cull provider wired, the DOM
+  // must be bounded by VIEWPORT density, not map size. Ceilings here
+  // are absolute (no ·n term on the canvas layer) — growing the map
+  // must not grow the materialized element count.
+  it("culled viewport: DOM tracks the visible subset, not the map", () => {
+    const h = setup(LARGE);
+    const rect: { current: CullRect } = {
+      current: { x1: 0, y1: 0, x2: 1024, y2: 768 },
+    };
+    wireCulling({ viewport: () => rect.current });
+    const handle = installCounters();
+    const c = handle.counters;
+    try {
+      // Initial render of the 1,200-box map through a 1024×768 window.
+      handle.reset();
+      let t0 = performance.now();
+      renderAll();
+      const renderMs = performance.now() - t0;
+      const renderElements = c.elementsCreated;
+      const domNodes = h.canvas.getElementsByTagName("*").length;
+      // Canvas layer (boxes + texts): bounded by viewport density.
+      // ~60 grid-visible boxes + edge-required endpoints at 2 els
+      // each = 150 nodes measured; 200 gives headroom without ever
+      // letting a map-sized (2·n = 2,400) regression through.
+      expect(domNodes, "culled render: canvas DOM nodes").toBeLessThanOrEqual(200);
+      // Total elements incl. SVG layers (long random fixture lines
+      // cross the window from far away, so lines dominate): 629
+      // measured; 850 keeps ~35% headroom, still ~8× under the
+      // unculled 6,452.
+      expect(renderElements, "culled render: elements created").toBeLessThanOrEqual(850);
+
+      // Pan far enough to shift the materialization window (~2 grid
+      // columns): the incremental update materializes the new strip
+      // and drops the old one — element churn stays viewport-bounded.
+      rect.current = { x1: 400, y1: 0, x2: 1424, y2: 768 };
+      handle.reset();
+      t0 = performance.now();
+      updateCulling();
+      const panMs = performance.now() - t0;
+      const panElements = c.elementsCreated;
+      // 626 measured — the SVG layers rebuild wholesale on a cull
+      // update (the boxes are incremental), so pan cost ≈ one culled
+      // render. #238's incremental machinery can shrink this further.
+      expect(panElements, "culled pan: elements created").toBeLessThanOrEqual(850);
+
+      // Select-all under culling: selection state covers all 1,200
+      // boxes but class toggles / chrome creation only touch the
+      // materialized subset.
+      for (const b of h.map.boxes) h.selected.add(b.id);
+      handle.reset();
+      applyClasses();
+      const selAllToggles = c.classToggles;
+      const selAllElements = c.elementsCreated;
+      // 94 toggles / 1,128 chrome els measured (visible boxes + lines
+      // only) vs 1,200+ / 14,400 if selection ever went map-sized.
+      expect(selAllToggles, "culled select-all: class toggles").toBeLessThanOrEqual(130);
+      expect(selAllElements, "culled select-all: chrome elements").toBeLessThanOrEqual(1500);
+      h.selected.clear();
+      applyClasses();
+
+      culledResult = {
+        renderElements,
+        domNodes,
+        renderMs,
+        panElements,
+        panMs,
+        selAllToggles,
+        selAllElements,
+      };
+    } finally {
+      handle.uninstall();
+      wireCulling(null);
+    }
+  });
+
   it("per-interaction work scales no worse than linearly in box count", () => {
     const s = results.get(SMALL);
     const l = results.get(LARGE);
@@ -319,6 +409,15 @@ afterAll(() => {
       `    select 1 box        ${fmt(r.selQueries)} queries, ${fmt(r.selToggles)} class toggles, ${fmt(r.selElements)} els (chrome), ${r.selMs.toFixed(1)}ms`,
       `    band-select ${fmt(r.n / 2)}   ${fmt(r.bandQueries)} queries, ${fmt(r.bandToggles)} class toggles, ${fmt(r.bandElements)} els (chrome)`,
       `    1-box mutation      ${fmt(r.mutationElements)} els recreated, ${r.mutationMs.toFixed(1)}ms`,
+    );
+  }
+  if (culledResult) {
+    const r = culledResult;
+    lines.push(
+      `  ${fmt(LARGE)} boxes, culled 1024×768 viewport (#23a):`,
+      `    initial render      ${fmt(r.renderElements)} els created, ${fmt(r.domNodes)} canvas DOM nodes, ${r.renderMs.toFixed(1)}ms`,
+      `    pan +400px          ${fmt(r.panElements)} els created, ${r.panMs.toFixed(1)}ms`,
+      `    select all ${fmt(LARGE)}     ${fmt(r.selAllToggles)} class toggles, ${fmt(r.selAllElements)} els (chrome)`,
     );
   }
   lines.push("");

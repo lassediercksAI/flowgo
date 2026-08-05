@@ -21,6 +21,20 @@ import { clearBoxResize, resizingBoxId } from "./resize.ts";
 import { shapeLabelClampFrac, updateFixedShapeLabelClamp, updateSizedLabelClamp } from "./label-clamp.ts";
 import { fixedShapeSize } from "../graph/shape.ts";
 import { invalidateProximityIndex, nearestBoxWithin } from "./proximity-index.ts";
+import {
+  CULL_MARGIN,
+  boxVisible,
+  cullExemptIds,
+  cullViewportRect,
+  expandRect,
+  edgeVisible,
+  imageVisible,
+  lineVisible,
+  requiredEdgeBoxIds,
+  strokeVisible,
+  textVisible,
+  type CullRect,
+} from "./culling.ts";
 
 // Corner codes for the resize grips, clockwise from top-left. Matches
 // the ResizeCorner type in movers.ts; the code doubles as the CSS
@@ -306,6 +320,168 @@ const getBoxSize = (id: string): { w: number; h: number } | null => {
   return el ? { w: el.offsetWidth, h: el.offsetHeight } : null;
 };
 
+// ── Viewport culling (brain#23a) ────────────────────────────────
+// One cull evaluation: the margin-expanded viewport rect plus the id
+// sets that OVERRIDE the geometric test. null = culling inactive
+// (nothing wired the provider) → every item materializes, which is the
+// pre-#23a behaviour and what all non-culling tests run under.
+interface CullPass {
+  readonly raw: CullRect;
+  readonly rect: CullRect;
+  readonly required: ReadonlySet<string>;
+  readonly exempt: ReadonlySet<string>;
+}
+
+const computeCullPass = (map: CurrentMap): CullPass | null => {
+  const raw = cullViewportRect();
+  if (!raw) return null;
+  const rect = expandRect(raw, CULL_MARGIN);
+  const w = must();
+  // Interaction ids the culler must never remove: their elements are
+  // load-bearing mid-gesture (proximity/drop cue chrome, resize mode,
+  // link source, inline edit via the wired exemptIds) even when the
+  // box itself sits off-screen. Selection is deliberately NOT exempt —
+  // select-all on a 50k map must not force 50k elements into the DOM;
+  // a selected box that scrolls back in gets its classes baked on
+  // arrival instead (see updateCulling's appliedState reset).
+  const exempt = cullExemptIds();
+  const add = (id: string | null | undefined): void => {
+    if (id) exempt.add(id);
+  };
+  add(w.dropTargetId());
+  add(w.nearTargetId());
+  add(resizingBoxId());
+  const link = proxBindings ? proxBindings.link() : null;
+  add(link?.fromId);
+  add(link?.handleEl?.parentElement?.dataset?.["id"]);
+  return { raw, rect, required: requiredEdgeBoxIds(map, rect), exempt };
+};
+
+const boxWanted = (b: BoxData, cull: CullPass | null): boolean =>
+  cull === null
+  || cull.exempt.has(b.id)
+  || cull.required.has(b.id)
+  || boxVisible(b, cull.rect);
+
+const textWanted = (t: TextData, cull: CullPass | null): boolean =>
+  cull === null || cull.exempt.has(t.id) || textVisible(t, cull.rect);
+
+const imageWanted = (img: ImageData, cull: CullPass | null): boolean =>
+  cull === null || cull.exempt.has(img.id) || imageVisible(img, cull.rect);
+
+// The raw viewport rect the last cull evaluation ran against. Used by
+// scheduleCullUpdate to skip re-evaluating while the viewport has
+// moved less than CULL_REEVAL_SLACK — the margin guarantees anything
+// inside `slack` of the old rect is still materialized, so panning
+// re-culls every ~half margin of travel instead of every frame.
+let lastCullRect: CullRect | null = null;
+
+// Materialize one box: element, map entry, handlers, label clamps.
+// Shared verbatim between renderAll's build loop and updateCulling's
+// pan-in path so a late-materialized box is indistinguishable from a
+// renderAll-built one (minus interaction classes, which the caller
+// bakes via the appliedState=null resync).
+//
+// Known micro-divergence: a late-materialized element appends at the
+// END of the canvas, so overlapping-item stacking can differ from a
+// full render (which appends in map order) until the next renderAll
+// restores it. Positioned insertion is #238's incremental-render
+// territory; not worth a per-materialization sibling search here.
+const materializeBox = (
+  w: RenderBindings,
+  g: { maps: { path: string }[] },
+  cur: string,
+  b: BoxData,
+): void => {
+  const el = document.createElement("div");
+  const palette = resolvePalette(b.palette);
+  const font = resolveFont(b.font);
+  el.className = "box"
+    + (b.shape === 1 ? " hex" : b.shape === 2 ? " circle" : b.shape === 3 ? " tri" : "")
+    + (hasSubmapContent(g, cur, b.id) ? " has-submap" : "")
+    + (palette !== 1 ? " palette-" + palette : "")
+    + (font !== 1 ? " font-" + font : "");
+  el.dataset["id"] = b.id;
+  boxEls.set(b.id, el);
+  el.style.left = b.x + "px";
+  el.style.top = b.y + "px";
+  const fixed = fixedShapeSize(b.shape);
+  if (fixed) {
+    // Special shapes are uniform and never resizable: always their
+    // fixed footprint (for hexagons the lattice snap math in
+    // ../graph/hex.ts depends on every hexagon sharing exactly this
+    // size). Takes precedence over any stray w/h from the resize
+    // feature.
+    el.style.width = fixed.w + "px";
+    el.style.height = fixed.h + "px";
+  } else if (b.w && b.h) {
+    // Explicit size (resize feature): pin width/height and switch on
+    // the `sized` class so CSS centers the label inside the fixed
+    // frame instead of the box hugging its content.
+    el.style.width = b.w + "px";
+    el.style.height = b.h + "px";
+    el.classList.add("sized");
+  }
+  const label = document.createElement("span");
+  label.className = "box-label";
+  label.textContent = b.label;
+  el.appendChild(label);
+  // No handles / resize grips here: chrome attaches lazily via
+  // applyClasses when the box becomes proximity-target / selected /
+  // drop-target / resizing (brain#239, see attachBoxChrome above).
+  w.canvas.appendChild(el);
+  w.attachBoxHandlers(el, b);
+  // Sized boxes clamp their label to the lines that fit the fixed
+  // frame — must run after append so the measurements are live.
+  if (el.classList.contains("sized")) updateSizedLabelClamp(el);
+  // Special shapes clamp too: fixed silhouette, so overflow would
+  // spill past the edges rather than grow the box. Each shape has
+  // its own usable-height fraction (hexagon vs circle vs triangle).
+  else {
+    const frac = shapeLabelClampFrac(b.shape);
+    if (frac) updateFixedShapeLabelClamp(el, frac);
+  }
+};
+
+const materializeText = (w: RenderBindings, t: TextData): void => {
+  const el = document.createElement("div");
+  const tPalette = resolvePalette(t.palette);
+  const tFont = resolveFont(t.font);
+  el.className = "text-item"
+    + (tPalette !== 1 ? " palette-" + tPalette : "")
+    + (tFont !== 1 ? " font-" + tFont : "");
+  el.dataset["id"] = t.id;
+  textEls.set(t.id, el);
+  el.style.left = t.x + "px";
+  el.style.top = t.y + "px";
+  el.textContent = t.label;
+  w.canvas.appendChild(el);
+  w.attachTextHandlers(el, t);
+};
+
+const materializeImage = (w: RenderBindings, img: ImageData): void => {
+  const el = document.createElement("div");
+  el.className = "image-item";
+  el.dataset["id"] = img.id;
+  imageEls.set(img.id, el);
+  el.style.left = img.x + "px";
+  el.style.top = img.y + "px";
+  el.style.width = img.width + "px";
+  el.style.height = img.height + "px";
+  const im = document.createElement("img");
+  im.src = img.src;
+  im.draggable = false;
+  im.alt = "";
+  el.appendChild(im);
+  // Resize grip, bottom-right. Hidden until the image is selected
+  // (CSS gates it on .image-item.selected).
+  const grip = document.createElement("div");
+  grip.className = "image-resize-handle";
+  el.appendChild(grip);
+  w.canvas.appendChild(el);
+  w.attachImageHandlers(el, img);
+};
+
 export const renderAll = (): void => {
   const w = must();
   w.canvas.innerHTML = "";
@@ -326,92 +502,19 @@ export const renderAll = (): void => {
   const map = w.currentMap();
   const g = w.graph();
   const cur = w.currentPath();
+  // Viewport culling (#23a): only items inside viewport+margin (plus
+  // the exempt/required overrides) get DOM. cull === null (no provider
+  // wired) materializes everything.
+  const cull = computeCullPass(map);
+  lastCullRect = cull ? cull.raw : null;
   for (const b of map.boxes) {
-    const el = document.createElement("div");
-    const palette = resolvePalette(b.palette);
-    const font = resolveFont(b.font);
-    el.className = "box"
-      + (b.shape === 1 ? " hex" : b.shape === 2 ? " circle" : b.shape === 3 ? " tri" : "")
-      + (hasSubmapContent(g, cur, b.id) ? " has-submap" : "")
-      + (palette !== 1 ? " palette-" + palette : "")
-      + (font !== 1 ? " font-" + font : "");
-    el.dataset["id"] = b.id;
-    boxEls.set(b.id, el);
-    el.style.left = b.x + "px";
-    el.style.top = b.y + "px";
-    const fixed = fixedShapeSize(b.shape);
-    if (fixed) {
-      // Special shapes are uniform and never resizable: always their
-      // fixed footprint (for hexagons the lattice snap math in
-      // ../graph/hex.ts depends on every hexagon sharing exactly this
-      // size). Takes precedence over any stray w/h from the resize
-      // feature.
-      el.style.width = fixed.w + "px";
-      el.style.height = fixed.h + "px";
-    } else if (b.w && b.h) {
-      // Explicit size (resize feature): pin width/height and switch on
-      // the `sized` class so CSS centers the label inside the fixed
-      // frame instead of the box hugging its content.
-      el.style.width = b.w + "px";
-      el.style.height = b.h + "px";
-      el.classList.add("sized");
-    }
-    const label = document.createElement("span");
-    label.className = "box-label";
-    label.textContent = b.label;
-    el.appendChild(label);
-    // No handles / resize grips here: chrome attaches lazily via
-    // applyClasses when the box becomes proximity-target / selected /
-    // drop-target / resizing (brain#239, see attachBoxChrome above).
-    w.canvas.appendChild(el);
-    w.attachBoxHandlers(el, b);
-    // Sized boxes clamp their label to the lines that fit the fixed
-    // frame — must run after append so the measurements are live.
-    if (el.classList.contains("sized")) updateSizedLabelClamp(el);
-    // Special shapes clamp too: fixed silhouette, so overflow would
-    // spill past the edges rather than grow the box. Each shape has
-    // its own usable-height fraction (hexagon vs circle vs triangle).
-    else {
-      const frac = shapeLabelClampFrac(b.shape);
-      if (frac) updateFixedShapeLabelClamp(el, frac);
-    }
+    if (boxWanted(b, cull)) materializeBox(w, g, cur, b);
   }
   for (const t of map.texts) {
-    const el = document.createElement("div");
-    const tPalette = resolvePalette(t.palette);
-    const tFont = resolveFont(t.font);
-    el.className = "text-item"
-      + (tPalette !== 1 ? " palette-" + tPalette : "")
-      + (tFont !== 1 ? " font-" + tFont : "");
-    el.dataset["id"] = t.id;
-    textEls.set(t.id, el);
-    el.style.left = t.x + "px";
-    el.style.top = t.y + "px";
-    el.textContent = t.label;
-    w.canvas.appendChild(el);
-    w.attachTextHandlers(el, t);
+    if (textWanted(t, cull)) materializeText(w, t);
   }
   for (const img of map.images ?? []) {
-    const el = document.createElement("div");
-    el.className = "image-item";
-    el.dataset["id"] = img.id;
-    imageEls.set(img.id, el);
-    el.style.left = img.x + "px";
-    el.style.top = img.y + "px";
-    el.style.width = img.width + "px";
-    el.style.height = img.height + "px";
-    const im = document.createElement("img");
-    im.src = img.src;
-    im.draggable = false;
-    im.alt = "";
-    el.appendChild(im);
-    // Resize grip, bottom-right. Hidden until the image is selected
-    // (CSS gates it on .image-item.selected).
-    const grip = document.createElement("div");
-    grip.className = "image-resize-handle";
-    el.appendChild(grip);
-    w.canvas.appendChild(el);
-    w.attachImageHandlers(el, img);
+    if (imageWanted(img, cull)) materializeImage(w, img);
   }
   applyClasses();
   renderLines();
@@ -419,13 +522,25 @@ export const renderAll = (): void => {
   renderEdges();
 };
 
+// Margin-expanded viewport rect for the SVG layers (lines / strokes /
+// edges), or null when culling is off. These layers need no
+// exempt/required overrides: their elements aren't gesture-anchors the
+// way box elements are, and every class toggle on a missing element is
+// already a safe no-op through the element maps.
+const cullLayerRect = (): CullRect | null => {
+  const raw = cullViewportRect();
+  return raw ? expandRect(raw, CULL_MARGIN) : null;
+};
+
 export const renderStrokes = (): void => {
   const w = must();
   w.strokeLayer.innerHTML = "";
   strokeEls.clear();
   const map = w.currentMap();
+  const rect = cullLayerRect();
   for (const s of map.strokes ?? []) {
     if (!s.points || s.points.length < 2) continue;
+    if (rect && !strokeVisible(s.points, rect)) continue;
     const d = strokePathD(s.points);
     const g = document.createElementNS(SVG_NS, "g");
     const pal = resolvePalette(s.palette);
@@ -466,7 +581,12 @@ export const renderLines = (): void => {
   w.lineLayer.innerHTML = "";
   lineEls.clear();
   const map = w.currentMap();
+  const rect = cullLayerRect();
   for (const l of map.lines) {
+    // Segment-accurate visibility (#23a): a line whose endpoints are
+    // both far off-screen still renders when its path crosses the
+    // viewport (see lineVisible for the per-style test).
+    if (rect && !lineVisible(l, rect)) continue;
     const g = document.createElementNS(SVG_NS, "g");
     const lPal = resolvePalette(l.palette);
     g.setAttribute(
@@ -677,10 +797,17 @@ export const renderEdges = (): void => {
   w.edgeLayer.innerHTML = "";
   const map = w.currentMap();
   const sel = w.selectedEdge();
+  const rect = cullLayerRect();
   for (const e of map.edges) {
     const a = map.boxes.find((b) => b.id === e.from);
     const b = map.boxes.find((b) => b.id === e.to);
     if (!a || !b) continue;
+    // Cull by the segment between the endpoint boxes (expanded by
+    // EDGE_REACH for the anchor offsets) — an edge crossing the
+    // viewport with both boxes off-screen still renders; its endpoint
+    // boxes are force-materialized via requiredEdgeBoxIds so the
+    // element measuring below keeps working.
+    if (rect && !edgeVisible(a.x, a.y, b.x, b.y, rect)) continue;
     const ea = w.canvas.querySelector<HTMLElement>(`.box[data-id="${a.id}"]`);
     const eb = w.canvas.querySelector<HTMLElement>(`.box[data-id="${b.id}"]`);
     if (!ea || !eb) continue;
@@ -729,6 +856,127 @@ export const renderEdges = (): void => {
 
     w.edgeLayer.appendChild(g);
   }
+};
+
+// ── Cull refresh on pan/zoom (brain#23a) ────────────────────────
+// Pan/zoom is a pure CSS transform (viewport.ts applyViewport) — no
+// re-render — so viewport changes need their own materialize/recycle
+// pass. updateCulling is that pass: it diffs the wanted set against
+// the live element maps and touches ONLY items crossing the
+// visibility boundary, leaving everything else (elements, classes,
+// chrome, handlers) untouched. This is deliberately the one seam that
+// adds/removes canvas elements outside renderAll — #238 (incremental
+// renderAll) will generalize exactly this add/remove-by-id pattern to
+// data mutations.
+export const updateCulling = (): void => {
+  if (!bindings) return;
+  const w = must();
+  const map = w.currentMap();
+  const cull = computeCullPass(map);
+  if (!cull) return;
+  lastCullRect = cull.raw;
+  const g = w.graph();
+  const cur = w.currentPath();
+  let materialized = false;
+  for (const b of map.boxes) {
+    const el = boxEls.get(b.id);
+    if (boxWanted(b, cull)) {
+      if (!el) {
+        materializeBox(w, g, cur, b);
+        materialized = true;
+      }
+    } else if (el) {
+      el.remove();
+      boxEls.delete(b.id);
+      // The chrome children died with the element; a stale `chromed`
+      // entry would make ensureBoxChrome skip a re-materialized box.
+      chromed.delete(b.id);
+    }
+  }
+  for (const t of map.texts) {
+    const el = textEls.get(t.id);
+    if (textWanted(t, cull)) {
+      if (!el) {
+        materializeText(w, t);
+        materialized = true;
+      }
+    } else if (el) {
+      el.remove();
+      textEls.delete(t.id);
+    }
+  }
+  for (const img of map.images ?? []) {
+    const el = imageEls.get(img.id);
+    if (imageWanted(img, cull)) {
+      if (!el) {
+        materializeImage(w, img);
+        materialized = true;
+      }
+    } else if (el) {
+      el.remove();
+      imageEls.delete(img.id);
+    }
+  }
+  // Which boxes have elements (and their measured sizes) just changed.
+  invalidateProximityIndex();
+  // Fresh elements carry no interaction classes; resetting the
+  // snapshot routes the next applyClasses through the additive resync
+  // path (#237), which re-applies the live selection/drop/near/resize
+  // state — O(selected) — and re-attaches chrome to entitled boxes
+  // (#239). Surviving elements are already in the correct state, and
+  // every resync toggle is an idempotent force-toggle, so re-touching
+  // them is a no-op. This is what makes a selected box that pans back
+  // in arrive with `.selected` + chrome without renderAll.
+  if (materialized) {
+    appliedState = null;
+    applyClasses();
+  }
+  // The SVG layers rebuild wholesale (their render functions cull
+  // internally) — after culling they hold O(visible) items, so the
+  // rebuild is bounded by viewport density, not map size.
+  renderLines();
+  renderStrokes();
+  renderEdges();
+};
+
+// How far (data px) the viewport may drift from the last evaluated
+// rect before updateCulling re-runs. Must stay < CULL_MARGIN: items
+// within the margin are already materialized, so evaluation lagging
+// the transform by up to this much can never expose an unmaterialized
+// item. Halving the margin re-culls every ~128 data px of pan travel
+// instead of every frame.
+const CULL_REEVAL_SLACK = CULL_MARGIN / 2;
+
+const cullRectStale = (): boolean => {
+  const raw = cullViewportRect();
+  if (!raw) return false;
+  const last = lastCullRect;
+  if (!last) return true;
+  return (
+    Math.abs(raw.x1 - last.x1) > CULL_REEVAL_SLACK
+    || Math.abs(raw.y1 - last.y1) > CULL_REEVAL_SLACK
+    || Math.abs(raw.x2 - last.x2) > CULL_REEVAL_SLACK
+    || Math.abs(raw.y2 - last.y2) > CULL_REEVAL_SLACK
+  );
+};
+
+// rAF-throttled trigger, wired to viewport.ts's cull hook by main.ts.
+// Fires on every applyViewport (each wheel tick / pan move / pinch
+// frame) but coalesces to at most one updateCulling per frame, and
+// skips entirely while the viewport is within slack of the last
+// evaluation — the common case for slow pans.
+let cullScheduled = false;
+export const scheduleCullUpdate = (): void => {
+  if (cullScheduled) return;
+  cullScheduled = true;
+  const run = (): void => {
+    cullScheduled = false;
+    // Staleness is checked at RUN time, not schedule time — the rect
+    // keeps moving between the wheel event and the rAF callback.
+    if (cullRectStale()) updateCulling();
+  };
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(run);
+  else run();
 };
 
 // Proximity highlighting: tracks which box is closest to the cursor

@@ -44,6 +44,7 @@ import {
   clearProximity,
   renderAll,
   renderEdges,
+  updateCulling,
   updateProximity,
 } from "./render.ts";
 import { collectMovers } from "./attach.ts";
@@ -313,7 +314,7 @@ const abortGesture = (): void => {
   }
   const drag = w.drag();
   if (drag) {
-    for (const m of drag.movers) (m.el as Element).classList?.remove("dragging");
+    for (const m of drag.movers) m.el?.classList?.remove("dragging");
     w.setDrag(null);
     document.body.classList.remove("dragging");
     armDeleteZone(false);
@@ -575,7 +576,7 @@ const onTouchStart = (e: TouchEvent): void => {
       drag.longPressFired = true;
       // Snapshot ids before tearing the drag down — enterSubmap
       // re-renders and the drag's mover elements may not exist after.
-      for (const m of drag.movers) (m.el as Element).classList?.remove("dragging");
+      for (const m of drag.movers) m.el?.classList?.remove("dragging");
       w.setDrag(null);
       // Defensive: clear any drag-only chrome before navigating.
       // body.dragging shouldn't be set here (long-press only fires
@@ -639,7 +640,7 @@ const onTouchMove = (e: TouchEvent): void => {
       // user is dragging now.
       clearLongPressTimer();
       lastTap = null;
-      for (const m of drag.movers) (m.el as Element).classList?.add("dragging");
+      for (const m of drag.movers) m.el?.classList?.add("dragging");
       // Reveal the delete drop zone for the duration of the drag.
       document.body.classList.add("dragging");
     }
@@ -757,7 +758,7 @@ const onTouchEnd = (e: TouchEvent): void => {
 
   const wasActive = drag.active;
   const longPressed = drag.longPressFired === true;
-  for (const m of drag.movers) (m.el as Element).classList?.remove("dragging");
+  for (const m of drag.movers) m.el?.classList?.remove("dragging");
   const primaryId = drag.primaryId;
   w.setDrag(null);
 
@@ -780,6 +781,9 @@ const onTouchEnd = (e: TouchEvent): void => {
     // an occupied spot onto a free lattice cell (mirrors mouse.ts).
     if (settleHexBoxes(w.currentMap().boxes)) renderAll();
     mutatedCurrentMap();
+    // Re-evaluate culling for items dragged across the
+    // materialization boundary (mirrors mouse.ts drag end).
+    updateCulling();
     lastTap = null;
     return;
   }

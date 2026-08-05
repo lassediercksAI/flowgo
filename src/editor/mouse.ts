@@ -17,6 +17,7 @@ import {
   nearestBoxId,
   renderAll,
   renderEdges,
+  updateCulling,
   updateProximity,
 } from "./render.ts";
 import { extendStroke, finishStroke, isPainting, isBrushMode, startStroke } from "./brush.ts";
@@ -273,6 +274,12 @@ const onMouseUp = (e: MouseEvent): void => {
       // free lattice cells before committing.
       if (settleHexBoxes(w.currentMap().boxes)) renderAll();
       mutatedCurrentMap();
+      // Items moved without a re-render (movers write positions
+      // live): re-evaluate culling so anything dragged across the
+      // materialization boundary — e.g. a culled selected box dragged
+      // into view by a select-all body drag — gains/sheds its DOM.
+      // No-op while culling is unwired.
+      updateCulling();
     } else {
       // Single-click without movement: collapse selection to just this item.
       w.selected.clear();
@@ -305,6 +312,10 @@ const onMouseUp = (e: MouseEvent): void => {
       // when the band caught NOTHING else. Sweeping up a cluster of
       // boxes must not silently drag the axis line underneath along.
       let solidHits = 0;
+      // The `!el` skip is culling-safe (#23a): the band rect lives in
+      // client space, so it's always inside the viewport — and every
+      // box intersecting the viewport(+margin) is materialized. A box
+      // without an element is therefore guaranteed outside the band.
       for (const b of map.boxes) {
         const el = getBoxEl(b.id);
         if (!el) continue;

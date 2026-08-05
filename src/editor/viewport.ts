@@ -76,6 +76,11 @@ export const applyViewport = (): void => {
   // suppressed — the zoom control must reflect a load-time / resize
   // scale change even though the URL shouldn't.
   displayChanged?.();
+  // Culling must track EVERY transform change (suspended or not): a
+  // load-time recenter moves the data-space viewport just as much as a
+  // user pan does. The callback is rAF-throttled downstream
+  // (render.scheduleCullUpdate), so per-wheel-event invocation is fine.
+  cullChanged?.();
   if (viewSyncSuspended === 0) viewChanged?.();
 };
 
@@ -241,6 +246,15 @@ let displayChanged: (() => void) | null = null;
 export const wireViewportDisplay = (cb: () => void): void => {
   displayChanged = cb;
   cb();
+};
+// Third slot: viewport culling (brain#23a). Pan/zoom is a pure CSS
+// transform — no re-render — so the renderer needs its own signal to
+// re-evaluate which items deserve DOM. Kept as a separate slot (not
+// piggybacked on displayChanged) so wiring order and the fire-while-
+// suspended semantics stay independent.
+let cullChanged: (() => void) | null = null;
+export const wireViewportCullHook = (cb: () => void): void => {
+  cullChanged = cb;
 };
 export const withSuppressedViewSync = <T>(fn: () => T): T => {
   viewSyncSuspended++;

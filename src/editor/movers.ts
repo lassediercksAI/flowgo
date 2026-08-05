@@ -83,12 +83,19 @@ const linePathD = (l: LineLike): string => {
   return d;
 };
 
+// `el` may be null since viewport culling (#23a): a selected item that
+// sits outside the materialization window has no element, but a body
+// drag must still move it in DATA space so the selection translates as
+// one rigid formation. Null-el movers just skip the live DOM writes —
+// if the item pans into view, updateCulling materializes it at its
+// (moved) position; drag handlers toggle `.dragging` through optional
+// chaining, so a null el is inert there too.
 export interface Mover {
-  readonly el: Element;
+  readonly el: Element | null;
   apply(dx: number, dy: number, ev: { shiftKey?: boolean } | null): void;
 }
 
-export const makeBoxMover = (b: BoxLike, el: HTMLElement): Mover => {
+export const makeBoxMover = (b: BoxLike, el: HTMLElement | null): Mover => {
   const startX = b.x;
   const startY = b.y;
   return {
@@ -102,8 +109,10 @@ export const makeBoxMover = (b: BoxLike, el: HTMLElement): Mover => {
       }
       b.x = nx;
       b.y = ny;
-      el.style.left = b.x + "px";
-      el.style.top = b.y + "px";
+      if (el) {
+        el.style.left = b.x + "px";
+        el.style.top = b.y + "px";
+      }
     },
   };
 };
@@ -182,7 +191,7 @@ export const makeBoxResizeMover = (
 // Shift-grid snap is deliberately ignored: the hex lattice IS the grid.
 export const makeHexMover = (
   b: BoxLike,
-  el: HTMLElement,
+  el: HTMLElement | null,
   otherHexCenters: ReadonlyArray<{ x: number; y: number }>,
 ): Mover => {
   const startX = b.x;
@@ -195,8 +204,10 @@ export const makeHexMover = (
       const snapped = snapHexCenter({ x: cx, y: cy }, otherHexCenters);
       b.x = (snapped?.x ?? cx) - HEX_W / 2;
       b.y = (snapped?.y ?? cy) - HEX_H / 2;
-      el.style.left = b.x + "px";
-      el.style.top = b.y + "px";
+      if (el) {
+        el.style.left = b.x + "px";
+        el.style.top = b.y + "px";
+      }
     },
   };
 };
@@ -212,7 +223,7 @@ export const makeHexMover = (
 // toggling reaches every element; only the first (controller) does
 // any work, the rest are position-keepers.
 export const makeHexGroupMovers = (
-  members: ReadonlyArray<{ b: BoxLike; el: HTMLElement }>,
+  members: ReadonlyArray<{ b: BoxLike; el: HTMLElement | null }>,
   otherHexCenters: ReadonlyArray<{ x: number; y: number }>,
 ): Mover[] => {
   const orig = members.map((m) => ({ m, x: m.b.x, y: m.b.y }));
@@ -229,8 +240,10 @@ export const makeHexGroupMovers = (
       for (const o of orig) {
         o.m.b.x = o.x + ddx;
         o.m.b.y = o.y + ddy;
-        o.m.el.style.left = o.m.b.x + "px";
-        o.m.el.style.top = o.m.b.y + "px";
+        if (o.m.el) {
+          o.m.el.style.left = o.m.b.x + "px";
+          o.m.el.style.top = o.m.b.y + "px";
+        }
       }
     },
   };
@@ -252,7 +265,7 @@ export interface ImageLike {
 
 // Images move exactly like boxes — translate the top-left corner and
 // mirror it onto the element's left/top.
-export const makeImageMover = (img: ImageLike, el: HTMLElement): Mover => {
+export const makeImageMover = (img: ImageLike, el: HTMLElement | null): Mover => {
   const startX = img.x;
   const startY = img.y;
   return {
@@ -266,8 +279,10 @@ export const makeImageMover = (img: ImageLike, el: HTMLElement): Mover => {
       }
       img.x = nx;
       img.y = ny;
-      el.style.left = img.x + "px";
-      el.style.top = img.y + "px";
+      if (el) {
+        el.style.left = img.x + "px";
+        el.style.top = img.y + "px";
+      }
     },
   };
 };
@@ -298,7 +313,7 @@ export const makeImageResizeMover = (
   };
 };
 
-export const makeTextMover = (t: TextLike, el: HTMLElement): Mover => {
+export const makeTextMover = (t: TextLike, el: HTMLElement | null): Mover => {
   const startX = t.x;
   const startY = t.y;
   return {
@@ -312,17 +327,19 @@ export const makeTextMover = (t: TextLike, el: HTMLElement): Mover => {
       }
       t.x = nx;
       t.y = ny;
-      el.style.left = t.x + "px";
-      el.style.top = t.y + "px";
+      if (el) {
+        el.style.left = t.x + "px";
+        el.style.top = t.y + "px";
+      }
     },
   };
 };
 
 export const makeLineMover = (
   l: LineLike,
-  gEl: SVGGElement,
-  lineEl: SVGPathElement,
-  hitEl: SVGPathElement,
+  gEl: SVGGElement | null,
+  lineEl: SVGPathElement | null,
+  hitEl: SVGPathElement | null,
   h1: SVGCircleElement | null,
   h2: SVGCircleElement | null,
   midHandles: SVGCircleElement[],
@@ -355,8 +372,8 @@ export const makeLineMover = (
         }
       }
       const d = linePathD(l);
-      lineEl.setAttribute("d", d);
-      hitEl.setAttribute("d", d);
+      lineEl?.setAttribute("d", d);
+      hitEl?.setAttribute("d", d);
       if (h1) {
         h1.setAttribute("cx", String(l.x1));
         h1.setAttribute("cy", String(l.y1));
@@ -450,9 +467,9 @@ export interface StrokeLike {
 // the stroke during the drag.
 export const makeStrokeMover = (
   s: StrokeLike,
-  gEl: SVGGElement,
-  hitEl: SVGPathElement,
-  lineEl: SVGPathElement,
+  gEl: SVGGElement | null,
+  hitEl: SVGPathElement | null,
+  lineEl: SVGPathElement | null,
 ): Mover => {
   const orig = s.points.map(([x, y]) => [x, y] as [number, number]);
   return {
@@ -472,8 +489,8 @@ export const makeStrokeMover = (
         s.points[i] = [o[0] + ddx, o[1] + ddy];
       }
       const d = strokePathD(s.points);
-      hitEl.setAttribute("d", d);
-      lineEl.setAttribute("d", d);
+      hitEl?.setAttribute("d", d);
+      lineEl?.setAttribute("d", d);
     },
   };
 };

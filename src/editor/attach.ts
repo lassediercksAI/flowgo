@@ -134,12 +134,17 @@ export const collectMovers = (): Mover[] => {
   // (makeHexGroupMovers) translates them by a shared delta and snaps
   // only where the whole formation fits — group cohesion beats
   // individual snapping. A lone hex keeps the classic per-hex snap.
-  const hexMembers: Array<{ b: (typeof map.boxes)[number]; el: HTMLElement }> = [];
+  // Element lookups may miss since viewport culling (#23a): a selected
+  // item outside the materialization window has no DOM, but the drag
+  // must still move it in data space or a select-all drag would tear
+  // the selection apart (visible items move, culled ones stay). All
+  // movers accept a null element and simply skip the live DOM writes.
+  const hexMembers: Array<{ b: (typeof map.boxes)[number]; el: HTMLElement | null }> = [];
   for (const id of w.selected) {
     const b = map.boxes.find((x) => x.id === id);
     if (b && b.shape === 1) {
       const me = w.canvas.querySelector<HTMLElement>(`.box[data-id="${id}"]`);
-      if (me) hexMembers.push({ b, el: me });
+      hexMembers.push({ b, el: me });
     }
   }
   if (hexMembers.length > 1) {
@@ -152,19 +157,17 @@ export const collectMovers = (): Mover[] => {
     if (b) {
       if (b.shape === 1 && hexMembers.length > 1) continue; // group above
       const me = w.canvas.querySelector<HTMLElement>(`.box[data-id="${id}"]`);
-      if (me) {
-        movers.push(
-          b.shape === 1
-            ? makeHexMover(b, me, hexCenters(map.boxes, w.selected))
-            : makeBoxMover(b, me),
-        );
-      }
+      movers.push(
+        b.shape === 1
+          ? makeHexMover(b, me, hexCenters(map.boxes, w.selected))
+          : makeBoxMover(b, me),
+      );
       continue;
     }
     const t = w.findTextById(id);
     if (t) {
       const me = w.canvas.querySelector<HTMLElement>(`.text-item[data-id="${id}"]`);
-      if (me) movers.push(makeTextMover(t, me));
+      movers.push(makeTextMover(t, me));
       continue;
     }
     const l = w.findLineById(id);
@@ -172,22 +175,22 @@ export const collectMovers = (): Mover[] => {
       const g = w.lineLayer.querySelector<SVGGElement>(
         `.line-group[data-id="${id}"]`,
       );
-      if (g) {
-        const lineEl = g.querySelector<SVGPathElement>(".line-line")!;
-        const hitEl = g.querySelector<SVGPathElement>(".line-hit")!;
-        const h1 = g.querySelector<SVGCircleElement>(
-          '.line-handle[data-endpoint="1"]',
-        );
-        const h2 = g.querySelector<SVGCircleElement>(
-          '.line-handle[data-endpoint="2"]',
-        );
-        const midHandles = Array.from(
+      const lineEl = g?.querySelector<SVGPathElement>(".line-line") ?? null;
+      const hitEl = g?.querySelector<SVGPathElement>(".line-hit") ?? null;
+      const h1 = g?.querySelector<SVGCircleElement>(
+        '.line-handle[data-endpoint="1"]',
+      ) ?? null;
+      const h2 = g?.querySelector<SVGCircleElement>(
+        '.line-handle[data-endpoint="2"]',
+      ) ?? null;
+      const midHandles = g
+        ? Array.from(
           g.querySelectorAll<SVGCircleElement>(
             '.line-handle[data-endpoint="m"]',
           ),
-        );
-        movers.push(makeLineMover(l, g, lineEl, hitEl, h1, h2, midHandles));
-      }
+        )
+        : [];
+      movers.push(makeLineMover(l, g, lineEl, hitEl, h1, h2, midHandles));
       continue;
     }
     const s = w.findStrokeById(id);
@@ -195,11 +198,9 @@ export const collectMovers = (): Mover[] => {
       const g = w.strokeLayer.querySelector<SVGGElement>(
         `.stroke-group[data-id="${id}"]`,
       );
-      if (g) {
-        const hitEl = g.querySelector<SVGPathElement>(".stroke-hit")!;
-        const lineEl = g.querySelector<SVGPathElement>(".stroke-line")!;
-        movers.push(makeStrokeMover(s, g, hitEl, lineEl));
-      }
+      const hitEl = g?.querySelector<SVGPathElement>(".stroke-hit") ?? null;
+      const lineEl = g?.querySelector<SVGPathElement>(".stroke-line") ?? null;
+      movers.push(makeStrokeMover(s, g, hitEl, lineEl));
       continue;
     }
     const img = (map.images ?? []).find((x) => x.id === id);
@@ -207,7 +208,7 @@ export const collectMovers = (): Mover[] => {
       const me = w.canvas.querySelector<HTMLElement>(
         `.image-item[data-id="${id}"]`,
       );
-      if (me) movers.push(makeImageMover(img, me));
+      movers.push(makeImageMover(img, me));
     }
   }
   return movers;
