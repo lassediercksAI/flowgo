@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.3.6](https://github.com/lassediercks/flowgo/compare/v0.3.5...v0.3.6) (2026-08-05)
+
+
+### Features
+
+* **editor:** bottom-left zoom control — step buttons + double-click reset ([bfc28fb](https://github.com/lassediercks/flowgo/commit/bfc28fbbbcf0fef0e71084ddb0a24e6db6b435ec))
+
+
+### Bug Fixes
+
+* **serve:** bound request bodies + media dir, add HTTP server timeouts ([2a24e8b](https://github.com/lassediercks/flowgo/commit/2a24e8b298c7099cd0878e8d23035d8502b766e1))
+
+
+### Performance
+
+* **editor:** attach box chrome (handles + resize grips) lazily ([4441100](https://github.com/lassediercks/flowgo/commit/4441100d16477819ab1280efe849d4344f2da6ba))
+* **editor:** incremental renderAll — single-item mutations touch O(1) elements ([78e38af](https://github.com/lassediercks/flowgo/commit/78e38afc8254b05dc751fc41c539e6dd4f1aca79))
+* **editor:** make applyClasses diff-based — touch only changed elements ([8d3d514](https://github.com/lassediercks/flowgo/commit/8d3d514cbf523070c0f1880393bce687295d8ce0))
+* **editor:** replace O(boxes × DOM) proximity sweep with a spatial index ([76f6772](https://github.com/lassediercks/flowgo/commit/76f67723f50c820e3d18fb1202278b0c6583e4d9))
+* **editor:** viewport culling — materialize DOM only for on-screen items ([da48ed4](https://github.com/lassediercks/flowgo/commit/da48ed4f28a7fd74e58883b9b7b7013ff072262b))
+* **persist:** cache the parsed graph in memory, write atomically via temp+rename ([1ad44dd](https://github.com/lassediercks/flowgo/commit/1ad44dd92619ecb7cb28be80cb38e4c7972444d3))
+
 ## [0.3.5](https://github.com/lassediercks/flowgo/compare/v0.3.4...v0.3.5) (2026-08-04)
 
 
