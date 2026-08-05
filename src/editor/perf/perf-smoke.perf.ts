@@ -178,10 +178,10 @@ const runScenarios = (n: number): SizeResult => {
     const selQueries = c.domQueries;
     const selToggles = c.classToggles;
 
-    // Band-select half the map: today's applyClasses sweeps the full
-    // canvas regardless, so this must cost the same order as the
-    // single-box case — if it ever scales with SELECTION size on top
-    // of box count, the ceilings below catch it.
+    // Band-select half the map: with the diff-based applyClasses
+    // (#237) this costs one toggle per newly-selected box — O(delta),
+    // asserted against a selection-sized (not canvas-sized) ceiling
+    // below.
     for (let i = 1; i < n / 2; i++) h.selected.add("b" + i);
     handle.reset();
     applyClasses();
@@ -239,19 +239,23 @@ describe("perf smoke: editor interaction DOM cost", () => {
     // in the loop); trivially passes once #236 removes the queries.
     expect(r.idleMoveQueries, "idle mousemove: DOM queries").toBeLessThanOrEqual(1.2 * n + 50);
 
-    // Target-changing move = proximity sweep (n) + applyClasses
-    // sweep (n handle lookups + 5 layer sweeps) ≈ 2n today.
-    expect(r.moveChangeQueries, "target-change mousemove: DOM queries").toBeLessThanOrEqual(2.6 * n + 100);
+    // Target-changing move = spatial-index proximity query (#236) +
+    // diff-based applyClasses (#237): zero DOM queries at any size
+    // (was ≈2n before those fixes).
+    expect(r.moveChangeQueries, "target-change mousemove: DOM queries").toBeLessThanOrEqual(10);
 
-    // applyClasses today: 12 toggles + 1 scoped query per box, plus
-    // one toggle per line/text/stroke ≈ 12.6·n toggles, 1·n queries.
-    expect(r.selQueries, "selection change: DOM queries").toBeLessThanOrEqual(1.3 * n + 60);
-    expect(r.selToggles, "selection change: class toggles").toBeLessThanOrEqual(17 * n + 200);
+    // applyClasses is diff-based since #237: a single-box selection
+    // change touches only the elements whose state changed — constant
+    // cost regardless of map size. Before the fix it swept the whole
+    // canvas: 1·n queries + ≈12.6·n toggles (15,084 toggles at 1,200
+    // boxes); now it's 0 queries and 1 toggle.
+    expect(r.selQueries, "selection change: DOM queries").toBeLessThanOrEqual(10);
+    expect(r.selToggles, "selection change: class toggles").toBeLessThanOrEqual(10);
 
-    // Band-select must not cost more than single-box selection —
-    // the sweep is over the CANVAS, not the selection.
-    expect(r.bandQueries, "band-select: DOM queries").toBeLessThanOrEqual(1.3 * n + 60);
-    expect(r.bandToggles, "band-select: class toggles").toBeLessThanOrEqual(17 * n + 200);
+    // Band-select scales with the SELECTION DELTA (n/2 boxes newly
+    // selected here → n/2−1 toggles), never with total canvas size.
+    expect(r.bandQueries, "band-select: DOM queries").toBeLessThanOrEqual(10);
+    expect(r.bandToggles, "band-select: class toggles").toBeLessThanOrEqual(0.65 * n + 30);
 
     // A one-label mutation currently pays a full rebuild. Ceiling =
     // no WORSE than a full rebuild (+25%); #238 should collapse this
@@ -272,7 +276,11 @@ describe("perf smoke: editor interaction DOM cost", () => {
     const cap = growth * 1.25;
     expect(l.renderElements / s.renderElements, "initial-render elements growth").toBeLessThanOrEqual(cap);
     expect(l.idleMoveQueries / Math.max(s.idleMoveQueries, 1), "idle-move query growth").toBeLessThanOrEqual(cap);
-    expect(l.selToggles / s.selToggles, "applyClasses toggle growth").toBeLessThanOrEqual(cap);
+    // Single-box selection is O(1) since #237, so its growth ratio is
+    // trivially 1; band-select is the path that still scales (with
+    // selection size) and is the meaningful linearity guard here.
+    expect(l.selToggles / Math.max(s.selToggles, 1), "applyClasses toggle growth").toBeLessThanOrEqual(cap);
+    expect(l.bandToggles / Math.max(s.bandToggles, 1), "band-select toggle growth").toBeLessThanOrEqual(cap);
     expect(l.mutationElements / s.mutationElements, "mutation-render element growth").toBeLessThanOrEqual(cap);
   });
 });

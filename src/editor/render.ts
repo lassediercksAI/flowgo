@@ -202,6 +202,33 @@ const boxEls = new Map<string, HTMLElement>();
 export const getBoxEl = (id: string): HTMLElement | null =>
   boxEls.get(id) ?? null;
 
+// Same id → element bookkeeping for the other selectable layers, so
+// applyClasses can reach a changed element directly instead of
+// sweeping every layer (brain#237). Each map is owned by the render
+// function that builds its elements (renderAll for texts/images,
+// renderLines / renderStrokes for theirs) — cleared and refilled on
+// every rebuild, so a map entry can never outlive its element.
+const textEls = new Map<string, HTMLElement>();
+const imageEls = new Map<string, HTMLElement>();
+const lineEls = new Map<string, SVGGElement>();
+const strokeEls = new Map<string, SVGGElement>();
+
+// Snapshot of the class state applyClasses most recently projected
+// onto the DOM. null = the DOM was just rebuilt from scratch
+// (renderAll) and carries no interaction classes yet, so the next
+// applyClasses applies the current state instead of diffing against
+// elements that no longer exist. #238 (incremental renderAll) keeps
+// this seam: whatever survives a rebuild must either keep its classes
+// or reset this snapshot.
+interface AppliedClassState {
+  readonly selected: ReadonlySet<string>;
+  readonly dropId: string | null;
+  readonly dropHandle: string | null;
+  readonly nearId: string | null;
+  readonly resizeId: string | null;
+}
+let appliedState: AppliedClassState | null = null;
+
 // Measurer for the proximity index: rendered size of a box, or null
 // when it has no element (skipped, like the old querySelector loop
 // did). Only called on index rebuild — all reads happen in one batch,
@@ -216,6 +243,12 @@ export const renderAll = (): void => {
   const w = must();
   w.canvas.innerHTML = "";
   boxEls.clear();
+  textEls.clear();
+  imageEls.clear();
+  // The previously-applied class snapshot refers to elements that
+  // were just destroyed — applyClasses below must apply the current
+  // state to the fresh DOM, not diff against the dead one.
+  appliedState = null;
   // Elements (and possibly sizes) were just rebuilt — cached rects in
   // the proximity index are meaningless now.
   invalidateProximityIndex();
@@ -296,6 +329,7 @@ export const renderAll = (): void => {
       + (tPalette !== 1 ? " palette-" + tPalette : "")
       + (tFont !== 1 ? " font-" + tFont : "");
     el.dataset["id"] = t.id;
+    textEls.set(t.id, el);
     el.style.left = t.x + "px";
     el.style.top = t.y + "px";
     el.textContent = t.label;
@@ -306,6 +340,7 @@ export const renderAll = (): void => {
     const el = document.createElement("div");
     el.className = "image-item";
     el.dataset["id"] = img.id;
+    imageEls.set(img.id, el);
     el.style.left = img.x + "px";
     el.style.top = img.y + "px";
     el.style.width = img.width + "px";
@@ -332,6 +367,7 @@ export const renderAll = (): void => {
 export const renderStrokes = (): void => {
   const w = must();
   w.strokeLayer.innerHTML = "";
+  strokeEls.clear();
   const map = w.currentMap();
   for (const s of map.strokes ?? []) {
     if (!s.points || s.points.length < 2) continue;
@@ -345,6 +381,7 @@ export const renderStrokes = (): void => {
         + (w.selected.has(s.id) ? " selected" : ""),
     );
     g.dataset["id"] = s.id;
+    strokeEls.set(s.id, g);
 
     const hit = document.createElementNS(SVG_NS, "path");
     hit.setAttribute("class", "stroke-hit");
@@ -372,6 +409,7 @@ export const renderStrokes = (): void => {
 export const renderLines = (): void => {
   const w = must();
   w.lineLayer.innerHTML = "";
+  lineEls.clear();
   const map = w.currentMap();
   for (const l of map.lines) {
     const g = document.createElementNS(SVG_NS, "g");
@@ -383,6 +421,7 @@ export const renderLines = (): void => {
         + (w.selected.has(l.id) ? " selected" : ""),
     );
     g.dataset["id"] = l.id;
+    lineEls.set(l.id, g);
 
     const d = linePathD(l);
 
@@ -435,6 +474,46 @@ export const renderLines = (): void => {
   }
 };
 
+// Set/clear `selected` on whatever element carries this id. Ids are
+// globally unique per map, but checking every layer's map mirrors the
+// old per-layer sweeps exactly — at most one map hits, the misses are
+// O(1) lookups.
+const toggleSelected = (id: string, on: boolean): void => {
+  boxEls.get(id)?.classList.toggle("selected", on);
+  textEls.get(id)?.classList.toggle("selected", on);
+  imageEls.get(id)?.classList.toggle("selected", on);
+  lineEls.get(id)?.classList.toggle("selected", on);
+  strokeEls.get(id)?.classList.toggle("selected", on);
+};
+
+// Set/clear `.target` on one specific handle of one box. Handles are
+// direct children of the box element (see renderAll), so an index
+// walk over ~13 children replaces the old per-box querySelectorAll.
+const toggleTargetHandle = (boxId: string, handle: string, on: boolean): void => {
+  const el = boxEls.get(boxId);
+  if (!el) return;
+  const kids = el.children;
+  for (let i = 0; i < kids.length; i++) {
+    const h = kids[i] as HTMLElement;
+    if (h.dataset && h.dataset["handle"] === handle) {
+      h.classList.toggle("target", on);
+      return;
+    }
+  }
+};
+
+// Diff-based since brain#237: instead of sweeping every box (+ every
+// handle child), text, image, line and stroke on each call — 15k
+// class toggles per selection click at 1,200 boxes — applyClasses
+// keeps a snapshot of the last state it projected onto the DOM and
+// touches only elements whose state changed. A single-box selection
+// change costs O(changed); a band select costs O(selection delta).
+//
+// Every toggle uses an explicit force flag, so re-touching an element
+// that a rebuild already put in the right state (renderLines /
+// renderStrokes bake `selected` in at build time) is a no-op — the
+// diff stays correct even when callers rebuild a layer between
+// applyClasses calls.
 export const applyClasses = (): void => {
   const w = must();
   const dropId = w.dropTargetId();
@@ -443,39 +522,64 @@ export const applyClasses = (): void => {
   // Resize mode only survives while its box stays selected. Selection
   // moved / cleared / box deleted → the mode drops here, which is the
   // one funnel every selection change already flows through.
-  const resizeId = resizingBoxId();
-  if (resizeId !== null && !w.selected.has(resizeId)) {
+  const pre = resizingBoxId();
+  if (pre !== null && !w.selected.has(pre)) {
     clearBoxResize();
   }
-  for (const el of w.canvas.querySelectorAll<HTMLElement>(".box")) {
-    const isDrop = el.dataset["id"] === dropId;
-    el.classList.toggle("selected", w.selected.has(el.dataset["id"] ?? ""));
-    el.classList.toggle("drop-target", isDrop);
-    el.classList.toggle("proximity-target", el.dataset["id"] === nearId);
-    el.classList.toggle("resizing", el.dataset["id"] === resizingBoxId());
-    // Mark the specific handle on the drop target that would be used
-    // if the link drag ended right now. Cleared on every box that
-    // isn't the current drop target so a stale `.target` can't
-    // linger across moves.
-    for (const h of el.querySelectorAll<HTMLElement>(".handle")) {
-      h.classList.toggle(
-        "target",
-        isDrop && dropHandle !== null && h.dataset["handle"] === dropHandle,
-      );
+  const resizeId = resizingBoxId();
+
+  const prev = appliedState;
+  if (prev === null) {
+    // Fresh DOM (renderAll just rebuilt everything): no interaction
+    // classes exist yet, so apply the current state additively —
+    // O(selected), not O(all elements).
+    for (const id of w.selected) toggleSelected(id, true);
+    if (dropId !== null) {
+      boxEls.get(dropId)?.classList.toggle("drop-target", true);
+      if (dropHandle !== null) toggleTargetHandle(dropId, dropHandle, true);
+    }
+    if (nearId !== null) boxEls.get(nearId)?.classList.toggle("proximity-target", true);
+    if (resizeId !== null) boxEls.get(resizeId)?.classList.toggle("resizing", true);
+  } else {
+    // Selection: symmetric difference against the snapshot.
+    for (const id of prev.selected) {
+      if (!w.selected.has(id)) toggleSelected(id, false);
+    }
+    for (const id of w.selected) {
+      if (!prev.selected.has(id)) toggleSelected(id, true);
+    }
+    if (prev.dropId !== dropId) {
+      if (prev.dropId !== null) boxEls.get(prev.dropId)?.classList.toggle("drop-target", false);
+      if (dropId !== null) boxEls.get(dropId)?.classList.toggle("drop-target", true);
+    }
+    // The old sweep cleared `.target` on every handle of every box so
+    // a stale one couldn't linger; the diff clears the PREVIOUS drop
+    // target's handle explicitly instead — applyClasses is the only
+    // writer of `.target`, so that one handle is the only candidate.
+    if (prev.dropId !== dropId || prev.dropHandle !== dropHandle) {
+      if (prev.dropId !== null && prev.dropHandle !== null) {
+        toggleTargetHandle(prev.dropId, prev.dropHandle, false);
+      }
+      if (dropId !== null && dropHandle !== null) {
+        toggleTargetHandle(dropId, dropHandle, true);
+      }
+    }
+    if (prev.nearId !== nearId) {
+      if (prev.nearId !== null) boxEls.get(prev.nearId)?.classList.toggle("proximity-target", false);
+      if (nearId !== null) boxEls.get(nearId)?.classList.toggle("proximity-target", true);
+    }
+    if (prev.resizeId !== resizeId) {
+      if (prev.resizeId !== null) boxEls.get(prev.resizeId)?.classList.toggle("resizing", false);
+      if (resizeId !== null) boxEls.get(resizeId)?.classList.toggle("resizing", true);
     }
   }
-  for (const el of w.canvas.querySelectorAll<HTMLElement>(".text-item")) {
-    el.classList.toggle("selected", w.selected.has(el.dataset["id"] ?? ""));
-  }
-  for (const el of w.canvas.querySelectorAll<HTMLElement>(".image-item")) {
-    el.classList.toggle("selected", w.selected.has(el.dataset["id"] ?? ""));
-  }
-  for (const el of w.lineLayer.querySelectorAll<SVGGElement>(".line-group")) {
-    el.classList.toggle("selected", w.selected.has(el.dataset["id"] ?? ""));
-  }
-  for (const el of w.strokeLayer.querySelectorAll<SVGGElement>(".stroke-group")) {
-    el.classList.toggle("selected", w.selected.has(el.dataset["id"] ?? ""));
-  }
+  appliedState = {
+    selected: new Set(w.selected),
+    dropId,
+    dropHandle,
+    nearId,
+    resizeId,
+  };
   updateSelectionToolbar();
   refreshContextBar();
 };
