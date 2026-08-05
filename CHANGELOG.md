@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.7](https://github.com/lassediercks/flowgo/compare/v0.3.6...v0.3.7) (2026-08-05)
+
+
+### Bug Fixes
+
+* **format:** reject unwritable ids/labels and stop crafted fields bricking the file ([ebb52ac](https://github.com/lassediercks/flowgo/commit/ebb52ac2667be3144d8e51abd9930da46d249f6b))
+
 ## [0.3.6](https://github.com/lassediercks/flowgo/compare/v0.3.5...v0.3.6) (2026-08-05)
 
 
