@@ -35,8 +35,11 @@ package flowgo
 
 import (
 	"crypto/sha256"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -151,13 +154,40 @@ func persistLocalGraphLocked() error {
 	return persistLocalBytesLocked([]byte(serialize(localFile.graph)))
 }
 
+// ErrInvalidGraph reports a save refused because the graph cannot be
+// written to a .flowgo file. Callers serving HTTP should map it to 400:
+// it always means the payload was malformed, never that the disk
+// failed.
+var ErrInvalidGraph = errors.New("graph cannot be written to a .flowgo file")
+
 // SaveLocalGraph replaces the whole on-disk document — the editor's
 // /save path. The graph is stamped with cfg.Version and written
 // atomically. The parsed-graph cache is dropped rather than seeded
 // from g: the cache must only ever hold parse-normalized documents,
 // and re-parsing lazily on the next read keeps /state and MCP reads
 // observing exactly what a fresh parse of the file would say.
+//
+// The payload is checked against graph.ValidateWritable first. This
+// path takes a whole document straight from the network — /save is
+// unauthenticated on the bind address — and until that check existed,
+// a single crafted id or label serialized to bytes graph.Parse then
+// rejected, permanently bricking the file: every later /state read and
+// every MCP mutation failed at the parse step, with no way back except
+// hand-editing the .flowgo. Refusing the write costs one bad save;
+// accepting it costs the document.
+//
+// Deliberately ValidateWritable and not the full Validate: /save must
+// never refuse a document the editor can legitimately hold mid-edit
+// (an edge whose target was just deleted, a submap outliving its
+// node), or the fix would lock users out of saving.
 func SaveLocalGraph(g Graph) error {
+	if errs := validateWritable(g); len(errs) > 0 {
+		msgs := make([]string, len(errs))
+		for i, e := range errs {
+			msgs[i] = e.Error()
+		}
+		return fmt.Errorf("%w: %s", ErrInvalidGraph, strings.Join(msgs, "; "))
+	}
 	cfg.LocalFileMu.Lock()
 	defer cfg.LocalFileMu.Unlock()
 	g.Version = cfg.Version()

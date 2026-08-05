@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -415,6 +416,13 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := flowgo.SaveLocalGraph(g); err != nil {
+		// A rejected payload is the client's fault, not the disk's —
+		// SaveLocalGraph refuses graphs whose ids or labels can't be
+		// written down without corrupting the file.
+		if errors.Is(err, flowgo.ErrInvalidGraph) {
+			http.Error(w, err.Error(), 400)
+			return
+		}
 		http.Error(w, err.Error(), 500)
 		return
 	}

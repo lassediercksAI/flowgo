@@ -16,6 +16,19 @@ const tokenize = (line: string): string[] => {
   let cur = "";
   let inQuote = false;
   let escape = false;
+  // `quoted` records that the token being accumulated opened a quote,
+  // so an explicitly empty value survives. Without it `node b1 "" 0 0`
+  // — what the serializer writes for a node with no label — tokenizes
+  // to four tokens and the line is rejected, which makes the whole
+  // file unreadable. Mirrors tokenize() in pkg/graph.
+  let quoted = false;
+  const flush = (): void => {
+    if (cur.length > 0 || quoted) {
+      out.push(cur);
+      cur = "";
+      quoted = false;
+    }
+  };
   for (const ch of line) {
     if (escape) {
       cur += ch === "n" ? "\n" : ch;
@@ -24,16 +37,14 @@ const tokenize = (line: string): string[] => {
       escape = true;
     } else if (ch === '"') {
       inQuote = !inQuote;
+      quoted = true;
     } else if (!inQuote && (ch === " " || ch === "\t")) {
-      if (cur.length > 0) {
-        out.push(cur);
-        cur = "";
-      }
+      flush();
     } else {
       cur += ch;
     }
   }
-  if (cur.length > 0) out.push(cur);
+  flush();
   return out;
 };
 
@@ -131,7 +142,12 @@ export const parseFlowgo = (text: string): ConcreteGraph => {
     const raw = lines[lineNo - 1]!.trim();
     if (raw === "" || raw.startsWith("#")) continue;
     const toks = tokenize(raw);
-    if (toks.length === 0) continue;
+    // An empty leading token means the line opens with `""`, which is
+    // not a directive. Skipping keeps such a line ignored exactly as it
+    // was before tokenize learned to emit empty quoted values — turning
+    // a previously-tolerated line into a hard parse error would itself
+    // make files unopenable. Mirrors pkg/graph.Parse.
+    if (toks.length === 0 || toks[0] === "") continue;
     const kw = toks[0]!;
 
     switch (kw) {

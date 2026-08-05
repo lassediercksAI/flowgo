@@ -103,10 +103,15 @@ UTF-8 text, one directive per line, '#' for comments.
     defaultshape <n>
 
 Notes:
-- 'id' is alphanumeric and unique within its map. Granular MCP tools
+- 'id' is a plain word, unique within its map. Granular MCP tools
   mint ids for you (b1, b2, ... for nodes; t* for texts; l* for lines;
-  s* for strokes).
+  s* for strokes). An id may not contain whitespace, a line break, a
+  control character, '"', '\' or ':' — the format is line- and
+  space-delimited and ':' separates an edge handle, so such an id could
+  not be read back as itself; set_state rejects it rather than
+  rewriting it, which would orphan every edge and submap pointing at it.
 - 'label' is a bare word or "quoted string" with escapes \", \\, \n.
+  A carriage return has no escape of its own and is written as \n.
 - 'node' (and its per-node annotations 'nodesize' / 'nodeshape')
   replaced the legacy spellings 'box' / 'boxsize' / 'boxshape' — the
   legacy forms still parse (deprecated; until at least v0.5.x) and

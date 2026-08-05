@@ -33,9 +33,10 @@ type (
 // parse / serialize / validate are kept as package-level shorthands for
 // the same reason as the type aliases above.
 var (
-	parse         = graph.Parse
-	serialize     = graph.Serialize
-	validateGraph = graph.Validate
+	parse            = graph.Parse
+	serialize        = graph.Serialize
+	validateGraph    = graph.Validate
+	validateWritable = graph.ValidateWritable
 )
 
 // IndexHTML is the embedded single-file editor bundle. Consumers serve

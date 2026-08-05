@@ -96,9 +96,18 @@ export interface ConcreteGraph extends GraphLike {
 // Newlines round-trip as the escape `\n` since the .flowgo text format
 // is line-based — a literal newline in a quoted value would split the
 // directive across input lines and corrupt parsing.
+//
+// A carriage return is folded into that same `\n` escape rather than
+// gaining one of its own. It cannot be emitted raw: parse() below
+// splits on /\r\n|\r|\n/, so a raw CR cuts the directive in half here
+// while Go's scanner reads straight past it — the two parsers would
+// disagree about the same bytes. Folding matches what normalizeLabel()
+// already does to every label the editor produces, so this only fires
+// for values that skipped normalisation.
 export const flowgoQuote = (s: string): string => {
   if (s === "" || /[\s"\\]/.test(s)) {
     const escaped = s
+      .replace(/\r\n?/g, "\n")
       .replace(/\\/g, "\\\\")
       .replace(/"/g, '\\"')
       .replace(/\n/g, "\\n");
@@ -106,6 +115,17 @@ export const flowgoQuote = (s: string): string => {
   }
   return s;
 };
+
+// flowgoQuote applied to identifiers and map paths — same rules, named
+// separately because the reason differs. Mirrors quoteID() in
+// pkg/graph: ids are meant to be plain words, but an id carrying a
+// space or a newline would split its own directive into a line the
+// parser rejects outright, and a file nothing can re-open is
+// unrecoverable without hand-editing. Quoting is a pure safety net —
+// an id with no structural characters is returned untouched, so the
+// bytes of every valid document are unchanged and the byte-parity
+// contract with pkg/graph holds.
+export const flowgoQuoteId = (s: string): string => flowgoQuote(s);
 
 // Plain number formatter — keeps integers integer-shaped, floats
 // passed through as-is. Matches `%g` semantics close enough that the
@@ -140,13 +160,13 @@ export const serializeGraph = (g: ConcreteGraph): string => {
 
   maps.forEach((m, i) => {
     if (i > 0) out += "\n";
-    if (multi || m.path !== "/") out += `map ${m.path}\n`;
+    if (multi || m.path !== "/") out += `map ${flowgoQuoteId(m.path)}\n`;
 
     for (const b of m.boxes ?? []) {
       // `node` is the canonical directive; the legacy `box` spelling
       // is parse-only in pkg/graph (deprecated, kept until at least
       // v0.5.x) and never emitted.
-      let line = `node ${b.id} ${flowgoQuote(b.label)} ${flowgoNum(b.x)} ${flowgoNum(b.y)}`;
+      let line = `node ${flowgoQuoteId(b.id)} ${flowgoQuote(b.label)} ${flowgoNum(b.x)} ${flowgoNum(b.y)}`;
       const paletteTok = isPaletteOrFont(b.palette) ? b.palette! : 0;
       const fontTok = isPaletteOrFont(b.font) ? b.font! : 0;
       // "4" is a vestigial placeholder for the old sides slot, kept so
@@ -163,23 +183,27 @@ export const serializeGraph = (g: ConcreteGraph): string => {
     // with pkg/graph Serialize — keep the two in sync.
     for (const b of m.boxes ?? []) {
       if (b.w !== undefined && b.h !== undefined && b.w > 0 && b.h > 0) {
-        out += `nodesize ${b.id} ${flowgoNum(b.w)} ${flowgoNum(b.h)}\n`;
+        out += `nodesize ${flowgoQuoteId(b.id)} ${flowgoNum(b.w)} ${flowgoNum(b.h)}\n`;
       }
     }
     for (const b of m.boxes ?? []) {
       if (typeof b.shape === "number" && b.shape >= 1 && b.shape <= 9) {
-        out += `nodeshape ${b.id} ${b.shape}\n`;
+        out += `nodeshape ${flowgoQuoteId(b.id)} ${b.shape}\n`;
       }
     }
 
     // Single-anchor invariant: emit at most one `anchor <id>` line.
     const anchored = (m.boxes ?? []).find((b) => b.anchor);
-    if (anchored) out += `anchor ${anchored.id}\n`;
+    if (anchored) out += `anchor ${flowgoQuoteId(anchored.id)}\n`;
 
     if ((m.boxes?.length ?? 0) && (m.edges?.length ?? 0)) out += "\n";
     for (const e of m.edges ?? []) {
-      const f = e.fromHandle ? `${e.from}:${e.fromHandle}` : e.from;
-      const t = e.toHandle ? `${e.to}:${e.toHandle}` : e.to;
+      const f = e.fromHandle
+        ? `${flowgoQuoteId(e.from)}:${e.fromHandle}`
+        : flowgoQuoteId(e.from);
+      const t = e.toHandle
+        ? `${flowgoQuoteId(e.to)}:${e.toHandle}`
+        : flowgoQuoteId(e.to);
       let line = `edge ${f} ${t}`;
       if (isPaletteOrFont(e.palette)) line += " " + e.palette;
       out += line + "\n";
@@ -189,7 +213,7 @@ export const serializeGraph = (g: ConcreteGraph): string => {
       (m.boxes?.length ?? 0) > 0 || (m.edges?.length ?? 0) > 0;
     if (beforeTexts && (m.texts?.length ?? 0)) out += "\n";
     for (const t of m.texts ?? []) {
-      let line = `text ${t.id} ${flowgoQuote(t.label)} ${flowgoNum(t.x)} ${flowgoNum(t.y)}`;
+      let line = `text ${flowgoQuoteId(t.id)} ${flowgoQuote(t.label)} ${flowgoNum(t.x)} ${flowgoNum(t.y)}`;
       const paletteTok = isPaletteOrFont(t.palette) ? t.palette! : 0;
       const fontTok = isPaletteOrFont(t.font) ? t.font! : 0;
       if (paletteTok || fontTok) line += " " + (paletteTok || 1);
@@ -200,7 +224,7 @@ export const serializeGraph = (g: ConcreteGraph): string => {
     const beforeLines = beforeTexts || (m.texts?.length ?? 0) > 0;
     if (beforeLines && (m.lines?.length ?? 0)) out += "\n";
     for (const l of m.lines ?? []) {
-      let line = `line ${l.id} ${flowgoNum(l.x1)} ${flowgoNum(l.y1)} ${flowgoNum(l.x2)} ${flowgoNum(l.y2)}`;
+      let line = `line ${flowgoQuoteId(l.id)} ${flowgoNum(l.x1)} ${flowgoNum(l.y1)} ${flowgoNum(l.x2)} ${flowgoNum(l.y2)}`;
       const mids = l.mids ?? [];
       if (isPaletteOrFont(l.palette) || mids.length > 0) {
         // When mids are present without an explicit palette we emit
@@ -218,7 +242,7 @@ export const serializeGraph = (g: ConcreteGraph): string => {
     // binaries unaware of styles still parse the geometry cleanly.
     for (const l of m.lines ?? []) {
       if (typeof l.style === "number" && l.style >= 2 && l.style <= 9) {
-        out += `linestyle ${l.id} ${l.style}\n`;
+        out += `linestyle ${flowgoQuoteId(l.id)} ${l.style}\n`;
       }
     }
 
@@ -230,14 +254,14 @@ export const serializeGraph = (g: ConcreteGraph): string => {
         .map((p) => `${flowgoNum(p[0])},${flowgoNum(p[1])}`)
         .join(" ");
       const pal = isPaletteOrFont(s.palette) ? ` ${s.palette}` : "";
-      out += `stroke ${s.id}${pal} ${pairs}\n`;
+      out += `stroke ${flowgoQuoteId(s.id)}${pal} ${pairs}\n`;
     }
 
     const beforeImages =
       beforeStrokes || (m.strokes?.length ?? 0) > 0;
     if (beforeImages && (m.images?.length ?? 0)) out += "\n";
     for (const img of m.images ?? []) {
-      out += `image ${img.id} ${flowgoQuote(img.src)} ${flowgoNum(img.x)} ${flowgoNum(img.y)} ${flowgoNum(img.width)} ${flowgoNum(img.height)}\n`;
+      out += `image ${flowgoQuoteId(img.id)} ${flowgoQuote(img.src)} ${flowgoNum(img.x)} ${flowgoNum(img.y)} ${flowgoNum(img.width)} ${flowgoNum(img.height)}\n`;
     }
   });
 

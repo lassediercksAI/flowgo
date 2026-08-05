@@ -171,7 +171,12 @@ func Parse(s string) (Graph, error) {
 			continue
 		}
 		toks := tokenize(line)
-		if len(toks) == 0 {
+		// An empty leading token means the line opens with `""`, which
+		// is not a directive. Skipping keeps such a line ignored exactly
+		// as it was before tokenize learned to emit empty quoted values
+		// — turning a previously-tolerated line into a hard parse error
+		// would itself make files unopenable.
+		if len(toks) == 0 || toks[0] == "" {
 			continue
 		}
 		switch toks[0] {
@@ -565,7 +570,7 @@ func Serialize(g Graph) string {
 			b.WriteString("\n")
 		}
 		if multi || m.Path != "/" {
-			fmt.Fprintf(&b, "map %s\n", m.Path)
+			fmt.Fprintf(&b, "map %s\n", quoteID(m.Path))
 		}
 		// Belt-and-suspenders against poisoning the on-disk file:
 		// an empty id round-trips as `text  "label" 0 0`, which the
@@ -610,7 +615,7 @@ func Serialize(g Graph) string {
 		for _, box := range m.Boxes {
 			emitPalette := box.Palette >= 2 && box.Palette <= 9
 			emitFont := box.Font >= 2 && box.Font <= 9
-			fmt.Fprintf(&b, "node %s %s %g %g", box.ID, quote(box.Label), box.X, box.Y)
+			fmt.Fprintf(&b, "node %s %s %g %g", quoteID(box.ID), quote(box.Label), box.X, box.Y)
 			// The "4" placeholder fills the vestigial sides slot when
 			// palette/font follow, so old files like `box b1 hi 0 0 4 5`
 			// round-trip positionally.
@@ -635,19 +640,19 @@ func Serialize(g Graph) string {
 		// with src/graph/serialize.ts — keep the two in sync.
 		for _, box := range m.Boxes {
 			if box.W > 0 && box.H > 0 {
-				fmt.Fprintf(&b, "nodesize %s %g %g\n", box.ID, box.W, box.H)
+				fmt.Fprintf(&b, "nodesize %s %g %g\n", quoteID(box.ID), box.W, box.H)
 			}
 		}
 		for _, box := range m.Boxes {
 			if box.Shape >= 1 && box.Shape <= 9 {
-				fmt.Fprintf(&b, "nodeshape %s %d\n", box.ID, box.Shape)
+				fmt.Fprintf(&b, "nodeshape %s %d\n", quoteID(box.ID), box.Shape)
 			}
 		}
 		// Single-anchor invariant: emit at most one `anchor <id>` line.
 		// First Anchor=true wins; later occurrences are ignored.
 		for _, box := range m.Boxes {
 			if box.Anchor {
-				fmt.Fprintf(&b, "anchor %s\n", box.ID)
+				fmt.Fprintf(&b, "anchor %s\n", quoteID(box.ID))
 				break
 			}
 		}
@@ -671,7 +676,7 @@ func Serialize(g Graph) string {
 			if id == "" {
 				id = fallbackID("t")
 			}
-			fmt.Fprintf(&b, "text %s %s %g %g", id, quote(t.Label), t.X, t.Y)
+			fmt.Fprintf(&b, "text %s %s %g %g", quoteID(id), quote(t.Label), t.X, t.Y)
 			if emitTPalette || emitTFont {
 				palette := t.Palette
 				if !emitTPalette {
@@ -692,7 +697,7 @@ func Serialize(g Graph) string {
 			if id == "" {
 				id = fallbackID("l")
 			}
-			fmt.Fprintf(&b, "line %s %g %g %g %g", id, l.X1, l.Y1, l.X2, l.Y2)
+			fmt.Fprintf(&b, "line %s %g %g %g %g", quoteID(id), l.X1, l.Y1, l.X2, l.Y2)
 			hasPal := l.Palette >= 2 && l.Palette <= 9
 			if hasPal || len(l.Mids) > 0 {
 				palTok := 1
@@ -713,7 +718,7 @@ func Serialize(g Graph) string {
 		// binaries unaware of styles still parse the geometry cleanly.
 		for _, l := range m.Lines {
 			if l.Style >= 2 && l.Style <= 9 {
-				fmt.Fprintf(&b, "linestyle %s %d\n", l.ID, l.Style)
+				fmt.Fprintf(&b, "linestyle %s %d\n", quoteID(l.ID), l.Style)
 			}
 		}
 		if (len(m.Boxes) > 0 || len(m.Edges) > 0 || len(m.Texts) > 0 || len(m.Lines) > 0) && len(m.Strokes) > 0 {
@@ -727,7 +732,7 @@ func Serialize(g Graph) string {
 			if id == "" {
 				id = fallbackID("s")
 			}
-			fmt.Fprintf(&b, "stroke %s", id)
+			fmt.Fprintf(&b, "stroke %s", quoteID(id))
 			if s.Palette >= 2 && s.Palette <= 9 {
 				fmt.Fprintf(&b, " %d", s.Palette)
 			}
@@ -747,7 +752,7 @@ func Serialize(g Graph) string {
 			if id == "" {
 				id = fallbackID("img")
 			}
-			fmt.Fprintf(&b, "image %s %s %g %g %g %g", id, quote(img.Src), img.X, img.Y, img.Width, img.Height)
+			fmt.Fprintf(&b, "image %s %s %g %g %g %g", quoteID(id), quote(img.Src), img.X, img.Y, img.Width, img.Height)
 			b.WriteString("\n")
 		}
 	}
@@ -759,6 +764,19 @@ func tokenize(line string) []string {
 	var cur strings.Builder
 	inQuote := false
 	escape := false
+	// quoted records that the token being accumulated opened a quote,
+	// so an explicitly empty value survives. Without it `node b1 "" 0 0`
+	// — what Serialize writes for a node with no label — tokenizes to
+	// four tokens and the parser rejects the line, which bricks the
+	// whole file for every later read.
+	quoted := false
+	flush := func() {
+		if cur.Len() > 0 || quoted {
+			out = append(out, cur.String())
+			cur.Reset()
+			quoted = false
+		}
+	}
 	for _, r := range line {
 		switch {
 		case escape:
@@ -777,18 +795,14 @@ func tokenize(line string) []string {
 			escape = true
 		case r == '"':
 			inQuote = !inQuote
+			quoted = true
 		case !inQuote && (r == ' ' || r == '\t'):
-			if cur.Len() > 0 {
-				out = append(out, cur.String())
-				cur.Reset()
-			}
+			flush()
 		default:
 			cur.WriteRune(r)
 		}
 	}
-	if cur.Len() > 0 {
-		out = append(out, cur.String())
-	}
+	flush()
 	return out
 }
 
@@ -799,21 +813,54 @@ func splitEndpoint(s string) (string, string) {
 	return s, ""
 }
 
+// joinEndpoint renders an edge endpoint. The id is quoted when it
+// would otherwise re-tokenize wrong; the handle is validated against a
+// closed set (validHandle) so it never needs quoting. `"a b":t`
+// tokenizes back to `a b:t`, which splitEndpoint reads correctly.
 func joinEndpoint(id, handle string) string {
 	if handle == "" {
-		return id
+		return quoteID(id)
 	}
-	return id + ":" + handle
+	return quoteID(id) + ":" + handle
 }
 
+// quoteReplacer escapes the characters that carry structure in the
+// line-based .flowgo format. `\r` has no escape of its own and never
+// gets one: the TypeScript parser (src/graph/parse.ts) splits input on
+// /\r\n|\r|\n/, so a raw CR — quoted or not — cuts the directive in
+// half there while Go's scanner keeps reading. Emitting it as the
+// newline escape applies the same CR → LF folding NormalizeLabel does,
+// which is the only reading of a CR both parsers can agree on. The
+// `\r\n` pair must precede the bare `\r` so a CRLF collapses to one
+// newline rather than two.
+var quoteReplacer = strings.NewReplacer(
+	"\\", "\\\\",
+	"\"", "\\\"",
+	"\n", "\\n",
+	"\r\n", "\\n",
+	"\r", "\\n",
+)
+
 func quote(s string) string {
-	if s == "" || strings.ContainsAny(s, " \t\n\"\\") {
-		r := strings.NewReplacer(
-			"\\", "\\\\",
-			"\"", "\\\"",
-			"\n", "\\n",
-		)
-		return "\"" + r.Replace(s) + "\""
+	if s == "" || strings.ContainsAny(s, " \t\n\r\"\\") {
+		return "\"" + quoteReplacer.Replace(s) + "\""
 	}
 	return s
 }
+
+// quoteID is quote() applied to identifiers and map paths — same
+// rules, named separately because the reason differs. Ids are supposed
+// to be plain words and Validate rejects anything else on every write
+// path, but Serialize is also reachable from callers that never
+// validate (other repositories pin pkg/graph and hand it decoded
+// JSON), and an unquoted id carrying a space or a newline splits its
+// own directive into a line the parser rejects — which bricks the file
+// for every later read, with no copy to fall back on. Quoting is a
+// pure safety net: an id with no structural characters comes back
+// byte-for-byte unchanged, so the on-disk bytes of every valid
+// document are untouched.
+//
+// The one thing it cannot rescue is `:`, which survives quoting and
+// still splits the endpoint in `edge a:t b`. That stays
+// validation-only.
+func quoteID(s string) string { return quote(s) }

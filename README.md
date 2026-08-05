@@ -88,8 +88,15 @@ stroke <id> <x>,<y> <x>,<y> …
 anchor <id>
 ```
 
-- `id` is alphanumeric; unique within its map.
+- `id` is a plain word, unique within its map. It may not contain
+  whitespace, a line break, a control character, `"`, `\`, or `:` — the
+  format is line- and space-delimited, and `:` separates an edge handle,
+  so an id carrying any of them could not be read back as itself. Writes
+  carrying one are rejected rather than silently rewritten, since the
+  edges and submaps that reference the id would be orphaned by a rename.
 - `label` is a bare word or `"quoted string"` (escapes: `\"`, `\\`, `\n`).
+  A carriage return has no escape of its own: it is written as `\n`, the
+  same folding the editor applies to pasted text.
 - `<handle>` is one of `t`, `r`, `b`, `l`, `tl`, `tr`, `bl`, `br` — a side or
   corner of the box. Omit to let the renderer auto-pick the nearest handle.
 - `map <path>` switches the current map. Paths look like `/`, `/b1`, `/b1/c2`.

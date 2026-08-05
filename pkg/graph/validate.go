@@ -3,13 +3,19 @@ package graph
 import (
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 // Validate runs semantic checks the .flowgo parser doesn't perform.
 // Returns every violation it finds rather than stopping at the first one,
 // so a single CI run surfaces all problems at once.
+//
+// It is a superset of ValidateWritable: everything that would corrupt
+// the file, plus complaints about graphs that persist perfectly well
+// but don't mean anything sensible (orphaned submaps, edges pointing
+// at deleted nodes, out-of-range styles).
 func Validate(g Graph) []error {
-	var errs []error
+	errs := ValidateWritable(g)
 
 	if len(g.Maps) == 0 {
 		errs = append(errs, fmt.Errorf("graph has no maps"))
@@ -60,14 +66,137 @@ func Validate(g Graph) []error {
 	return errs
 }
 
+// ValidateWritable returns only the violations that would damage the
+// .flowgo file itself — fields whose bytes do not survive a
+// Serialize → Parse round-trip. Every path that writes a caller-
+// supplied graph to disk must run this first.
+//
+// The distinction from Validate matters: a mid-edit document can
+// legitimately fail Validate (a submap outliving the node it hung off,
+// an edge whose target was just deleted) while serializing and
+// re-parsing perfectly. Gating saves on the full validator would lock
+// the editor out of persisting documents it is allowed to produce,
+// which is a worse failure than the corruption being prevented. This
+// subset only rejects input that cannot be written down at all.
+//
+// The invariant it buys: for any g with no ValidateWritable errors,
+// Parse(Serialize(g)) succeeds and returns the same elements.
+func ValidateWritable(g Graph) []error {
+	var errs []error
+	for i, m := range g.Maps {
+		if p := stringProblem(m.Path); p != "" {
+			errs = append(errs, fmt.Errorf("map[%d]: path %q %s", i, m.Path, p))
+		}
+		errs = append(errs, validateWritableMap(m)...)
+	}
+	return errs
+}
+
+func validateWritableMap(m NamedMap) []error {
+	var errs []error
+	id := func(kind string, i int, v string) {
+		if v == "" {
+			errs = append(errs, fmt.Errorf("map %q: %s[%d] has empty id", m.Path, kind, i))
+			return
+		}
+		if p := idProblem(v); p != "" {
+			errs = append(errs, fmt.Errorf("map %q: %s id %q %s", m.Path, kind, v, p))
+		}
+	}
+	label := func(kind, owner, v string) {
+		if strings.ContainsRune(v, '\r') {
+			errs = append(errs, fmt.Errorf("map %q: %s %q label contains a carriage return (it would be written as a newline — normalize it first, see NormalizeLabel)", m.Path, kind, owner))
+		}
+	}
+	for i, b := range m.Boxes {
+		id("box", i, b.ID)
+		label("box", b.ID, b.Label)
+	}
+	for i, t := range m.Texts {
+		id("text", i, t.ID)
+		label("text", t.ID, t.Label)
+	}
+	for i, l := range m.Lines {
+		id("line", i, l.ID)
+	}
+	for i, s := range m.Strokes {
+		id("stroke", i, s.ID)
+	}
+	for i, img := range m.Images {
+		id("image", i, img.ID)
+		if strings.ContainsRune(img.Src, '\r') {
+			errs = append(errs, fmt.Errorf("map %q: image %q src contains a carriage return", m.Path, img.ID))
+		}
+	}
+	// Edge endpoints are ids too, but they are written through
+	// joinEndpoint, where ':' additionally separates the handle.
+	for i, e := range m.Edges {
+		for _, ep := range []struct {
+			what string
+			v    string
+		}{{"from", e.From}, {"to", e.To}} {
+			if ep.v == "" {
+				errs = append(errs, fmt.Errorf("map %q: edge[%d] has empty %s", m.Path, i, ep.what))
+			} else if p := idProblem(ep.v); p != "" {
+				errs = append(errs, fmt.Errorf("map %q: edge[%d] %s %q %s", m.Path, i, ep.what, ep.v, p))
+			}
+		}
+	}
+	return errs
+}
+
+// idProblem reports why an id cannot be written to a .flowgo file, or
+// "" when it is safe. The format is line-based and whitespace-
+// delimited, so an id carrying structure either splits its own
+// directive into something the parser rejects outright — which bricks
+// the file for every later read, since nothing can re-open it — or
+// comes back as a different id, silently orphaning the edges and
+// submaps that pointed at it. Serialize quotes ids defensively, but
+// quoting cannot save ':' (splitEndpoint still cuts the endpoint in
+// two) and the rewrite would be invisible to the caller, so the
+// boundary rejects instead of repairing.
+func idProblem(id string) string {
+	if p := stringProblem(id); p != "" {
+		return p
+	}
+	if strings.ContainsRune(id, ':') {
+		return "contains ':' (reserved as the edge handle separator)"
+	}
+	return ""
+}
+
+// stringProblem covers the characters no .flowgo token may contain,
+// shared by ids and map paths. A line break is reported ahead of any
+// other complaint even when it appears later in the string: it's the
+// one that forges a whole extra directive, so it's the one worth
+// naming in the error a client sees.
+func stringProblem(s string) string {
+	if strings.ContainsAny(s, "\n\r") {
+		return "contains a line break"
+	}
+	for _, r := range s {
+		switch {
+		case unicode.IsSpace(r):
+			return "contains whitespace"
+		case unicode.IsControl(r):
+			return "contains a control character"
+		case r == '"':
+			return `contains a double quote`
+		case r == '\\':
+			return `contains a backslash`
+		}
+	}
+	return ""
+}
+
 func validateMap(m NamedMap) []error {
 	var errs []error
 
+	// Empty / malformed ids and carriage returns are reported by
+	// ValidateWritable, which Validate runs first — checking them again
+	// here would double up every message.
 	boxIDs := make(map[string]struct{}, len(m.Boxes))
-	for i, b := range m.Boxes {
-		if b.ID == "" {
-			errs = append(errs, fmt.Errorf("map %q: box[%d] has empty id", m.Path, i))
-		}
+	for _, b := range m.Boxes {
 		if _, dup := boxIDs[b.ID]; dup {
 			errs = append(errs, fmt.Errorf("map %q: duplicate box id %q", m.Path, b.ID))
 		}
@@ -80,12 +209,6 @@ func validateMap(m NamedMap) []error {
 		}
 		if len(b.Label) > MaxLabelLen {
 			errs = append(errs, fmt.Errorf("map %q: box %q label is %d chars (cap is %d)", m.Path, b.ID, len(b.Label), MaxLabelLen))
-		}
-		// `\n` round-trips through the line-based format via the
-		// quote()/tokenize() escape pair, so multi-line labels are
-		// allowed. `\r` has no escape and would corrupt the file.
-		if strings.ContainsRune(b.Label, '\r') {
-			errs = append(errs, fmt.Errorf("map %q: box %q label contains a carriage return (no escape exists for \\r in the .flowgo format)", m.Path, b.ID))
 		}
 	}
 
@@ -111,9 +234,8 @@ func validateMap(m NamedMap) []error {
 	}
 
 	itemIDs := make(map[string]string, len(m.Texts)+len(m.Lines)+len(m.Strokes))
-	for i, t := range m.Texts {
+	for _, t := range m.Texts {
 		if t.ID == "" {
-			errs = append(errs, fmt.Errorf("map %q: text[%d] has empty id", m.Path, i))
 			continue
 		}
 		if other, dup := itemIDs[t.ID]; dup {
@@ -129,13 +251,9 @@ func validateMap(m NamedMap) []error {
 		if len(t.Label) > MaxLabelLen {
 			errs = append(errs, fmt.Errorf("map %q: text %q label is %d chars (cap is %d)", m.Path, t.ID, len(t.Label), MaxLabelLen))
 		}
-		if strings.ContainsRune(t.Label, '\r') {
-			errs = append(errs, fmt.Errorf("map %q: text %q label contains a carriage return (no escape exists for \\r in the .flowgo format)", m.Path, t.ID))
-		}
 	}
-	for i, l := range m.Lines {
+	for _, l := range m.Lines {
 		if l.ID == "" {
-			errs = append(errs, fmt.Errorf("map %q: line[%d] has empty id", m.Path, i))
 			continue
 		}
 		if other, dup := itemIDs[l.ID]; dup {
@@ -146,12 +264,10 @@ func validateMap(m NamedMap) []error {
 			errs = append(errs, fmt.Errorf("map %q: line %q has invalid palette %d", m.Path, l.ID, l.Palette))
 		}
 	}
-	for i, s := range m.Strokes {
-		if s.ID == "" {
-			errs = append(errs, fmt.Errorf("map %q: stroke[%d] has empty id", m.Path, i))
-		} else if other, dup := itemIDs[s.ID]; dup {
+	for _, s := range m.Strokes {
+		if other, dup := itemIDs[s.ID]; s.ID != "" && dup {
 			errs = append(errs, fmt.Errorf("map %q: stroke id %q collides with %s", m.Path, s.ID, other))
-		} else {
+		} else if s.ID != "" {
 			itemIDs[s.ID] = "stroke"
 		}
 		if len(s.Points) < 2 {
@@ -166,9 +282,8 @@ func validateMap(m NamedMap) []error {
 			errs = append(errs, fmt.Errorf("map %q: stroke %q has invalid palette %d", m.Path, s.ID, s.Palette))
 		}
 	}
-	for i, img := range m.Images {
+	for _, img := range m.Images {
 		if img.ID == "" {
-			errs = append(errs, fmt.Errorf("map %q: image[%d] has empty id", m.Path, i))
 			continue
 		}
 		if other, dup := itemIDs[img.ID]; dup {
