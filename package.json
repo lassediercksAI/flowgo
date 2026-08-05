@@ -29,6 +29,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "perf": "vitest run --config vitest.perf.config.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

@@ -22,6 +22,12 @@ jobs:
         run: pnpm typecheck
       - name: vitest
         run: pnpm test
+      # Perf smoke (brain #23d): editor interaction cost on synthetic
+      # stress maps. Asserts machine-independent DOM-operation counts
+      # (not wall-clock), so it's stable on shared runners; the step
+      # log prints the full report. See src/editor/perf/.
+      - name: perf smoke
+        run: pnpm perf
       - name: vite build (produces dist/index.html committed alongside source)
         run: pnpm build
       - name: dist/index.html is up to date with source

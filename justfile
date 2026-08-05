@@ -218,6 +218,22 @@ test:
     pnpm exec vitest run
     go test ./...
 
+# Perf smoke benchmark (brain #23d): drives the editor render module
+# on synthetic stress maps in jsdom and gates on machine-independent
+# DOM-operation counts (element creations, selector queries, class
+# toggles). Prints a report with informational wall-clock numbers.
+# Same suite CI runs; see src/editor/perf/.
+perf:
+    pnpm exec vitest run --config vitest.perf.config.ts
+
+# Write a synthetic stress map as a .flowgo file for manual
+# in-browser profiling (`flowgo stress.flowgo` + devtools):
+#   just perf-fixture                      → stress.flowgo, 3400 boxes
+#   just perf-fixture big.flowgo 10000     → big.flowgo, 10k boxes
+perf-fixture out="stress.flowgo" boxes="3400":
+    FLOWGO_PERF_FIXTURE_OUT="{{out}}" FLOWGO_PERF_FIXTURE_BOXES="{{boxes}}" \
+        pnpm exec vitest run --config vitest.perf.config.ts fixture-write
+
 # Type-check the TypeScript without emitting.
 typecheck:
     pnpm exec tsc --noEmit
