@@ -915,6 +915,34 @@
     box-shadow: 0 0 0 2px #dc2626;
   }
 
+  /* Live-events banner (CLI --host). Shown when the map changed
+     somewhere else — an agent over MCP, another tab, vim — and the
+     local document is too dirty to swap in without destroying work.
+     Deliberately NOT a modal and NOT a self-dismissing toast: the
+     user is mid-edit, so stealing focus is exactly the wrong move,
+     and a message that vanishes on its own can't carry an action.
+     It clears itself the moment the update actually lands. */
+  #live-notice {
+    position: absolute; z-index: 21;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex; align-items: center; gap: 10px;
+    max-width: min(560px, calc(100vw - 32px));
+    background: #1f2937; color: #f9fafb;
+    padding: 8px 12px; border-radius: 6px;
+    font: 13px system-ui, sans-serif; line-height: 1.35;
+    box-shadow: 0 2px 8px rgba(0,0,0,.25);
+  }
+  #live-notice.hidden { display: none; }
+  #live-notice button {
+    flex: none;
+    background: #f9fafb; color: #111827;
+    border: 0; border-radius: 4px;
+    padding: 4px 10px; font: inherit; cursor: pointer;
+  }
+  #live-notice button:hover { background: #fff; }
+
   /* Delete drop zone: only meaningful while a touch drag is in
      flight (body.dragging).
 
@@ -1089,6 +1117,10 @@
 </div>
 <div id="deleteZone">drop here to delete</div>
 <div id="zoom-indicator">100%</div>
+<div id="live-notice" class="hidden" role="status" aria-live="polite">
+  <span id="live-notice-text"></span>
+  <button id="live-notice-action" type="button">Reload</button>
+</div>
 <div id="bg-layer"></div>
 <svg id="bg-svg">
   <g id="stroke-layer"></g>

@@ -237,3 +237,15 @@ perf-fixture out="stress.flowgo" boxes="3400":
 # Type-check the TypeScript without emitting.
 typecheck:
     pnpm exec tsc --noEmit
+
+# Live-events end-to-end check (brain #250): builds the CLI, starts it
+# on a temp .flowgo with --host, opens it in headless Chromium, and
+# fires real MCP mutations at it — then asserts the DOM updates with no
+# reload, that your own saves don't echo back, and that unsaved work is
+# never clobbered. Needs playwright-core + a chromium on the box; skips
+# cleanly (exit 0) when either is missing, so it is not a CI gate.
+#   just live-e2e
+#   PLAYWRIGHT_CORE=/path/to/playwright-core just live-e2e
+live-e2e:
+    pnpm exec vite build
+    node scripts/live-e2e.mjs

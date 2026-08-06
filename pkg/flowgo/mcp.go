@@ -362,7 +362,9 @@ func updateFile(f func(g *Graph) error) (Graph, error) {
 		return Graph{}, err
 	}
 	g.Version = cfg.Version()
-	if err := persistLocalGraphLocked(); err != nil {
+	// OriginMCP: an agent wrote this, so every connected browser wants
+	// to hear about it — that's the whole point of the live stream.
+	if err := persistLocalGraphLocked(OriginMCP); err != nil {
 		return Graph{}, err
 	}
 	return cloneGraph(*g), nil

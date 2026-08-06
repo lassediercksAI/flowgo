@@ -44,11 +44,15 @@ import {
 } from "./navigation.ts";
 import {
   downloadFlowgo,
+  getKnownRevision,
   load,
+  refreshFromServer,
   reshare,
   scheduleSave,
+  SNAPSHOT_MODE,
   wirePersistence,
 } from "./persistence.ts";
+import { startLive, wireLive } from "./live.ts";
 import { mutatedCurrentMap, wireMutations } from "./mutations.ts";
 import { exposeCollabHandle } from "./collab-api.ts";
 import {
@@ -128,6 +132,16 @@ const findTextById = (id) => state.texts.find((t) => t.id === id);
 const findLineById = (id) => state.lines.find((l) => l.id === id);
 const findStrokeById = (id) => (state.strokes || []).find((s) => s.id === id);
 const findImageById = (id) => (state.images || []).find((i) => i.id === id);
+
+// Does this id still name something on the current map? Used when a
+// live apply (live.ts) replaces the document wholesale and we want the
+// user's selection back — minus whatever the incoming document deleted.
+const existsOnCurrentMap = (id) =>
+  (state.boxes || []).some((b) => b.id === id) ||
+  (state.texts || []).some((t) => t.id === id) ||
+  (state.lines || []).some((l) => l.id === id) ||
+  (state.strokes || []).some((s) => s.id === id) ||
+  (state.images || []).some((i) => i.id === id);
 
 const recenter = () => recenterPure(state);
 
@@ -274,6 +288,12 @@ wirePersistence({
     // boot-time projection: default-shape.ts reads it live through
     // its getGraph binding, so load / import / undo / redo are
     // covered by this assignment alone.
+    //
+    // The id cache DOES need dropping: this assignment brings in a
+    // whole document whose ids the memoized minter has never seen, so
+    // the next local mint could collide (#24f). Same reason the
+    // collab applyRemotePatch below invalidates.
+    invalidateUidCache();
   },
   serializeGraph: serializeGraphPure,
   setCurrentPath: (p, opts) => navigateTo(p, opts),
@@ -284,6 +304,36 @@ wirePersistence({
   setStatus,
   clearSelected: () => selected.clear(),
   clearSelectedEdge: () => { selectedEdge = null; },
+  // A live apply must not rip a contenteditable out from under the
+  // cursor: an open inline label edit counts as unsaved work even
+  // though its characters aren't in the graph yet.
+  isEditing: () => editingId() !== null,
+  getSelectedIds: () => [...selected],
+  // Called AFTER the apply's full rebuild, so the elements exist and
+  // carry no interaction classes yet. Adding to `selected` and then
+  // calling applyClasses is the diff-based path (#237): it toggles
+  // exactly the ids we re-added and attaches their chrome (#239).
+  restoreSelection: (ids) => {
+    let restored = false;
+    for (const id of ids) {
+      if (existsOnCurrentMap(id)) {
+        selected.add(id);
+        restored = true;
+      }
+    }
+    if (restored) applyClasses();
+  },
+});
+
+// Live document events (brain#250): the CLI's /events stream tells
+// this page when the .flowgo changed underneath it — an agent editing
+// over MCP, a second tab, or the file being edited in vim. live.ts
+// owns the transport and retry policy; refreshFromServer owns what is
+// safe to apply.
+wireLive({
+  refresh: () => refreshFromServer(),
+  knownRevision: () => getKnownRevision(),
+  setStatus,
 });
 
 // Every mutation funnels through mutations.ts. The default wiring
@@ -476,7 +526,14 @@ window.addEventListener(
 // view params with the recentre-driven pan offset.
 window.addEventListener("resize", () => withSuppressedViewSync(recenter));
 
-load();
+// Connect the live stream only after the initial load, so the first
+// hello event has a revision baseline to compare itself against —
+// otherwise the very first frame would look like news and cost a
+// redundant /state round trip. Snapshot pages (/m/<id>) have no
+// server-side document to follow.
+load()
+  .catch(() => { /* load() already reports its own failure */ })
+  .then(() => { if (!SNAPSHOT_MODE) startLive(); });
 
 fetch("/version")
   .then((r) => (r.ok ? r.text() : ""))

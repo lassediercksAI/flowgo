@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -269,6 +270,12 @@ func main() {
 		fmt.Fprintln(w, resolveVersionString())
 	})
 	http.HandleFunc("/mcp", flowgo.MCPHandler)
+	// Live document events (brain#250). An agent editing over /mcp
+	// while a human has the map open used to be invisible until a
+	// manual refresh; this is the channel that tells the open page a
+	// new revision exists. See pkg/flowgo/events.go — including why
+	// the route has to defuse the server WriteTimeout set below.
+	http.HandleFunc("/events", flowgo.EventsHandler)
 
 	// Walk forward from the canonical port so a second flowgo (or any
 	// process holding 54041) doesn't fail to start. Range is bounded to
@@ -295,13 +302,21 @@ func main() {
 		displayHost = v
 	}
 	url := fmt.Sprintf("http://%s:%d", displayHost, addr.Port)
-	fmt.Printf("flowgo editing %s\n  GUI: %s\n  MCP: %s/mcp\n", filePath, url, url)
+	fmt.Printf("flowgo editing %s\n  GUI: %s\n  MCP: %s/mcp\n  live: agent + external edits appear in the open page without a refresh\n", filePath, url, url)
 	if bindHost == "127.0.0.1" && os.Getenv("FLOWGO_NO_OPEN") == "" {
 		openBrowser(url)
 	} else if bindHost != "127.0.0.1" && !isLocalhostHost(displayHost) {
 		fmt.Printf("  (also reachable on http://localhost:%d from this machine)\n", addr.Port)
 	}
 	maybeNotifyNewVersion()
+	// Editing the .flowgo in vim/another tool while flowgo runs already
+	// worked (the parsed-file cache re-reads on an (mtime,size) change)
+	// — but nothing ASKED, so an open browser never found out. This
+	// poller asks once a second and bumps the live revision when the
+	// bytes moved under us. Own writes are excluded by construction:
+	// the comparison is against the identity our own write path
+	// recorded. See flowgo.WatchLocalFile.
+	go flowgo.WatchLocalFile(externalWatchInterval, nil)
 	// Timeouts matter once --host exposes this on 0.0.0.0: the zero-value
 	// http.Server has no read deadline, so slow/idle clients (slowloris)
 	// pin a goroutine + connection indefinitely and exhaust the host.
@@ -392,8 +407,26 @@ func handleState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	// The revision these bytes correspond to. The editor records it so
+	// the live stream's hello event can tell it whether it slept
+	// through a change (see pkg/flowgo/events.go).
+	w.Header().Set(revisionHeader, strconv.FormatUint(flowgo.Revision(), 10))
 	json.NewEncoder(w).Encode(g)
 }
+
+// revisionHeader carries the document revision on /state and /save.
+// sessionHeader carries the editor's per-page session id on /save, so
+// the live-events stream can skip echoing a change back to the tab
+// that made it.
+const (
+	revisionHeader = "X-Flowgo-Revision"
+	sessionHeader  = "X-Flowgo-Session"
+)
+
+// externalWatchInterval is how often the CLI stats the .flowgo looking
+// for edits made outside this process. One second is well under the
+// "did that appear yet?" threshold and is a single stat call.
+const externalWatchInterval = time.Second
 
 // handleSave persists the editor's full-document payload. Version
 // stamping and the atomic write (temp+rename — a crash mid-save can
@@ -415,7 +448,12 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	if err := flowgo.SaveLocalGraph(g); err != nil {
+	// The editor stamps its per-page session id on every save. It rides
+	// down to the live-events fan-out, which skips the session that
+	// caused the change — that's what stops a tab reloading its own
+	// edit back over itself. An absent header just means "anonymous
+	// writer": everyone hears about it, which is the safe default.
+	if err := flowgo.SaveLocalGraphFrom(g, r.Header.Get(sessionHeader)); err != nil {
 		// A rejected payload is the client's fault, not the disk's —
 		// SaveLocalGraph refuses graphs whose ids or labels can't be
 		// written down without corrupting the file.
@@ -426,6 +464,7 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	w.Header().Set(revisionHeader, strconv.FormatUint(flowgo.Revision(), 10))
 	w.WriteHeader(204)
 }
 

@@ -157,6 +157,26 @@ http://127.0.0.1:<port>/mcp
 The port is printed at startup next to `MCP:`. Both the GUI and MCP share the
 same file mutex, so AI edits and GUI edits coexist safely.
 
+**Watch the agent draw.** With the map open in a browser, agent edits appear
+live — no refresh. The page subscribes to `GET /events` (server-sent events);
+the server bumps a revision counter on every write that actually changes the
+file and the page re-reads `/state`. Edits you make in a text editor alongside
+show up too (the file is polled once a second). Three things it deliberately
+does *not* do:
+
+- **It never applies over unsaved work.** If you're mid-drag or mid-label-edit
+  when a change arrives, it's held back and a banner says so; it lands by
+  itself as soon as your edit is saved. Nothing is merged and nothing is
+  clobbered — writes are still last-writer-wins, exactly as before.
+- **It doesn't echo your own saves.** Your page never rebuilds because of
+  something you did.
+- **It doesn't move your camera.** Pan, zoom and the submap you're in survive
+  every update; undo history is reset, because replaying it would silently
+  revert the other writer's work.
+
+`/events` is read-only and carries only a counter, never map content. Under
+`--host` it's on the same unauthenticated LAN surface as `/state`.
+
 Available tools:
 
 - `get_state` — read the full graph

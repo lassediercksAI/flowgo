@@ -129,9 +129,17 @@ func diskAlreadyHasLocked(sum [sha256.Size]byte, size int64) bool {
 // (unless the identical bytes are already there) and records the new
 // disk identity. It does NOT touch the hasGraph/graph fields — callers
 // decide whether the cached graph still describes these bytes.
-func persistLocalBytesLocked(data []byte) error {
+//
+// This is also the single choke point every write funnels through, so
+// it is where the live-events revision counter is bumped (events.go).
+// origin names who wrote — a browser session id, OriginMCP, or "" —
+// so a client never receives its own change back.
+func persistLocalBytesLocked(data []byte, origin string) error {
 	sum := sha256.Sum256(data)
 	if diskAlreadyHasLocked(sum, int64(len(data))) {
+		// Byte-identical: the document did not change, so there is
+		// nothing for subscribers to re-read. This is what keeps an
+		// idle editor's periodic no-op save from waking every tab.
 		return nil
 	}
 	fi, err := atomicWriteFile(cfg.LocalFile, data)
@@ -145,13 +153,14 @@ func persistLocalBytesLocked(data []byte) error {
 	c.modTime = fi.ModTime()
 	c.size = int64(len(data))
 	c.sum = sum
+	bumpRevision(origin)
 	return nil
 }
 
 // persistLocalGraphLocked serializes the cached graph and persists it.
 // Call only while localFile.hasGraph holds the document to write.
-func persistLocalGraphLocked() error {
-	return persistLocalBytesLocked([]byte(serialize(localFile.graph)))
+func persistLocalGraphLocked(origin string) error {
+	return persistLocalBytesLocked([]byte(serialize(localFile.graph)), origin)
 }
 
 // ErrInvalidGraph reports a save refused because the graph cannot be
@@ -181,6 +190,17 @@ var ErrInvalidGraph = errors.New("graph cannot be written to a .flowgo file")
 // (an edge whose target was just deleted, a submap outliving its
 // node), or the fix would lock users out of saving.
 func SaveLocalGraph(g Graph) error {
+	return SaveLocalGraphFrom(g, "")
+}
+
+// SaveLocalGraphFrom is SaveLocalGraph with the writer's identity
+// attached. origin is the browser's per-page session id (the
+// X-Flowgo-Session header on /save); the live-events stream never
+// delivers a change back to the session that caused it, which is what
+// keeps a save from bouncing back as a full rebuild in the tab that
+// made it. Pass "" when the writer is anonymous — every subscriber
+// then hears about the change, which is the safe default.
+func SaveLocalGraphFrom(g Graph, origin string) error {
 	if errs := validateWritable(g); len(errs) > 0 {
 		msgs := make([]string, len(errs))
 		for i, e := range errs {
@@ -191,7 +211,7 @@ func SaveLocalGraph(g Graph) error {
 	cfg.LocalFileMu.Lock()
 	defer cfg.LocalFileMu.Unlock()
 	g.Version = cfg.Version()
-	err := persistLocalBytesLocked([]byte(serialize(g)))
+	err := persistLocalBytesLocked([]byte(serialize(g)), origin)
 	localFile.hasGraph = false
 	localFile.graph = Graph{}
 	return err
