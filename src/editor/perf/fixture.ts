@@ -19,6 +19,8 @@ export interface FixtureBox {
   y: number;
   palette?: number;
   shape?: number;
+  w?: number;
+  h?: number;
 }
 
 export interface FixtureText {
@@ -78,14 +80,52 @@ const makeRng = (seed: number): (() => number) => {
   };
 };
 
+export interface StressOptions {
+  /**
+   * Give every box a FIXED FRAME instead of letting it auto-size to
+   * its label — the path brain#258 is about. Boxes cycle through all
+   * four fixed-frame silhouettes in equal quarters so one fixture
+   * exercises every clamp geometry:
+   *
+   *   i % 4 === 0 → hexagon  (shape 1, 240×208, 0.64 usable height)
+   *   i % 4 === 1 → circle   (shape 2, 208×208, 0.62)
+   *   i % 4 === 2 → triangle (shape 3, 240×208, 0.40)
+   *   i % 4 === 3 → resized rectangle (`nodesize`, `.sized` class)
+   *
+   * The first three take their size from CSS (fixedShapeSize in
+   * render.ts) and only need the shape directive; the fourth carries
+   * an explicit w/h. All four run the label clamp at materialization.
+   */
+  fixedFrame?: boolean;
+}
+
+// Resized-rectangle frames for the fixed-frame fixture. Deliberately
+// varied (and deliberately too small for the longer labels) so the
+// clamp has to truncate rather than trivially fitting every label on
+// one line.
+const SIZED_FRAMES: ReadonlyArray<readonly [number, number]> = [
+  [120, 64],
+  [160, 96],
+  [96, 120],
+  [200, 72],
+];
+
 /**
  * Build a stress map with `nBoxes` boxes on a jittered grid,
  * ~nBoxes/2 free lines, ~nBoxes/5 edges, ~nBoxes/20 texts and
  * ~nBoxes/50 strokes. Box 0 sits at (0, 0) (plus tiny jitter), so
  * the benchmark can park the cursor near the origin and know which
  * box is the proximity target.
+ *
+ * With `{ fixedFrame: true }` every box gets a fixed silhouette or an
+ * explicit size — same geometry, same counts, same seed, so the two
+ * variants are a controlled A/B of the label-clamp path and nothing
+ * else.
  */
-export const makeStressMap = (nBoxes: number): FixtureMap => {
+export const makeStressMap = (
+  nBoxes: number,
+  opts: StressOptions = {},
+): FixtureMap => {
   const rng = makeRng(0xf10460 + nBoxes);
   const cols = Math.ceil(Math.sqrt(nBoxes));
   const extentX = cols * GRID_X;
@@ -104,6 +144,20 @@ export const makeStressMap = (nBoxes: number): FixtureMap => {
     };
     const palette = 1 + Math.floor(rng() * 9);
     if (palette !== 1) box.palette = palette;
+    // Assigned from the index, never from `rng`, so the fixed-frame
+    // variant draws the exact same random sequence as the auto-sized
+    // one — positions, palettes, lines, edges, texts and strokes come
+    // out byte-identical and the only difference is the frame.
+    if (opts.fixedFrame) {
+      const kind = i % 4;
+      if (kind === 3) {
+        const [fw, fh] = SIZED_FRAMES[Math.floor(i / 4) % SIZED_FRAMES.length]!;
+        box.w = fw;
+        box.h = fh;
+      } else {
+        box.shape = kind + 1;
+      }
+    }
     boxes.push(box);
   }
 
@@ -162,7 +216,10 @@ export const makeStressMap = (nBoxes: number): FixtureMap => {
   return { path: "/", boxes, edges, texts, lines, strokes };
 };
 
-export const makeStressGraph = (nBoxes: number): FixtureGraph => ({
+export const makeStressGraph = (
+  nBoxes: number,
+  opts: StressOptions = {},
+): FixtureGraph => ({
   version: "1",
-  maps: [makeStressMap(nBoxes)],
+  maps: [makeStressMap(nBoxes, opts)],
 });
