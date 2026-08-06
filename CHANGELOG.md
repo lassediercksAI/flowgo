@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.11](https://github.com/lassediercks/flowgo/compare/v0.3.10...v0.3.11) (2026-08-06)
+
+
+### Bug Fixes
+
+* **editor:** make the live-event client opt-in so the hosted site stops retrying ([e9b7668](https://github.com/lassediercks/flowgo/commit/e9b7668fbd04f8af3ae5c6f0f620352c5032d2d5))
+
 ## [0.3.10](https://github.com/lassediercks/flowgo/compare/v0.3.9...v0.3.10) (2026-08-06)
 
 
