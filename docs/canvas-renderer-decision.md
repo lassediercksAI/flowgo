@@ -484,8 +484,27 @@ just perf-fixture /tmp/fx-100000.flowgo 100000
 
 The jsdom harness (`src/editor/perf/`) asserts DOM-*operation* counts and
 cannot see layout, paint or compositing — which is exactly where the
-costs in §2 live. Work on this axis needs a real-browser harness
-(`playwright-core` + Chrome for Testing + rAF-gap sampling); the scripts
-used for this brief are attached to the brain card's comment thread. The
-zoom-out table required a throwaway build with `MIN_SCALE` lowered to
-0.01 in `src/editor/viewport.ts:27`.
+costs in §2 live. Work on this axis needs a real browser. The harness
+used here was `playwright-core` in a scratch directory driving Chrome
+for Testing; the recipe, with the traps that cost time:
+
+- launch with `--enable-precise-memory-info` so `performance.memory`
+  reports a real heap size;
+- **always run against a throwaway copy of the fixture** — the editor
+  autosaves, so a second run measures a map the first run edited;
+- measure with a `requestAnimationFrame`-gap sampler and take
+  `Math.max(...gaps)` per gesture. Do **not** time `page.evaluate`
+  around a zoom click: the cull pass is rAF-deferred via
+  `scheduleCullUpdate`, so the synchronous handler returns in ~1 ms and
+  you measure nothing;
+- drive the zoom control with
+  `btn.dispatchEvent(new PointerEvent("pointerup"))`, not
+  `elementHandle.click()` — the buttons disable at the scale clamp, and
+  Playwright's 30 s actionability timeout fires while the main thread
+  is blocked;
+- `recenter()` centres the view on box `b0`, so roughly three quarters
+  of the viewport is empty space. Visible-item counts come out ~4×
+  lower than a naive pitch calculation predicts — measure, don't
+  compute;
+- the zoom-out table needed a throwaway build with `MIN_SCALE` lowered
+  to 0.01 in `src/editor/viewport.ts:27`.
