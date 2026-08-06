@@ -249,3 +249,14 @@ typecheck:
 live-e2e:
     pnpm exec vite build
     node scripts/live-e2e.mjs
+
+# Same run, but with an UNMINIFIED bundle so any stack the harness
+# captures names real functions (`updateCulling (…:3659:25)`) instead
+# of mangled ones (`yi (…:1123:37645)`). Reach for this the moment
+# live-e2e reports an uncaught error — a rare race may not repeat, so
+# the run that catches it has to be the run that explains it
+# (brain#24d). Leaves an unminified dist/index.html behind: re-run
+# `just build-frontend` before committing.
+live-e2e-debug:
+    pnpm exec vite build --minify false
+    node scripts/live-e2e.mjs

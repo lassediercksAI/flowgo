@@ -21,7 +21,12 @@
 //   - a dirty document is NOT clobbered: a page with unsaved edits
 //     keeps them and surfaces the notice instead,
 //   - the camera and the current submap survive an apply,
-//   - an external edit to the .flowgo (the vim case) also lands.
+//   - an external edit to the .flowgo (the vim case) also lands,
+//   - nothing throws while the map is still loading (brain#24d).
+//
+// Every page it opens is watched for uncaught errors, WITH STACKS —
+// see watchErrors() below for why that matters and how to get frames
+// you can actually read.
 //
 // Requirements: go, a built pkg/flowgo/dist/index.html (`pnpm build`),
 // playwright-core resolvable, and a Chromium. Both of the latter are
@@ -31,6 +36,7 @@
 //   node scripts/live-e2e.mjs
 //   PLAYWRIGHT_CORE=/path/to/playwright-core node scripts/live-e2e.mjs
 //   CHROMIUM=/path/to/chrome node scripts/live-e2e.mjs
+//   just live-e2e-debug      # readable stacks (unminified bundle)
 
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
@@ -178,6 +184,37 @@ const check = (ok, what, detail = "") => {
   if (!ok) failures++;
 };
 
+// Uncaught-error capture, for EVERY page this script opens.
+//
+// brain#24d cost thirty hunting runs because this used to be
+// `page.on("pageerror", e => errors.push(String(e)))` on the first
+// page only: String(err) is "TypeError: <message>" and throws the
+// stack away, and the second tab was not watched at all. A bug that
+// shows up in 2 runs of 45 has to be diagnosable from the run that
+// caught it — there may not be another.
+//
+// So: the full Error object (`.stack` carries the frames), console
+// errors with their source location, and failed page loads. Frames
+// point into the single-file bundle, which `pnpm build` minifies —
+// `just live-e2e-debug` builds it unminified so they read as
+// `updateCulling (…:3659:25)` instead of `yi (…:1123:37645)`.
+const watchErrors = (page, label) => {
+  const errors = [];
+  const at = (l) =>
+    l && l.url ? ` (${l.url}:${l.lineNumber}:${l.columnNumber})` : "";
+  page.on("pageerror", (e) => {
+    errors.push(
+      `[${label}] uncaught ${e && e.stack ? e.stack : String(e)}`,
+    );
+  });
+  page.on("console", (m) => {
+    if (m.type() !== "error") return;
+    errors.push(`[${label}] console.error: ${m.text()}${at(m.location())}`);
+  });
+  page.on("crash", () => errors.push(`[${label}] page crashed`));
+  return errors;
+};
+
 const waitFor = async (fn, what, timeout = 6_000) => {
   const started = Date.now();
   for (;;) {
@@ -232,11 +269,48 @@ const main = async () => {
     executablePath: exe,
     args: ["--no-sandbox"],
   });
-  const errors = [];
+  let errors = [];
   try {
+    // -----------------------------------------------------------
+    log("0. nothing throws while the map is still loading");
+    // -----------------------------------------------------------
+    // Until /state answers, the renderer is drawing main.ts's
+    // placeholder map — the one map that never went through
+    // ensureMap. Any pan, zoom or window resize in that window
+    // schedules a cull pass against it (brain#23a's rAF hook), so the
+    // placeholder has to carry every container the renderer reads
+    // without a nil check. It did not carry `texts`, and a wheel tick
+    // during a slow load threw an uncaught TypeError (brain#24d).
+    //
+    // In the wild the window is one /state round trip wide, which is
+    // why it showed up in 2 of ~45 smoke runs and never twice in a
+    // row. Holding /state open makes it deterministic.
+    const slow = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const slowErrors = watchErrors(slow, "loading");
+    await slow.route("**/state", async (route) => {
+      await new Promise((r) => setTimeout(r, 1_500));
+      await route.continue();
+    });
+    await slow.goto(url, { waitUntil: "commit" });
+    await new Promise((r) => setTimeout(r, 250));
+    await slow.mouse.move(640, 450);
+    await slow.mouse.wheel(0, 120);   // wheel is pan, not zoom
+    await slow.evaluate(() => window.dispatchEvent(new Event("resize")));
+    await new Promise((r) => setTimeout(r, 2_500));
+    await slow.waitForSelector('.box[data-id="b1"]');
+    check(
+      slowErrors.length === 0,
+      "viewport moved mid-load, nothing thrown",
+      slowErrors.join("\n"),
+    );
+    check(
+      (await slow.$('.box[data-id="b2"]')) !== null,
+      "…and the map still rendered once /state answered",
+    );
+    await slow.close();
+
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-    page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
-    page.on("pageerror", (e) => errors.push(String(e)));
+    errors = watchErrors(page, "tab1");
 
     // A counter that only survives while the document does. Any full
     // page load resets it to 1 — that is how every "without a reload"
@@ -403,6 +477,7 @@ const main = async () => {
     log("\n9. two tabs stay in sync");
     // -----------------------------------------------------------
     const page2 = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const errors2 = watchErrors(page2, "tab2");
     await page2.goto(url, { waitUntil: "networkidle" });
     await page2.waitForSelector('.box[data-id="b1"]');
     await setView(page2, ...HOME);
@@ -428,6 +503,7 @@ const main = async () => {
       )),
       "tab2 rebuilt to pick up tab1's edit",
     );
+    errors.push(...errors2);
     await page2.close();
 
     // -----------------------------------------------------------
@@ -444,7 +520,13 @@ const main = async () => {
     const t10 = await waitFor(() => seen(page, agent5), "agent5", 8_000);
     check(t10 >= 0, "stream still live after a 12s idle gap", t10 >= 0 ? `${t10}ms` : "timed out");
 
-    check(errors.length === 0, "no console errors", errors.join(" | "));
+    check(errors.length === 0, "no uncaught errors in any tab");
+    for (const e of errors) log(`\n${e}`);
+    if (errors.length > 0) {
+      log(
+        "\n(minified frames? rebuild readable ones with `just live-e2e-debug`)",
+      );
+    }
   } finally {
     await browser.close();
     proc.kill("SIGKILL");
