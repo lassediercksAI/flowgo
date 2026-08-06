@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.9](https://github.com/lassediercks/flowgo/compare/v0.3.8...v0.3.9) (2026-08-06)
+
+
+### Performance
+
+* **editor:** incremental paste/clone/align + memoized id minting ([22a02b2](https://github.com/lassediercks/flowgo/commit/22a02b22cb13de7726a95db0b12fcaf37340633e))
+
 ## [0.3.8](https://github.com/lassediercks/flowgo/compare/v0.3.7...v0.3.8) (2026-08-05)
 
 
