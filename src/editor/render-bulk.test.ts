@@ -24,7 +24,7 @@ import {
   updateCulling,
   wireRender,
 } from "./render.ts";
-import { copySelection, pasteSelection, wireClipboard } from "./clipboard.ts";
+import { PASTE_OFFSET_PX, copySelection, pasteSelection, wireClipboard } from "./clipboard.ts";
 import { cloneSelection, wireClone } from "./clone.ts";
 import { applyAlign, wireAlign } from "./align.ts";
 import { wireMutations } from "./mutations.ts";
@@ -200,11 +200,11 @@ describe("paste", () => {
 
     // Nothing that existed before was rebuilt.
     expect(stillMarked(marked)).toBe(marked.size);
-    // Exactly two new boxes, and they carry the +20 cascade.
+    // Exactly two new boxes, and they carry the one-step cascade.
     const fresh = newBoxIds(beforeIds);
     expect(fresh).toHaveLength(2);
     for (const id of fresh) expect(getBoxEl(id)).not.toBeNull();
-    expect(getBoxEl(fresh[0]!)!.style.left).toBe("20px");
+    expect(getBoxEl(fresh[0]!)!.style.left).toBe(PASTE_OFFSET_PX + "px");
     // Stacking is identical to what a full render would produce.
     expect(canvasOrder()).toEqual(expectedOrder(h.map));
   });
@@ -296,7 +296,7 @@ describe("paste", () => {
       current: { x1: -100, y1: -100, x2: 900, y2: 900 },
     };
     wireCulling({ viewport: () => rect.current });
-    // Source lives far off-screen; the +20 cascade keeps it there.
+    // Source lives far off-screen; the cascade nudge keeps it there.
     h.map.boxes.push({ id: "bFar", label: "far", x: 9000, y: 9000 });
     renderAll();
     expect(getBoxEl("bFar")).toBeNull();

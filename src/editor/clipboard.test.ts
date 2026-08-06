@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  PASTE_OFFSET_PX,
   copySelection,
   cutSelection,
   pasteSelection,
   wireClipboard,
 } from "./clipboard.ts";
+import { GRID } from "./movers.ts";
 import { wireMutations } from "./mutations.ts";
 
 interface Box {
@@ -257,12 +259,12 @@ describe("copy/paste round-trip preserves in-app structure", () => {
     s.selected.clear();
     pasteSelection();
 
-    // Two new boxes appended with the 20px cascade and minted ids.
+    // Two new boxes appended with the one-step cascade and minted ids.
     expect(s.boxes).toHaveLength(4);
     const pastedFirst = s.boxes[2];
     const pastedSecond = s.boxes[3];
-    expect(pastedFirst).toMatchObject({ label: "first", x: 30, y: 40 });
-    expect(pastedSecond).toMatchObject({ label: "second", x: 60, y: 70 });
+    expect(pastedFirst).toMatchObject({ label: "first", x: 70, y: 80 });
+    expect(pastedSecond).toMatchObject({ label: "second", x: 100, y: 110 });
     expect(pastedFirst?.id).not.toBe("b1");
     expect(pastedSecond?.id).not.toBe("b2");
 
@@ -326,7 +328,7 @@ describe("copy/paste round-trip preserves in-app structure", () => {
     expect(rendered).toHaveLength(2);
   });
 
-  it("copies + pastes an image: new id, 20px cascade, shared src", () => {
+  it("copies + pastes an image: new id, cascade offset, shared src", () => {
     const s = makeState();
     s.images = [
       { id: "img1", src: "flowgo-media/abc.png", x: 100, y: 100, width: 300, height: 200 },
@@ -343,9 +345,200 @@ describe("copy/paste round-trip preserves in-app structure", () => {
     expect(pasted.id).not.toBe("img1");
     // src is reused verbatim — the media file is shared, not re-uploaded.
     expect(pasted.src).toBe("flowgo-media/abc.png");
-    expect(pasted).toMatchObject({ x: 120, y: 120, width: 300, height: 200 });
+    expect(pasted).toMatchObject({ x: 160, y: 160, width: 300, height: 200 });
     // The pasted image is the new selection.
     expect(s.selected.has(pasted.id)).toBe(true);
     expect(s.selected.has("img1")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------
+// Paste cascade (brain#255)
+//
+// The bug: paste used a 20px step, which is less than half the height
+// of a default box (~41 CSS px), so each copy's label landed on top of
+// the previous copy's label — a paste-paste-paste looked like one
+// smeared node and you could not tell there were three.
+// ---------------------------------------------------------------
+
+// A two-map document, so a paste can be aimed at a map other than the
+// one the copy came from. `cur` is what the editor's currentMap()
+// would return after navigating.
+interface MapState {
+  path: string;
+  boxes: Box[];
+  edges: Edge[];
+  texts: Text[];
+  lines: Line[];
+  images: Img[];
+}
+const makeMap = (path: string): MapState => ({
+  path, boxes: [], edges: [], texts: [], lines: [], images: [],
+});
+
+const wireMaps = (
+  maps: MapState[],
+  selected: Set<string>,
+  at: () => string,
+): void => {
+  let n = 0;
+  const cur = (): MapState => maps.find((m) => m.path === at())!;
+  wireMutations({ scheduleSave: () => {} });
+  wireClipboard({
+    selected,
+    currentMap: () => cur(),
+    findTextById: (id) => cur().texts.find((t) => t.id === id),
+    findLineById: (id) => cur().lines.find((l) => l.id === id),
+    findImageById: (id) => cur().images.find((i) => i.id === id),
+    mintId: (p) => `${p}_new${++n}`,
+    renderItems: () => {},
+    deleteSelection: () => {},
+    setStatus: () => {},
+    clearSelectedEdge: () => {},
+  });
+};
+
+describe("paste cascade (#255)", () => {
+  it("steps a multiple of the drag grid, far enough to clear a box", () => {
+    // Multiple of GRID: a shift-snapped selection is still snapped
+    // after a paste. Taller than a default box (41 CSS px measured in
+    // Chromium at the 16px label floor): the copy's label can never
+    // sit on the source's label, which is the whole point of the card.
+    expect(PASTE_OFFSET_PX % GRID).toBe(0);
+    expect(PASTE_OFFSET_PX).toBeGreaterThanOrEqual(41);
+  });
+
+  it("offsets the first paste and cascades on every repeat", () => {
+    const s = makeState();
+    s.boxes = [{ id: "b1", label: "one", x: 100, y: 200 }];
+    s.selected = new Set(["b1"]);
+    wire(s);
+
+    copySelection();
+    pasteSelection();
+    pasteSelection();
+    pasteSelection();
+
+    const k = PASTE_OFFSET_PX;
+    // Three copies at three DISTINCT positions — the assertion the bug
+    // report is really about ("you can't tell there are three").
+    expect(s.boxes.map((b) => `${b.x},${b.y}`)).toEqual([
+      "100,200",
+      `${100 + k},${200 + k}`,
+      `${100 + 2 * k},${200 + 2 * k}`,
+      `${100 + 3 * k},${200 + 3 * k}`,
+    ]);
+    expect(new Set(s.boxes.map((b) => `${b.x},${b.y}`)).size).toBe(4);
+  });
+
+  it("a fresh copy restarts the cascade from the new source", () => {
+    const s = makeState();
+    s.boxes = [{ id: "b1", label: "one", x: 0, y: 0 }];
+    s.selected = new Set(["b1"]);
+    wire(s);
+
+    copySelection();
+    pasteSelection();
+    pasteSelection();
+    // Paste leaves the copies selected; copying them is a new source,
+    // so the next paste is one step from THEM, not from b1.
+    const source = s.boxes[2]!;
+    expect(source.x).toBe(2 * PASTE_OFFSET_PX);
+    copySelection();
+    pasteSelection();
+
+    const fresh = s.boxes[3]!;
+    expect(fresh.x).toBe(source.x + PASTE_OFFSET_PX);
+    expect(fresh.y).toBe(source.y + PASTE_OFFSET_PX);
+  });
+
+  it("leaves every pre-existing item where it was (undo stays faithful)", () => {
+    // Undo restores a whole-document snapshot taken before the paste.
+    // That snapshot only describes the paste correctly if the paste is
+    // purely additive — it must not drag the originals along with it.
+    const s = makeState();
+    s.boxes = [
+      { id: "b1", label: "one", x: 10, y: 20 },
+      { id: "b2", label: "two", x: 300, y: 20 },
+    ];
+    s.texts = [{ id: "t1", label: "note", x: 0, y: 400 }];
+    s.edges = [{ from: "b1", to: "b2" }];
+    s.selected = new Set(["b1", "b2", "t1"]);
+    wire(s);
+    const before = JSON.stringify([s.boxes, s.texts, s.edges]);
+
+    copySelection();
+    pasteSelection();
+    pasteSelection();
+
+    expect(JSON.stringify([
+      s.boxes.slice(0, 2), s.texts.slice(0, 1), s.edges.slice(0, 1),
+    ])).toBe(before);
+  });
+
+  it("does not offset a paste into a map the copy did not come from", () => {
+    const root = makeMap("/");
+    const sub = makeMap("/b1");
+    root.boxes = [{ id: "b1", label: "one", x: 10, y: 20 }];
+    const selected = new Set<string>(["b1"]);
+    let at = "/";
+    wireMaps([root, sub], selected, () => at);
+
+    copySelection();
+    // Navigate into the submap and paste: nothing there to be confused
+    // with, so the copy keeps the coordinates it was copied at.
+    at = "/b1";
+    pasteSelection();
+    expect(sub.boxes).toHaveLength(1);
+    expect(sub.boxes[0]).toMatchObject({ x: 10, y: 20 });
+
+    // A SECOND paste into that same map does cascade — otherwise the
+    // two copies would stack, which is the bug we came here to fix.
+    pasteSelection();
+    expect(sub.boxes[1]).toMatchObject({
+      x: 10 + PASTE_OFFSET_PX, y: 20 + PASTE_OFFSET_PX,
+    });
+  });
+
+  it("keeps a per-map cascade so returning to the source map never stacks", () => {
+    const root = makeMap("/");
+    const sub = makeMap("/b1");
+    root.boxes = [{ id: "b1", label: "one", x: 0, y: 0 }];
+    const selected = new Set<string>(["b1"]);
+    let at = "/";
+    wireMaps([root, sub], selected, () => at);
+
+    copySelection();
+    pasteSelection();               // root, step 1
+    at = "/b1";
+    pasteSelection();               // submap, step 0
+    at = "/";
+    pasteSelection();               // root again — must be step 2
+
+    expect(root.boxes.map((b) => b.x)).toEqual([
+      0, PASTE_OFFSET_PX, 2 * PASTE_OFFSET_PX,
+    ]);
+    expect(new Set(root.boxes.map((b) => b.x)).size).toBe(3);
+  });
+
+  it("settles a pasted hexagon onto a free cell, never back onto the source", () => {
+    // A hexagon is 240x208, so the cascade step lands the copy well
+    // inside the source's footprint. The settle pass repairs that —
+    // and it must not repair it by putting the copy back exactly where
+    // the original is.
+    const s = makeState();
+    s.boxes = [{ id: "h1", label: "hex", x: 0, y: 0, shape: 1 }];
+    s.selected = new Set(["h1"]);
+    wire(s);
+
+    copySelection();
+    pasteSelection();
+    pasteSelection();
+
+    expect(s.boxes).toHaveLength(3);
+    expect(s.boxes[0]).toMatchObject({ x: 0, y: 0 });
+    const spots = new Set(s.boxes.map((b) => `${b.x},${b.y}`));
+    expect(spots.size).toBe(3);
+    for (const b of s.boxes.slice(1)) expect(b.shape).toBe(1);
   });
 });

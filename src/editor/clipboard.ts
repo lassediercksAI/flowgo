@@ -2,11 +2,41 @@
 // clipboard buffer; main.ts wires in the live state and id minting.
 //
 // Edges are duplicated only when both endpoints are present in the
-// copied box set, mirroring the existing semantics. Each paste shifts
-// by 20px so repeated paste presses cascade rather than stack.
+// copied box set, mirroring the existing semantics.
+//
+// PASTE CASCADE (brain#255). A paste is nudged diagonally away from
+// what it was copied from, and repeated pastes step further, so you
+// can always see and grab every copy. Three decisions worth keeping:
+//
+//   • DATA px, not screen px. The nudge is written into the document's
+//     own coordinates, so a paste is reproducible: the same map + the
+//     same key presses give the same file whatever the camera is
+//     doing, and the copies keep their spacing when you zoom. A
+//     screen-px nudge would make the saved geometry depend on the
+//     zoom level at the moment you hit paste.
+//
+//   • 3 grid cells (GRID = 20 → 60px). The step has to clear a whole
+//     default box or the copy's label lands on top of the source's
+//     label and the stack is unreadable — which is exactly the bug
+//     this replaced: a default box measures ~83x41 CSS px, and the
+//     old 20px step buried each label under the next copy. 60 clears
+//     41 with room to spare, and being a multiple of GRID keeps a
+//     shift-snapped selection snapped after the paste.
+//
+//   • The cascade counter is PER TARGET MAP, keyed by map path, and
+//     is reset by the next copy (it lives on the clipboard buffer).
+//     Pasting into a map you did not copy from starts at step 0 — no
+//     offset, because there is nothing there to be confused with —
+//     and only cascades on the second paste into that same map. Keys
+//     are paths rather than map objects so the count survives an undo
+//     (undo reloads the document and swaps every map object).
 
 import { settleHexBoxIds } from "./hex.ts";
+import { GRID } from "./movers.ts";
 import { mutatedCurrentMap } from "./mutations.ts";
+
+/** Diagonal nudge applied per cascade step, in data px. See above. */
+export const PASTE_OFFSET_PX = GRID * 3;
 
 interface BoxLike {
   id: string;
@@ -62,6 +92,9 @@ interface CurrentMap {
   texts: TextLike[];
   lines: LineLike[];
   images?: ImageLike[];
+  /** Submap path ("/" for the root map). Present on every real map;
+   *  optional here only so test doubles can stay minimal. */
+  path?: string;
 }
 
 interface ClipboardBuffer {
@@ -70,8 +103,14 @@ interface ClipboardBuffer {
   lines: LineLike[];
   images: ImageLike[];
   edges: EdgeLike[];
-  pasteOffset: number;
+  /** Cascade steps already spent, per target map path. The source map
+   *  is seeded at 0 by the copy, so its first paste steps to 1; a map
+   *  that was never copied from and never pasted into is absent, so
+   *  its first paste steps to 0 and lands unshifted. */
+  steps: Map<string, number>;
 }
+
+const mapKey = (m: CurrentMap): string => m.path ?? "/";
 
 interface ClipboardBindings {
   readonly selected: Set<string>;
@@ -168,7 +207,10 @@ export const copySelection = (): boolean => {
   if (!boxes.length && !texts.length && !lines.length && !images.length) {
     return false;
   }
-  buffer = { boxes, texts, lines, images, edges, pasteOffset: 0 };
+  // A fresh copy resets the cascade, and seeds the map it came from so
+  // the very first paste back into it is already nudged clear of the
+  // original.
+  buffer = { boxes, texts, lines, images, edges, steps: new Map([[mapKey(map), 0]]) };
   // Mirror box/text labels to the OS clipboard so external editors can
   // paste plain text. Internal paste still reads `buffer`, so structure
   // (edges, shapes, positions) round-trips losslessly inside flowgo.
@@ -201,13 +243,20 @@ export const pasteSelection = (): void => {
     setStatus("clipboard is empty");
     return;
   }
-  buffer.pasteOffset += 20;
-  const dx = buffer.pasteOffset;
-  const dy = buffer.pasteOffset;
   const idMap = new Map<string, string>();
   selected.clear();
   clearSelectedEdge();
   const map = currentMap();
+  // Advance this map's cascade. An unseen map (i.e. not the one the
+  // copy came from, and not pasted into yet) starts at step 0 — the
+  // copy is the only thing at those coordinates there, so shifting it
+  // would just move it away from where the user copied it.
+  const key = mapKey(map);
+  const prev = buffer.steps.get(key);
+  const step = prev === undefined ? 0 : prev + 1;
+  buffer.steps.set(key, step);
+  const dx = step * PASTE_OFFSET_PX;
+  const dy = step * PASTE_OFFSET_PX;
   for (const b of buffer.boxes) {
     const newId = mintId("b");
     idMap.set(b.id, newId);
@@ -276,7 +325,9 @@ export const pasteSelection = (): void => {
     if (ed.toHandle) newEdge.toHandle = ed.toHandle;
     map.edges.push(newEdge);
   }
-  // The 20px paste cascade can drop hexagons onto occupied spots —
+  // The paste cascade can drop hexagons onto occupied spots (the
+  // cascade step is far smaller than a hex, and a cross-map paste is
+  // not shifted at all) —
   // settle them onto free lattice cells (hexes never overlap). The
   // settle can shove a PRE-EXISTING hexagon too, so its ids join the
   // render set (that's why this asks for ids, not a boolean).
