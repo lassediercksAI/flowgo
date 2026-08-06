@@ -14,6 +14,24 @@
 // under us, so re-read /state and put it on screen. The interesting
 // part is when NOT to — see the dirty-document policy on
 // refreshFromServer, and the undo-stack note on applyRemoteGraph.
+//
+// COST MODEL (brain#259). Everything in here that touches the whole
+// document is O(map), so what matters is how many such passes an edit
+// costs. On a 100,000-box map each pass is measured at: native
+// stringify 9.1 ms, parse 19.4 ms, replacer-driven fingerprint 37.7 ms.
+// The budget is:
+//
+//   an edit          1 stringify  — the /save body, which doubles as the
+//                                   history entry (a reference copy)
+//   an undo/redo     1 stringify + 1 parse
+//   a remote event   1 fingerprint of the incoming document, + at most
+//                    one parse+fingerprint to derive the baseline, and
+//                    only once per baseline
+//
+// History is stored as whole-document snapshots on purpose — see the
+// note on applyRemoteGraph for why inverse patches would be less safe
+// here, not more. What snapshots cost is memory, not time, and that is
+// bounded by HISTORY_BYTE_BUDGET rather than by entry count alone.
 
 import { SESSION_ID } from "./live.ts";
 import type { RefreshOutcome } from "./live.ts";
@@ -63,21 +81,94 @@ interface PersistenceBindings {
 const UNDO_LIMIT = 100;
 const DEBOUNCE_MS = 200;
 
+// History entries are whole-document JSON strings, so their size is the
+// size of the map. 100 of them on a 100,000-box document is ~1.1 GB of
+// retained string — the editor would OOM long before the user ran out
+// of Ctrl+Z. Cap the retained bytes across BOTH stacks as well as the
+// entry count: small documents still get the full 100 steps (they never
+// come near the budget), large ones trade depth for staying alive.
+//
+// Exported for the test that pins the bound.
+export const HISTORY_BYTE_BUDGET = 64 * 1024 * 1024;
+
 let bindings: PersistenceBindings | null = null;
 const must = (): PersistenceBindings => {
   if (!bindings) throw new Error("persistence: wirePersistence() not called");
   return bindings;
 };
 
+// Whole-document pass counters (brain#259). Every one of these is O(map),
+// so "how many run per edit" is the number that decides whether a large
+// map is editable. Integer increments, so they cost nothing in
+// production; the perf suite gates on them because they are identical on
+// every machine, unlike wall-clock (see src/editor/perf/counters.ts for
+// the same reasoning applied to DOM ops).
+export interface GraphPasses {
+  /** JSON.stringify of the whole document (the /save body). */
+  stringify: number;
+  /** JSON.parse of a whole document. */
+  parse: number;
+  /** Replacer-driven stringify for the dirty-check fingerprint. */
+  fingerprint: number;
+}
+
+const passes: GraphPasses = { stringify: 0, parse: 0, fingerprint: 0 };
+
+export const graphPasses = (): Readonly<GraphPasses> => ({ ...passes });
+export const resetGraphPasses = (): void => {
+  passes.stringify = 0;
+  passes.parse = 0;
+  passes.fingerprint = 0;
+};
+
+/** The one place the whole live document gets serialized. */
+const serializeDoc = (g: GraphLike): string => {
+  passes.stringify++;
+  return JSON.stringify(g);
+};
+
 let savedSnapshot: string | null = null;
 let undoStack: string[] = [];
 let redoStack: string[] = [];
+
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 // Saves already posted but not yet acknowledged. A remote apply while
 // one is in flight would put the pre-save document on screen AND let
 // the in-flight write land on top of the agent's edit — the browser
 // and the file would then disagree with nobody left to notice.
 let savesInFlight = 0;
+
+/** Total retained history bytes, for the budget and for the tests. */
+export const historyBytes = (): number => {
+  let n = 0;
+  for (const s of undoStack) n += s.length;
+  for (const s of redoStack) n += s.length;
+  return n;
+};
+
+export const historyDepth = (): { undo: number; redo: number } => ({
+  undo: undoStack.length,
+  redo: redoStack.length,
+});
+
+// Enforce both caps. Evicts from the FAR end of each stack — undoStack[0]
+// is the oldest past, redoStack[0] is the most distant future — so the
+// steps nearest the user's cursor in history are the last to go, and the
+// redo branch (which the user has already stepped away from) goes before
+// the past does. Always leaves at least one undo entry: dropping the step
+// the user just made would make a large-map edit un-undoable, which is
+// worse than any memory number.
+const trimHistory = (): void => {
+  while (undoStack.length > UNDO_LIMIT) undoStack.shift();
+  while (redoStack.length > UNDO_LIMIT) redoStack.shift();
+  let bytes = historyBytes();
+  while (bytes > HISTORY_BYTE_BUDGET && redoStack.length > 0) {
+    bytes -= redoStack.shift()!.length;
+  }
+  while (bytes > HISTORY_BYTE_BUDGET && undoStack.length > 1) {
+    bytes -= undoStack.shift()!.length;
+  }
+};
 
 // The document revision this page has seen, from the X-Flowgo-Revision
 // header on /state and /save. live.ts compares incoming events against
@@ -105,20 +196,50 @@ export const getKnownRevision = (): number => knownRevision;
 // the same document and serialize to the same .flowgo bytes, so the
 // fingerprint drops empties on both sides. It does NOT drop non-empty
 // content, so a genuinely emptied map still reads as a change.
-const fingerprint = (g: unknown): string =>
-  JSON.stringify(g, (_k, v) => {
+const fingerprint = (g: unknown): string => {
+  passes.fingerprint++;
+  return JSON.stringify(g, (_k, v) => {
     if (v === null) return undefined;
     if (Array.isArray(v) && v.length === 0) return undefined;
     return v;
   });
+};
 
+// The fingerprint of savedSnapshot, derived LAZILY (brain#259).
+//
+// It used to be computed eagerly inside setSaved, which put a
+// `JSON.parse` of the whole document plus a replacer-driven
+// `JSON.stringify` of the whole document on the path of every single
+// edit — a measured 19.4 ms + 37.7 ms on a 100,000-box map, i.e. 86 %
+// of the per-edit cost, for a value that only the live-events gate ever
+// reads. Deriving it on demand takes it off the mutation path entirely
+// without changing what it compares: a save now costs one native
+// stringify (the /save body, which is also the history entry), and the
+// derivation happens at most once per incoming remote event.
+//
+// null means "not derived yet". Absence of a BASELINE is savedSnapshot
+// === null — the two were conflated before and must not be again.
 let savedFingerprint: string | null = null;
 
 // Single writer for the saved-document baseline, so savedSnapshot and
 // its fingerprint can't drift apart.
-const setSaved = (body: string | null): void => {
+//
+// `known` lets a caller that has ALREADY fingerprinted this exact
+// document hand the value over instead of making us re-derive it from
+// a parse (refreshFromServer computes one to decide whether anything
+// changed at all).
+const setSaved = (body: string | null, known?: string): void => {
   savedSnapshot = body;
-  savedFingerprint = body === null ? null : fingerprint(JSON.parse(body));
+  savedFingerprint = body === null ? null : (known ?? null);
+};
+
+const baselineFingerprint = (): string | null => {
+  if (savedSnapshot === null) return null;
+  if (savedFingerprint === null) {
+    passes.parse++;
+    savedFingerprint = fingerprint(JSON.parse(savedSnapshot));
+  }
+  return savedFingerprint;
 };
 
 const noteRevision = (r: Response): void => {
@@ -175,7 +296,7 @@ export const load = async (): Promise<void> => {
     g = { maps: [{ path: "/", boxes: [], edges: [] }] };
   }
   b.setGraph(g);
-  setSaved(JSON.stringify(g));
+  setSaved(serializeDoc(g));
   undoStack = [];
   redoStack = [];
   // If the URL hash carries a view (?z=&x=&y=), apply it before
@@ -207,6 +328,12 @@ export const scheduleSave = (): void => {
   }, DEBOUNCE_MS);
 };
 
+// Blob is global in every browser the editor supports and in Node >= 18,
+// but the fallback keeps this module importable anywhere and keeps the
+// request correct if it ever isn't there.
+const toBody = (body: string): Blob | string =>
+  typeof Blob === "undefined" ? body : new Blob([body], { type: "application/json" });
+
 const saveBody = async (body: string): Promise<void> => {
   if (SNAPSHOT_MODE) {
     must().setStatus("local edits only — use Download or Save as new share");
@@ -223,7 +350,17 @@ const saveBody = async (body: string): Promise<void> => {
         // every save would return as a full rebuild of our own work.
         [SESSION_HEADER]: SESSION_ID,
       },
-      body,
+      // Sent as a Blob, not as the string (brain#259). Handing fetch a
+      // multi-megabyte string makes it copy the whole thing into the
+      // request on the main thread: on a 100,000-box map that is a
+      // measured 83-133 ms blocked frame, and after the bookkeeping
+      // above was fixed it was the ENTIRE remaining hitch of an edit —
+      // more than ten times the 9.5 ms the serialization itself costs.
+      // Wrapping it hands the bytes to the blob store instead and the
+      // upload reads from there, which takes the copy off the frame:
+      // same request, same Content-Type, same bytes on the wire, worst
+      // frame 18.6 ms — i.e. none.
+      body: toBody(body),
     });
     noteRevision(r);
   } finally {
@@ -232,12 +369,17 @@ const saveBody = async (body: string): Promise<void> => {
   must().setStatus("saved");
 };
 
+// The whole per-edit cost, and the reason a large map is editable at
+// all (brain#259): ONE native stringify of the document. It is the
+// /save body; pushing the previous body onto the undo stack is a
+// reference copy on a string that already existed, and the !== is a
+// memcmp. Nothing here parses, and nothing here fingerprints.
 const save = async (): Promise<void> => {
-  const body = JSON.stringify(must().getGraph());
+  const body = serializeDoc(must().getGraph());
   if (savedSnapshot !== null && body !== savedSnapshot) {
     undoStack.push(savedSnapshot);
-    if (undoStack.length > UNDO_LIMIT) undoStack.shift();
     redoStack = [];
+    trimHistory();
   }
   setSaved(body);
   await saveBody(body);
@@ -245,6 +387,7 @@ const save = async (): Promise<void> => {
 
 const applyGraphSnapshot = (body: string): void => {
   const b = must();
+  passes.parse++;
   const g = JSON.parse(body) as GraphLike;
   b.setGraph(g);
   b.clearSelected();
@@ -277,10 +420,18 @@ const applyGraphSnapshot = (body: string): void => {
  */
 export const isDirty = (): boolean => {
   const b = must();
-  if (savedFingerprint === null) return true;
+  if (savedSnapshot === null) return true;
   if (saveTimer !== null || savesInFlight > 0) return true;
   if (b.isEditing?.()) return true;
-  return fingerprint(b.getGraph()) !== savedFingerprint;
+  // The content compare stays. A cheap "has anything called scheduleSave
+  // since the last save" flag would be wrong: a box drag mutates b.x/b.y
+  // live on every mousemove and only fires a mutation on release, so
+  // mid-drag the flag reads clean while the document has moved. That is
+  // precisely the window a remote apply must not walk into. It is safe
+  // to leave this O(map) because it is reached only when the three cheap
+  // gates above all say clean — i.e. once per incoming remote event on
+  // an idle page, never on the editing path (brain#259).
+  return fingerprint(b.getGraph()) !== baselineFingerprint();
 };
 
 // applyRemoteGraph swaps in a document produced elsewhere (an agent
@@ -299,11 +450,13 @@ export const isDirty = (): boolean => {
 // between "the agent is drawing on my map" and "my map keeps jumping".
 // The only time we recenter is when the submap we were in no longer
 // exists in the incoming document — same rule undo/redo already uses.
-const applyRemoteGraph = (g: GraphLike, body: string): void => {
+const applyRemoteGraph = (g: GraphLike, body: string, fp?: string): void => {
   const b = must();
   const previouslySelected = b.getSelectedIds?.() ?? [];
   b.setGraph(g);
-  setSaved(body);
+  // The caller already fingerprinted this exact document to decide the
+  // change was real; handing it over saves re-deriving it from a parse.
+  setSaved(body, fp);
   // Undo policy: BOTH stacks are dropped.
   //
   // Every entry is a whole-document snapshot from before this change,
@@ -313,6 +466,14 @@ const applyRemoteGraph = (g: GraphLike, body: string): void => {
   // asked. There's no honest alternative without a merge model: a
   // snapshot the user made is no longer a document that ever existed.
   // Resetting costs history; keeping it costs the other party's work.
+  //
+  // brain#259 kept this line deliberately, and kept the representation
+  // that makes it necessary. An inverse-patch history would not have
+  // been safer here — it would have been less safe: a patch's inverse
+  // names ids and positions in a document that no longer exists, so
+  // replaying one over the other writer's version is a merge with no
+  // conflict detection. Whole snapshots at least make the hazard
+  // obvious enough to have been guarded.
   undoStack = [];
   redoStack = [];
   b.clearSelected();
@@ -360,8 +521,9 @@ export const refreshFromServer = async (): Promise<RefreshOutcome> => {
   // file already says what we say. Not an error, and no rebuild: the
   // fingerprint compare is what stops a cosmetic shape difference
   // (see above) from costing a pointless full rebuild.
-  if (fingerprint(g) === savedFingerprint) return "unchanged";
-  applyRemoteGraph(g, JSON.stringify(g));
+  const fp = fingerprint(g);
+  if (fp === baselineFingerprint()) return "unchanged";
+  applyRemoteGraph(g, serializeDoc(g), fp);
   return "applied";
 };
 
@@ -373,11 +535,11 @@ export const undo = (): void => {
     clearTimeout(saveTimer);
     saveTimer = null;
   }
-  const body = JSON.stringify(b.getGraph());
+  const body = serializeDoc(b.getGraph());
   if (savedSnapshot !== null && body !== savedSnapshot) {
     undoStack.push(savedSnapshot);
-    if (undoStack.length > UNDO_LIMIT) undoStack.shift();
     redoStack = [];
+    trimHistory();
     setSaved(body);
   }
   if (undoStack.length === 0) {
@@ -386,6 +548,7 @@ export const undo = (): void => {
   }
   const prev = undoStack.pop()!;
   if (savedSnapshot !== null) redoStack.push(savedSnapshot);
+  trimHistory();
   setSaved(prev);
   applyGraphSnapshot(prev);
   void saveBody(prev);
@@ -400,6 +563,7 @@ export const redo = (): void => {
   }
   const next = redoStack.pop()!;
   if (savedSnapshot !== null) undoStack.push(savedSnapshot);
+  trimHistory();
   setSaved(next);
   applyGraphSnapshot(next);
   void saveBody(next);
