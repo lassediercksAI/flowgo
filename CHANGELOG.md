@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.10](https://github.com/lassediercks/flowgo/compare/v0.3.9...v0.3.10) (2026-08-06)
+
+
+### Features
+
+* **cli:** push agent and external edits to an open browser live ([4659367](https://github.com/lassediercks/flowgo/commit/4659367f71159d06042918a2b96ffdd80dd0656b))
+
 ## [0.3.9](https://github.com/lassediercks/flowgo/compare/v0.3.8...v0.3.9) (2026-08-06)
 
 
