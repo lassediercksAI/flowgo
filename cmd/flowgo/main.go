@@ -389,7 +389,19 @@ func pickLanIPFromAddrs(addrs []net.Addr) string {
 
 // listenFirstFree tries each port in [start, end] on host and returns the
 // first listener that binds successfully.
+//
+// The range is validated up front rather than discovered a port at a
+// time (brain#24b). Without the guard the loop misbehaves at both ends:
+// an empty range (start > end) returned (nil, nil), so the caller's
+// ln.Addr() panicked on a nil listener; start <= 0 asked the kernel for
+// port 0, which binds a random ephemeral port *outside* the requested
+// range; and an end above 65535 walked ports that cannot exist, so a
+// full range surfaced "address 65551: invalid port" instead of saying
+// the range was exhausted.
 func listenFirstFree(host string, start, end int) (net.Listener, error) {
+	if start < 1 || end > 65535 || start > end {
+		return nil, fmt.Errorf("invalid port range %d-%d: want 1 <= start <= end <= 65535", start, end)
+	}
 	var lastErr error
 	for port := start; port <= end; port++ {
 		ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", host, port))
