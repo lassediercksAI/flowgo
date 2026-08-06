@@ -17,6 +17,7 @@
 //   selection change → applyClasses          (#237)
 //   single-box mutation → renderItems        (#238)
 //   box move → renderEdgesFor re-route       (#238)
+//   bulk paste of N items → renderItems      (#24f)
 //
 // Counts are identical on every machine for the same code + fixture,
 // so CI can gate on them without wall-clock flakiness. Ceilings are
@@ -46,6 +47,8 @@ import {
   wireRender,
 } from "../render.ts";
 import { wireCulling, type CullRect } from "../culling.ts";
+import { copySelection, pasteSelection, wireClipboard } from "../clipboard.ts";
+import { wireMutations } from "../mutations.ts";
 import { installCounters } from "./counters.ts";
 import { makeStressMap, type FixtureMap } from "./fixture.ts";
 
@@ -110,6 +113,22 @@ const setup = (n: number): Harness => {
       nearId = id;
     },
   });
+  // The bulk-paste scenario drives the REAL clipboard module (#24f) —
+  // the point is to guard the call site, not a re-implementation of it.
+  wireMutations({ scheduleSave: noop });
+  let minted = 0;
+  wireClipboard({
+    selected,
+    currentMap: () => map,
+    findTextById: (id) => map.texts.find((t) => t.id === id),
+    findLineById: (id) => map.lines.find((l) => l.id === id),
+    findImageById: () => undefined,
+    mintId: (p) => `${p}_p${++minted}`,
+    renderItems: (ids) => renderItems(ids),
+    deleteSelection: noop,
+    setStatus: noop,
+    clearSelectedEdge: noop,
+  });
 
   return { canvas, map, selected };
 };
@@ -134,7 +153,15 @@ interface SizeResult {
   rerouteIncident: number;
   rerouteAttrSets: number;
   rerouteElements: number;
+  pasteElements: number;
+  pasteQueries: number;
+  pasteMs: number;
 }
+
+// Items copied and pasted in the bulk-paste scenario. Fixed (not a
+// fraction of n) so the ceilings can be absolute: a paste must cost
+// O(pasted), never O(map).
+const PASTE_N = 200;
 
 const results = new Map<number, SizeResult>();
 
@@ -149,6 +176,7 @@ interface CulledResult {
   pinchMs: number;
   selAllToggles: number;
   selAllElements: number;
+  culledPasteElements: number;
 }
 
 let culledResult: CulledResult | null = null;
@@ -252,6 +280,26 @@ const runScenarios = (n: number): SizeResult => {
     const rerouteAttrSets = c.attrSets;
     const rerouteElements = c.elementsCreated;
 
+    // ── bulk paste → renderItems ─────────────────────────────────
+    // The operator's complaint (#24f): copy a chunk of the map, paste
+    // it. Before the fix this was a full renderAll per paste — every
+    // materialized element in the map recreated to add PASTE_N items.
+    // Now it materializes the pasted items only, so the cost tracks
+    // the CLIPBOARD size and is flat in map size.
+    h.selected.clear();
+    applyClasses();
+    for (let i = 0; i < PASTE_N; i++) h.selected.add("b" + i);
+    applyClasses();
+    copySelection();
+    handle.reset();
+    t0 = performance.now();
+    pasteSelection();
+    const pasteMs = performance.now() - t0;
+    const pasteElements = c.elementsCreated;
+    const pasteQueries = c.domQueries;
+    h.selected.clear();
+    applyClasses();
+
     return {
       n,
       renderElements,
@@ -272,6 +320,9 @@ const runScenarios = (n: number): SizeResult => {
       rerouteIncident,
       rerouteAttrSets,
       rerouteElements,
+      pasteElements,
+      pasteQueries,
+      pasteMs,
     };
   } finally {
     handle.uninstall();
@@ -335,6 +386,16 @@ describe("perf smoke: editor interaction DOM cost", () => {
     expect(r.rerouteIncident, "box-move re-route: fixture sanity (moved box has edges)").toBeGreaterThanOrEqual(1);
     expect(r.rerouteElements, "box-move re-route: elements created").toBe(0);
     expect(r.rerouteAttrSets, "box-move re-route: attribute writes").toBeLessThanOrEqual(8 * r.rerouteIncident + 8);
+
+    // Bulk paste (#24f): pasting PASTE_N boxes materializes those
+    // boxes (div + label) plus their chrome — they land selected, and
+    // selected boxes are chrome-entitled (#239) — plus the edges that
+    // came along inside the pasted subgraph. 14·PASTE_N + edges is the
+    // shape; the ceiling is ABSOLUTE (no ·n term), which is the whole
+    // point: before the fix this was a full renderAll and cost
+    // 6,452 elements at n=1,200 (and would keep growing with the map).
+    expect(r.pasteElements, "bulk paste: elements created").toBeLessThanOrEqual(18 * PASTE_N);
+    expect(r.pasteQueries, "bulk paste: DOM queries").toBeLessThanOrEqual(10);
   });
 
   // ── viewport culling (#23a) ──────────────────────────────────
@@ -442,6 +503,25 @@ describe("perf smoke: editor interaction DOM cost", () => {
       h.selected.clear();
       applyClasses();
 
+      // Paste of an OFF-SCREEN selection (#24f × #23a): the items land
+      // outside the viewport (+20px cascade from sources that are far
+      // away), so the cull pass wants none of them and the paste must
+      // create no DOM at all. A full-rebuild regression would show up
+      // here as the whole culled canvas being recreated.
+      const far = h.map.boxes.slice(-PASTE_N);
+      for (const b of far) h.selected.add(b.id);
+      applyClasses();
+      copySelection();
+      handle.reset();
+      pasteSelection();
+      const culledPasteElements = c.elementsCreated;
+      expect(
+        culledPasteElements,
+        "culled off-screen paste: elements created",
+      ).toBe(0);
+      h.selected.clear();
+      applyClasses();
+
       culledResult = {
         renderElements,
         domNodes,
@@ -453,6 +533,7 @@ describe("perf smoke: editor interaction DOM cost", () => {
         pinchMs,
         selAllToggles,
         selAllElements,
+        culledPasteElements,
       };
     } finally {
       handle.uninstall();
@@ -480,6 +561,10 @@ describe("perf smoke: editor interaction DOM cost", () => {
     expect(l.bandToggles / Math.max(s.bandToggles, 1), "band-select toggle growth").toBeLessThanOrEqual(cap);
     expect(l.bandElements / Math.max(s.bandElements, 1), "band-select chrome-attach growth").toBeLessThanOrEqual(cap);
     expect(l.mutationElements / s.mutationElements, "mutation-render element growth").toBeLessThanOrEqual(cap);
+    // A paste of a FIXED item count must not get more expensive as the
+    // map grows — the 4× box count may not buy any element growth at
+    // all (only the fixture's edge mix differs between the two sizes).
+    expect(l.pasteElements / s.pasteElements, "bulk-paste element growth").toBeLessThanOrEqual(1.25);
   });
 });
 
@@ -498,6 +583,7 @@ afterAll(() => {
       `    band-select ${fmt(r.n / 2)}   ${fmt(r.bandQueries)} queries, ${fmt(r.bandToggles)} class toggles, ${fmt(r.bandElements)} els (chrome)`,
       `    1-box mutation      ${fmt(r.mutationElements)} els recreated (renderItems), ${r.mutationMs.toFixed(1)}ms`,
       `    1-box move reroute  ${fmt(r.rerouteAttrSets)} attr writes / ${fmt(r.rerouteIncident)} incident edges, ${fmt(r.rerouteElements)} els`,
+      `    paste ${fmt(PASTE_N)} boxes    ${fmt(r.pasteElements)} els created, ${fmt(r.pasteQueries)} queries, ${r.pasteMs.toFixed(1)}ms`,
     );
   }
   if (culledResult) {
@@ -508,6 +594,7 @@ afterAll(() => {
       `    pan +400px          ${fmt(r.panElements)} els created, ${r.panMs.toFixed(1)}ms`,
       `    pinch 100%→50%      ${fmt(r.pinchElements)} els over 12 frames (worst ${fmt(r.pinchWorstFrame)}), ${r.pinchMs.toFixed(1)}ms`,
       `    select all ${fmt(LARGE)}     ${fmt(r.selAllToggles)} class toggles, ${fmt(r.selAllElements)} els (chrome)`,
+      `    off-screen paste    ${fmt(r.culledPasteElements)} els created`,
     );
   }
   lines.push("");

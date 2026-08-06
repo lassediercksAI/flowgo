@@ -39,15 +39,22 @@ export const hexCenters = (
 
 // Post-commit invariant repair: relocate any hexagon that overlaps an
 // earlier one onto the nearest free lattice cell (anchored at the hex
-// it collided with). Mutates box positions in place; returns whether
-// anything moved so the caller knows to re-render.
-export const settleHexBoxes = (boxes: ReadonlyArray<HexBoxLike>): boolean => {
+// it collided with). Mutates box positions in place; returns the ids
+// of the boxes it moved.
+//
+// Callers that render incrementally (paste — brain#24f) need the ids,
+// not just a "something moved" flag: a settle can shove a hexagon the
+// caller didn't otherwise touch, and that box's element has to be
+// rebuilt alongside the caller's own id set.
+export const settleHexBoxIds = (
+  boxes: ReadonlyArray<HexBoxLike>,
+): string[] => {
   const hexes = boxes.filter((b) => b.shape === 1);
-  if (hexes.length < 2) return false;
+  if (hexes.length < 2) return [];
   const settled = settleHexCenters(
     hexes.map((b) => ({ x: b.x + HEX_W / 2, y: b.y + HEX_H / 2 })),
   );
-  let changed = false;
+  const moved: string[] = [];
   hexes.forEach((b, i) => {
     const c = settled[i]!;
     const nx = c.x - HEX_W / 2;
@@ -55,8 +62,13 @@ export const settleHexBoxes = (boxes: ReadonlyArray<HexBoxLike>): boolean => {
     if (nx !== b.x || ny !== b.y) {
       b.x = nx;
       b.y = ny;
-      changed = true;
+      moved.push(b.id);
     }
   });
-  return changed;
+  return moved;
 };
+
+// Boolean form for the full-rebuild callers (they only need to know
+// whether to re-render at all).
+export const settleHexBoxes = (boxes: ReadonlyArray<HexBoxLike>): boolean =>
+  settleHexBoxIds(boxes).length > 0;

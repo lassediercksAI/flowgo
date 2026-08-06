@@ -14,6 +14,7 @@ interface Box {
   y: number;
   palette?: number;
   font?: number;
+  shape?: number;
 }
 interface Text {
   id: string;
@@ -63,8 +64,13 @@ const makeState = (): State => ({
   selected: new Set(),
 });
 
+// Ids handed to renderItems by the last paste — the incremental
+// render contract (#24f): a paste must name exactly what it created.
+let rendered: string[] = [];
+
 const wire = (s: State): void => {
   let n = 0;
+  rendered = [];
   wireMutations({ scheduleSave: () => {} });
   wireClipboard({
     selected: s.selected,
@@ -79,7 +85,7 @@ const wire = (s: State): void => {
     findLineById: (id) => s.lines.find((l) => l.id === id),
     findImageById: (id) => s.images.find((i) => i.id === id),
     mintId: (p) => `${p}_new${++n}`,
-    renderAll: () => {},
+    renderItems: (ids) => { rendered = [...ids]; },
     deleteSelection: () => {
       s.boxes = s.boxes.filter((b) => !s.selected.has(b.id));
       s.texts = s.texts.filter((t) => !s.selected.has(t.id));
@@ -263,6 +269,61 @@ describe("copy/paste round-trip preserves in-app structure", () => {
     // Edge between the pasted pair is duplicated with the new ids.
     expect(s.edges).toHaveLength(2);
     expect(s.edges[1]).toEqual({ from: pastedFirst?.id, to: pastedSecond?.id });
+  });
+
+  it("renders exactly the pasted ids, not the whole map (#24f)", () => {
+    const s = makeState();
+    // A map with plenty of items the paste must NOT touch.
+    for (let i = 0; i < 20; i++) {
+      s.boxes.push({ id: "b" + i, label: "n" + i, x: i * 50, y: 0 });
+    }
+    s.texts.push({ id: "t0", label: "note", x: 0, y: 300 });
+    s.lines.push({ id: "l0", x1: 0, y1: 400, x2: 100, y2: 400 });
+    s.selected = new Set(["b0", "b1", "t0", "l0"]);
+    wire(s);
+
+    copySelection();
+    pasteSelection();
+
+    // 4 items pasted → 4 ids rendered, and they are exactly the new
+    // selection (which is exactly the pasted set).
+    expect(rendered).toHaveLength(4);
+    expect(new Set(rendered)).toEqual(new Set(s.selected));
+    // None of the untouched originals are in the render set.
+    for (const id of ["b0", "b1", "b2", "t0", "l0"]) {
+      expect(rendered).not.toContain(id);
+    }
+  });
+
+  it("adds hexagons the settle pass moved to the render set (#24f)", () => {
+    const s = makeState();
+    // Hexagons never overlap, and every paste runs the settle repair
+    // over the WHOLE map — so a paste can relocate a hexagon it did not
+    // create (here: two overlapping hexes that came in from a
+    // hand-written file, where nothing has settled them yet). That box
+    // has to join the render set or its element keeps the stale
+    // position. This is why the settle reports ids, not a boolean.
+    s.boxes = [
+      { id: "h1", label: "hex", x: 0, y: 0, shape: 1 },
+      { id: "h2", label: "hex", x: 10, y: 10, shape: 1 },
+      { id: "p", label: "plain", x: 500, y: 500 },
+    ];
+    s.selected = new Set(["p"]);
+    wire(s);
+    const before = new Map(s.boxes.map((b) => [b.id, `${b.x},${b.y}`]));
+
+    copySelection();
+    pasteSelection();
+
+    const moved = s.boxes.filter(
+      (b) => before.has(b.id) && before.get(b.id) !== `${b.x},${b.y}`,
+    );
+    const pasted = s.boxes.filter((b) => !before.has(b.id));
+    // The settle must actually have kicked in, or this asserts nothing.
+    expect(moved.map((b) => b.id)).toEqual(["h2"]);
+    expect(pasted).toHaveLength(1);
+    for (const b of [...moved, ...pasted]) expect(rendered).toContain(b.id);
+    expect(rendered).toHaveLength(2);
   });
 
   it("copies + pastes an image: new id, 20px cascade, shared src", () => {

@@ -5,7 +5,7 @@
 // copied box set, mirroring the existing semantics. Each paste shifts
 // by 20px so repeated paste presses cascade rather than stack.
 
-import { settleHexBoxes } from "./hex.ts";
+import { settleHexBoxIds } from "./hex.ts";
 import { mutatedCurrentMap } from "./mutations.ts";
 
 interface BoxLike {
@@ -80,7 +80,11 @@ interface ClipboardBindings {
   readonly findLineById: (id: string) => LineLike | undefined;
   readonly findImageById: (id: string) => ImageLike | undefined;
   readonly mintId: (prefix: string) => string;
-  readonly renderAll: () => void;
+  /** Incremental render of a known id set (render.ts renderItems,
+   *  #238/#24f). A paste is deleteSelection's inverse — the new ids
+   *  are known before anything touches the DOM — so it materializes
+   *  O(pasted) elements instead of rebuilding the whole canvas. */
+  readonly renderItems: (ids: Iterable<string>) => void;
   readonly deleteSelection: () => void;
   readonly setStatus: (s: string) => void;
   readonly clearSelectedEdge: () => void;
@@ -190,7 +194,7 @@ export const cutSelection = (): void => {
 
 export const pasteSelection = (): void => {
   const {
-    selected, currentMap, mintId, renderAll,
+    selected, currentMap, mintId, renderItems,
     setStatus, clearSelectedEdge,
   } = must();
   if (!buffer) {
@@ -273,9 +277,15 @@ export const pasteSelection = (): void => {
     map.edges.push(newEdge);
   }
   // The 20px paste cascade can drop hexagons onto occupied spots —
-  // settle them onto free lattice cells (hexes never overlap).
-  settleHexBoxes(map.boxes);
+  // settle them onto free lattice cells (hexes never overlap). The
+  // settle can shove a PRE-EXISTING hexagon too, so its ids join the
+  // render set (that's why this asks for ids, not a boolean).
+  const settled = settleHexBoxIds(map.boxes);
   mutatedCurrentMap();
-  renderAll();
+  // `selected` is exactly the pasted ids at this point (cleared above,
+  // filled as each item was minted), so it doubles as the render set.
+  const touched = new Set<string>(selected);
+  for (const id of settled) touched.add(id);
+  renderItems(touched);
   setStatus("pasted " + selected.size + " items");
 };

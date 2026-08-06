@@ -27,7 +27,16 @@ interface AlignBindings {
   readonly canvas: HTMLElement;
   readonly currentMap: () => CurrentMap;
   readonly selected: Set<string>;
-  readonly renderAll: () => void;
+  /** id → live element, via render.ts's layer maps. Passed in rather
+   *  than imported because render.ts already imports this module (it
+   *  calls updateSelectionToolbar from applyClasses) — a direct
+   *  import would close the cycle. */
+  readonly getBoxEl: (id: string) => HTMLElement | null;
+  readonly getTextEl: (id: string) => HTMLElement | null;
+  /** Incremental render of a known id set (render.ts renderItems).
+   *  Align only moves the items it collected, so it never needs the
+   *  full rebuild it used to do (#24f). */
+  readonly renderItems: (ids: Iterable<string>) => void;
 }
 
 let bindings: AlignBindings | null = null;
@@ -43,27 +52,40 @@ export const wireAlign = (b: AlignBindings): void => {
 };
 
 export interface AlignItem {
+  id: string;
   ref: { x: number; y: number };
   width: number;
   height: number;
 }
 
+// Alignable members of the current selection, in map order.
+//
+// This runs on EVERY applyClasses (the toolbar has to follow the
+// selection), so it must not scale with the map: it walks each layer
+// once against the selection Set and reads elements out of render.ts's
+// id → element maps. It used to do a `boxes.find()` plus a full-canvas
+// `querySelector` PER SELECTED ID — O(selection × map) work on the
+// tail of every paste and band-select (#24f).
+//
+// Items with no element (culled, #23a) are skipped: width/height come
+// from layout, and there is nothing to measure.
 const collectAlignable = (): AlignItem[] => {
   const w = must();
+  // The toolbar needs 2+ items and alignItems refuses fewer, so a
+  // 0/1-item selection — the common case while just clicking around —
+  // costs nothing at all.
+  if (w.selected.size < 2) return [];
   const map = w.currentMap();
   const items: AlignItem[] = [];
-  for (const id of w.selected) {
-    const b = map.boxes.find((b) => b.id === id);
-    if (b) {
-      const el = w.canvas.querySelector<HTMLElement>(`.box[data-id="${id}"]`);
-      if (el) items.push({ ref: b, width: el.offsetWidth, height: el.offsetHeight });
-      continue;
-    }
-    const t = (map.texts ?? []).find((t) => t.id === id);
-    if (t) {
-      const el = w.canvas.querySelector<HTMLElement>(`.text-item[data-id="${id}"]`);
-      if (el) items.push({ ref: t, width: el.offsetWidth, height: el.offsetHeight });
-    }
+  for (const b of map.boxes) {
+    if (!w.selected.has(b.id)) continue;
+    const el = w.getBoxEl(b.id);
+    if (el) items.push({ id: b.id, ref: b, width: el.offsetWidth, height: el.offsetHeight });
+  }
+  for (const t of map.texts ?? []) {
+    if (!w.selected.has(t.id)) continue;
+    const el = w.getTextEl(t.id);
+    if (el) items.push({ id: t.id, ref: t, width: el.offsetWidth, height: el.offsetHeight });
   }
   return items;
 };
@@ -143,7 +165,11 @@ export const applyAlign = (axis: "horizontal" | "vertical"): void => {
   const w = must();
   const items = collectAlignable();
   if (!alignItems(items, axis)) return;
-  w.renderAll();
+  // Align moves a known id set and restructures nothing, so it is a
+  // textbook renderItems case (#24f) — it also re-routes exactly the
+  // edges incident to the moved boxes, which the full rebuild used to
+  // pay for across the entire edge layer.
+  w.renderItems(items.map((it) => it.id));
   mutatedCurrentMap();
 };
 
@@ -248,8 +274,9 @@ export const updateSelectionToolbar = (): void => {
     toolbar.style.display = "none";
     return;
   }
-  // renderAll() does `canvas.innerHTML = ""` which strips the
+  // A full renderAll() does `canvas.innerHTML = ""` which strips the
   // toolbar element, so re-attach when needed before positioning.
+  // (renderItems leaves it alone — it only touches named ids.)
   if (toolbar.parentNode !== bindings.canvas) {
     bindings.canvas.appendChild(toolbar);
   }

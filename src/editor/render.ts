@@ -6,17 +6,18 @@
 //   renderAll / renderLines / renderStrokes / renderEdges clear their
 //   layer and rebuild from state — heavy but predictable, and the
 //   right tool for structural changes (map load/switch, import,
-//   undo/redo, collab remote patches, paste/clone, hex settling).
+//   undo/redo, collab remote patches).
 //
 //   renderItems(ids) / renderEdgesFor(boxIds) update ONLY the named
 //   items: recreate (or add/remove) each item's element in place —
 //   positioned by map order so stacking matches a full render — and
 //   re-route only the edges incident to touched boxes. Single-item
 //   mutations (move / add / delete / relabel / repalette one box) go
-//   through this path, so their cost is O(changed items), not
-//   O(map). The sync guarantee stays simple: an item's element is
-//   always rebuilt whole from state; there is no per-property DOM
-//   diffing to drift.
+//   through this path, as do the bulk paths whose changed id set is
+//   known up front — clipboard paste, alt-drag clone and align
+//   (brain#24f) — so their cost is O(changed items), not O(map). The
+//   sync guarantee stays simple: an item's element is always rebuilt
+//   whole from state; there is no per-property DOM diffing to drift.
 //
 // applyClasses runs alone when only selection / drop-target /
 // proximity classes change, so no re-render is needed for a
@@ -238,6 +239,10 @@ export const getBoxEl = (id: string): HTMLElement | null =>
 // renderLines / renderStrokes for theirs) — cleared and refilled on
 // every rebuild, so a map entry can never outlive its element.
 const textEls = new Map<string, HTMLElement>();
+
+export const getTextEl = (id: string): HTMLElement | null =>
+  textEls.get(id) ?? null;
+
 const imageEls = new Map<string, HTMLElement>();
 const lineEls = new Map<string, SVGGElement>();
 const strokeEls = new Map<string, SVGGElement>();
@@ -248,6 +253,25 @@ const strokeEls = new Map<string, SVGGElement>();
 // object itself is the key. Lets renderEdgesFor re-route one box's
 // incident edges in place instead of rebuilding the whole layer.
 const edgeEls = new Map<EdgeData, SVGGElement>();
+
+// The edge whose element currently carries `.selected`, i.e. the same
+// role appliedState plays for the canvas layers. Edge selection used
+// to be projected exclusively by a full renderEdges() rebuild, which
+// is fine while every edge-selection change is followed by one — but
+// the bulk incremental paths (paste clears the selected edge and then
+// renders only its own ids, brain#24f) would leave the class behind.
+// applyClasses drives this through applyEdgeSelection below.
+let appliedSelectedEdge: EdgeData | null = null;
+
+const applyEdgeSelection = (w: RenderBindings): void => {
+  const sel = w.selectedEdge();
+  if (sel === appliedSelectedEdge) return;
+  if (appliedSelectedEdge) {
+    edgeEls.get(appliedSelectedEdge)?.classList.remove("selected");
+  }
+  if (sel) edgeEls.get(sel)?.classList.add("selected");
+  appliedSelectedEdge = sel;
+};
 
 // id → box data, rebuilt by every full renderEdges and kept in sync
 // by renderItems. Replaces the per-edge `map.boxes.find()` scans that
@@ -422,6 +446,19 @@ const nextEl = <T extends { id: string }, E extends Element>(
     if (el) return el;
   }
   return null;
+};
+
+// id → array index for one layer. renderItems used to locate each id
+// with a findIndex scan, which is fine for one item and quadratic for
+// a bulk insert: a 200-item paste on a 3,400-box map spent 680k
+// comparisons before creating a single element (brain#24f). Built at
+// most once per layer per renderItems call — O(map) once, O(1) per id.
+const indexById = <T extends { id: string }>(
+  arr: readonly T[],
+): Map<string, number> => {
+  const m = new Map<string, number>();
+  for (let i = 0; i < arr.length; i++) m.set(arr[i]!.id, i);
+  return m;
 };
 
 // Canvas child order is boxes → texts → images (renderAll appends in
@@ -882,6 +919,7 @@ export const applyClasses = (): void => {
     ) continue;
     removeBoxChrome(id);
   }
+  applyEdgeSelection(w);
   updateSelectionToolbar();
   refreshContextBar();
 };
@@ -967,6 +1005,7 @@ const materializeEdge = (
   });
 
   edgeEls.set(e, g);
+  if (e === sel) appliedSelectedEdge = e;
   w.edgeLayer.appendChild(g);
 };
 
@@ -974,6 +1013,9 @@ export const renderEdges = (): void => {
   const w = must();
   w.edgeLayer.innerHTML = "";
   edgeEls.clear();
+  // Every edge element (and its `.selected` class) just died;
+  // materializeEdge re-bakes the current one below.
+  appliedSelectedEdge = null;
   const map = w.currentMap();
   // Full rebuild is the one place the box index refreshes wholesale —
   // renderAll funnels through here, so a map switch can't leave stale
@@ -1026,6 +1068,7 @@ export const renderEdgesFor = (ids: ReadonlySet<string>): void => {
     ) {
       g.remove();
       edgeEls.delete(e);
+      if (e === appliedSelectedEdge) appliedSelectedEdge = null;
       continue;
     }
     setEdgeCoords(g, edgeGeometry(e, a, b, ea, eb));
@@ -1127,14 +1170,16 @@ const removeItemEls = (id: string, touchedBoxes: Set<string>): void => {
 // all survive.
 //
 // Callers use this for every single-item mutation funnel (label edit
-// commit, create/delete, palette/font/shape/size changes); renderAll
-// remains the fallback for structural changes (map switch, paste,
-// undo/redo, collab patches, hex settling) where per-id bookkeeping
-// isn't worth it.
+// commit, create/delete, palette/font/shape/size changes) AND for the
+// bulk paths that add or move a KNOWN id set: clipboard paste,
+// alt-drag clone, align (brain#24f). renderAll remains the fallback
+// for structural changes (map switch, load, undo/redo, collab
+// patches) that swap whole graph chunks.
 //
 // An item id that is present in the map materializes only if the cull
 // pass wants it (#23a) — mutating an off-screen item leaves it
-// element-less exactly like renderAll would.
+// element-less exactly like renderAll would, so a paste that lands
+// outside the viewport creates no DOM at all.
 export const renderItems = (ids: Iterable<string>): void => {
   const w = must();
   const map = w.currentMap();
@@ -1143,10 +1188,24 @@ export const renderItems = (ids: Iterable<string>): void => {
   const cull = computeCullPass(map);
   const rect = cull ? cull.rect : null;
   const touchedBoxes = new Set<string>();
-  let touchedAny = false;
-  for (const id of ids) {
-    touchedAny = true;
-    const bi = map.boxes.findIndex((b) => b.id === id);
+  // Walk the id list BACK TO FRONT. Purely a cost optimisation for
+  // bulk inserts: paste appends its items in map order, so going
+  // forward every insertBefore anchor scan would run past all the
+  // not-yet-created siblings (O(N²) map lookups for an N-item paste).
+  // In reverse, each item's successor is already live and the scan
+  // stops on its first probe. Correctness doesn't depend on the
+  // direction — each anchor is computed from the live element maps.
+  const list = Array.isArray(ids) ? (ids as readonly string[]) : [...ids];
+  const touchedAny = list.length > 0;
+  // Per-layer id → index lookups, built on first use (see indexById).
+  let boxIdx: Map<string, number> | null = null;
+  let textIdx: Map<string, number> | null = null;
+  let imageIdx: Map<string, number> | null = null;
+  let lineIdx: Map<string, number> | null = null;
+  let strokeIdx: Map<string, number> | null = null;
+  for (let k = list.length - 1; k >= 0; k--) {
+    const id = list[k]!;
+    const bi = (boxIdx ??= indexById(map.boxes)).get(id) ?? -1;
     if (bi >= 0) {
       const b = map.boxes[bi]!;
       boxById.set(id, b);
@@ -1163,7 +1222,7 @@ export const renderItems = (ids: Iterable<string>): void => {
       }
       continue;
     }
-    const ti = map.texts.findIndex((t) => t.id === id);
+    const ti = (textIdx ??= indexById(map.texts)).get(id) ?? -1;
     if (ti >= 0) {
       const t = map.texts[ti]!;
       const old = textEls.get(id);
@@ -1178,7 +1237,7 @@ export const renderItems = (ids: Iterable<string>): void => {
       continue;
     }
     const images = map.images ?? [];
-    const ii = images.findIndex((im) => im.id === id);
+    const ii = (imageIdx ??= indexById(images)).get(id) ?? -1;
     if (ii >= 0) {
       const im = images[ii]!;
       const old = imageEls.get(id);
@@ -1192,7 +1251,7 @@ export const renderItems = (ids: Iterable<string>): void => {
       }
       continue;
     }
-    const li = map.lines.findIndex((l) => l.id === id);
+    const li = (lineIdx ??= indexById(map.lines)).get(id) ?? -1;
     if (li >= 0) {
       const l = map.lines[li]!;
       const anchor = nextEl(map.lines, li + 1, lineEls);
@@ -1207,7 +1266,7 @@ export const renderItems = (ids: Iterable<string>): void => {
       continue;
     }
     const strokes = map.strokes ?? [];
-    const si = strokes.findIndex((s) => s.id === id);
+    const si = (strokeIdx ??= indexById(strokes)).get(id) ?? -1;
     if (si >= 0) {
       const s = strokes[si]!;
       const anchor = nextEl(strokes, si + 1, strokeEls);

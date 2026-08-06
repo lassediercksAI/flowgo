@@ -13,9 +13,7 @@
 // directory map of the app.
 
 import {
-  collectIds,
   hasSubmapContent,
-  nextUid,
   serializeGraph as serializeGraphPure,
 } from "../index.ts";
 
@@ -58,9 +56,12 @@ import {
   wireClone,
 } from "./clone.ts";
 import { wireEdit } from "./edit.ts";
+import { invalidateUidCache, mintId, wireUid } from "./uid.ts";
 import {
   applyClasses,
   clearProximity,
+  getBoxEl,
+  getTextEl,
   renderAll,
   renderItems,
   scheduleCullUpdate,
@@ -119,15 +120,9 @@ const ghostLine = document.getElementById("ghost-line");
 // not warrant its own file.
 // ---------------------------------------------------------------
 
-function uid(prefix) {
-  return nextUid(prefix || "b", collectIds(
-    state.boxes,
-    state.texts || [],
-    state.lines || [],
-    state.strokes || [],
-    state.images || [],
-  ));
-}
+// Memoized per user action — see uid.ts for why (a bulk paste used to
+// spend more time minting ids than rendering).
+const uid = (prefix) => mintId(prefix);
 
 const findTextById = (id) => state.texts.find((t) => t.id === id);
 const findLineById = (id) => state.lines.find((l) => l.id === id);
@@ -142,10 +137,16 @@ function setStatus(_s) {
 
 // cloneSelection wraps the pure clone with the render + save trail
 // the existing call sites expect.
+//
+// Alt-drag clone adds a known set of brand-new ids, so it takes the
+// incremental path (#24f): the originals keep their elements and
+// renderItems' trailing applyClasses moves the `selected` classes off
+// them onto the clones. The empty-idMap case (a selection of only
+// non-clonable items) still needs that class move, hence the fallback.
 function cloneSelection() {
   const idMap = cloneSelectionPure();
-  renderAll();
-  applyClasses();
+  if (idMap.size > 0) renderItems(idMap.values());
+  else applyClasses();
   mutatedCurrentMap();
   return idMap;
 }
@@ -183,6 +184,8 @@ wireProximity({
   nearTargetId: () => nearTargetId,
   setNearTargetId: (id) => { nearTargetId = id; },
 });
+
+wireUid({ currentMap: () => state });
 
 // Viewport culling (#23a): only items within the on-screen data-space
 // rect (+ margin, see render.ts/culling.ts) get DOM. The provider maps
@@ -309,7 +312,9 @@ wireAlign({
   canvas,
   currentMap: () => state,
   selected,
-  renderAll: () => renderAll(),
+  getBoxEl,
+  getTextEl,
+  renderItems: (ids) => renderItems(ids),
 });
 attachAlignToolbar();
 
@@ -320,7 +325,7 @@ wireClipboard({
   findLineById,
   findImageById,
   mintId: uid,
-  renderAll: () => renderAll(),
+  renderItems: (ids) => renderItems(ids),
   deleteSelection: () => deleteSelection(),
   setStatus,
   clearSelectedEdge: () => { selectedEdge = null; },
@@ -488,6 +493,10 @@ exposeCollabHandle({
   snapshot: () => structuredClone(graph),
   applyRemotePatch: (fn) => {
     fn(graph);
+    // A remote patch adds/removes items without going through
+    // mutations.ts, so the memoized id cache has to be dropped here
+    // explicitly or the next local mint could collide (#24f).
+    invalidateUidCache();
     // The graph mutation may have changed the current map's contents
     // (or even removed it). Refresh the local `state` alias so the
     // next render reads the right slice.

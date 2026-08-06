@@ -347,13 +347,16 @@ export const attachContextBar = (): void => {
 
     if (m === "cursor") {
       if (!ctxBindings) return;
-      const selectedBoxes = ctxBindings.currentMap().boxes.filter((b) => ctxBindings!.selected.has(b.id));
+      // `find`, not `filter`: only the first selected box is read, and
+      // this runs on every applyClasses — allocating a selection-sized
+      // array behind every band-select / paste was pure waste (#24f).
+      const firstSelectedBox = ctxBindings.currentMap().boxes.find((b) => ctxBindings!.selected.has(b.id));
       // Mirrors keys.ts's Alt+1..4: "nothing selected" (not "nothing
       // selected THAT'S A BOX") is what flips to the default-shape
       // target, so an empty selection or a selection of only
       // texts/lines/strokes both land here.
       const forSelection = ctxBindings.selected.size > 0;
-      const current = forSelection ? (selectedBoxes[0]?.shape ?? 0) : getDefaultShape();
+      const current = forSelection ? (firstSelectedBox?.shape ?? 0) : getDefaultShape();
       cluster = document.createElement("div");
       cluster.className = "ctx-cluster";
       cluster.appendChild(buildShapeRow(forSelection, current, sync));

@@ -9,13 +9,15 @@ import {
 
 // Minimal AlignItem factory: tests need to construct items with
 // arbitrary positions/sizes and read back the same refs after
-// alignItems() mutates them in place.
+// alignItems() mutates them in place. The id is only carried so
+// applyAlign can hand it to renderItems — the pure math ignores it.
+let seq = 0;
 const item = (
   x: number,
   y: number,
   width = 100,
   height = 40,
-): AlignItem => ({ ref: { x, y }, width, height });
+): AlignItem => ({ id: "i" + seq++, ref: { x, y }, width, height });
 
 describe("anyOverlapAlongX", () => {
   it("returns false when items have disjoint X ranges", () => {

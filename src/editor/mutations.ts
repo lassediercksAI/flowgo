@@ -14,6 +14,7 @@
 //                   kind of change without a 30-site audit.
 
 import { invalidateProximityIndex } from "./proximity-index.ts";
+import { invalidateUidCache } from "./uid.ts";
 
 export type MutationKind =
   | "box"
@@ -55,6 +56,10 @@ const fire = (kind: MutationKind): void => {
   // over-invalidating (edge/text/stroke mutations) costs nothing
   // until the next proximity query.
   invalidateProximityIndex();
+  // Items may have been added or (crucially) deleted, so ids below the
+  // memoized mint cursor can have become free again — the id cache
+  // must not outlive a mutation (#24f).
+  invalidateUidCache();
   bindings.scheduleSave();
   if (bindings.onMutate) {
     const mapPath = bindings.getMapPath ? bindings.getMapPath() : "/";

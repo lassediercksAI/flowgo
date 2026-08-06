@@ -2,11 +2,16 @@
 // such that `${prefix}${N}` isn't already used. Pure function — caller
 // supplies the set of in-use ids; we never read state ourselves.
 
+// `from` lets a caller resume the probe where its last mint for this
+// prefix stopped instead of restarting at 1. Only valid while no id
+// has been FREED since that mint (nothing below the cursor can have
+// become available), which is the guarantee editor/uid.ts maintains.
 export const nextUid = (
   prefix: string,
   used: ReadonlySet<string>,
+  from = 1,
 ): string => {
-  let n = 1;
+  let n = from;
   while (used.has(`${prefix}${n}`)) n++;
   return `${prefix}${n}`;
 };
