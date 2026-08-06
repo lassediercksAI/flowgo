@@ -26,6 +26,13 @@ import {
   withSuppressedViewSync,
 } from "./viewport.ts";
 import { wireCulling } from "./culling.ts";
+// SPIKE (brain#25a) — canvas overview layer. Inert without ?raster=1.
+import {
+  rasterActive,
+  recordStats,
+  scheduleRasterPaint,
+  wireRaster,
+} from "./raster-layer.ts";
 import { editingId } from "./edit.ts";
 import { isBrushMode, wireBrush } from "./brush.ts";
 import { wireDefaultShape } from "./default-shape.ts";
@@ -208,19 +215,37 @@ wireUid({ currentMap: () => state });
 // cull hook re-evaluates the visible set (rAF-throttled) without a
 // full re-render.
 wireCulling({
-  viewport: () => ({
-    x1: toDataX(0),
-    y1: toDataY(0),
-    x2: toDataX(window.innerWidth),
-    y2: toDataY(window.innerHeight),
-  }),
+  viewport: () => {
+    // SPIKE (brain#25a): while the raster layer owns the picture, the
+    // DOM renderer is handed an empty viewport so updateCulling drops
+    // every element it holds. This is the whole "hybrid" seam — no
+    // renderer forking, no second code path in render.ts, just a
+    // viewport rect that nothing overlaps. rectsOverlap uses strict
+    // comparisons, so a zero-area rect culls unconditionally.
+    if (rasterActive()) return { x1: 0, y1: 0, x2: 0, y2: 0 };
+    return {
+      x1: toDataX(0),
+      y1: toDataY(0),
+      x2: toDataX(window.innerWidth),
+      y2: toDataY(window.innerHeight),
+    };
+  },
   // Never cull the box/text with a live inline label edit.
   exemptIds: () => {
     const id = editingId();
     return id ? [id] : [];
   },
 });
-wireViewportCullHook(scheduleCullUpdate);
+wireViewportCullHook(() => {
+  scheduleCullUpdate();
+  scheduleRasterPaint();
+});
+
+// SPIKE (brain#25a). No-op unless the URL carries ?raster=1.
+wireRaster({
+  currentMap: () => state,
+  onStats: recordStats,
+});
 
 wireNavigation({
   getGraph: () => graph,

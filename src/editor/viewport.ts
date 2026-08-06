@@ -24,7 +24,16 @@ export const viewport: { x: number; y: number; s: number } = {
 // "I want to read tiny text" into "I want pixel-level positioning"
 // territory. Outside this window, transforms start hitting CSS
 // subpixel-rounding artefacts.
-export const MIN_SCALE = 0.5;
+// SPIKE (brain#25a): `let`, not `const`, so raster-layer.ts can drop
+// the floor to 0.01 when the canvas overview layer is switched on
+// (`?raster=1`). Every consumer imports the live ESM binding, so the
+// zoom control's clamp readout and pinch both follow automatically.
+// Nothing calls setMinScale unless the spike flag is present, so the
+// shipped behaviour is byte-identical to `const MIN_SCALE = 0.5`.
+export let MIN_SCALE = 0.5;
+export const setMinScale = (s: number): void => {
+  MIN_SCALE = s;
+};
 export const MAX_SCALE = 8;
 
 export const clampScale = (s: number): number =>
