@@ -181,6 +181,11 @@
     background: #fff; border: 1px solid #ccc; border-radius: 6px;
     padding: 6px 10px; font-size: 12px; color: #444;
     text-decoration: none; box-shadow: 0 1px 3px rgba(0,0,0,.1);
+    cursor: pointer;
+    /* touch-action is not inherited — set on the link itself, same as
+       #zoomCtl button / #contextBar button, so iOS Safari treats a tap
+       as a fast-click rather than a maybe-double-tap-to-zoom. */
+    touch-action: manipulation;
   }
   #feedbackBtn:hover { background: #f0f0f0; color: #222; }
   #path {
@@ -986,6 +991,10 @@
     padding: 0;
     display: inline-flex; align-items: center; justify-content: center;
     line-height: 1;
+    /* touch-action is not inherited — set on the button itself, same as
+       #zoomCtl button / #contextBar button, so iOS Safari treats a tap
+       as a fast-click. */
+    touch-action: manipulation;
   }
   #helpBtn:hover { background: #f0f0f0; }
   /* Same override as #alignToolbar / #contextBar: chrome icon buttons
@@ -1008,11 +1017,31 @@
     display: flex; align-items: center; justify-content: center;
   }
   #helpOverlay.hidden { display: none; }
+  /* The modal frame does NOT scroll — the visible help variant inside
+     it does (see .help-fine / .help-coarse below). #helpClose is
+     position: absolute against this box, and an absolutely-positioned
+     child of a scroll container scrolls away with the content: on a
+     phone the help text is ~1,800px tall in a ~670px window, so one
+     flick put the ✕ hundreds of pixels above the viewport and left the
+     user sealed inside a full-screen overlay (brain#257). Keeping the
+     scroll one level in pins the ✕ to the corner for good.
+     min-height: 0 on the scroller is what lets a flex item shrink
+     below its content height and actually scroll. */
   #helpModal {
     background: #fff; border-radius: 10px; padding: 24px 28px;
-    max-width: 720px; width: 90%; max-height: 80vh; overflow-y: auto;
+    max-width: 720px; width: 90%; max-height: 80vh;
+    display: flex; flex-direction: column; overflow: hidden;
     box-shadow: 0 8px 32px rgba(0,0,0,.3);
     position: relative;
+  }
+  #helpModal > .help-fine,
+  #helpModal > .help-coarse {
+    min-height: 0; overflow-y: auto;
+    /* touch-action is not inherited, and the scroll container is the
+       element the browser reads it off. Same exception as #helpModal
+       (brain#24c): the modal keeps browser pan + magnification because
+       it is a dense wall of small text. */
+    touch-action: pan-y pinch-zoom;
   }
   #helpModal h2 { margin: 0 0 4px 0; font-size: 18px; }
   #helpModal .sub { color: #777; font-size: 12px; margin-bottom: 14px; }
@@ -1041,9 +1070,20 @@
   body.touch-input .help-coarse { display: block; }
   #helpClose {
     position: absolute; top: 8px; right: 12px;
-    background: transparent; border: 0;
-    cursor: pointer; color: #888; line-height: 1; padding: 4px;
+    /* Opaque, not transparent: the help text now scrolls underneath
+       this button instead of carrying it away, so it needs its own
+       ground to stay readable. */
+    background: #fff; border: 0; border-radius: 6px;
+    cursor: pointer; color: #888; line-height: 1;
+    /* 8px padding around an 18px icon clears the 34px minimum touch
+       target; the old 4px did not. */
+    padding: 8px;
     display: inline-flex; align-items: center; justify-content: center;
+    /* touch-action is not inherited — set on the button itself so iOS
+       Safari treats a tap as a fast-click. `manipulation` intersected
+       with #helpModal's `pan-y pinch-zoom` still leaves pinch-zoom, so
+       this does not cost the modal its browser magnification. */
+    touch-action: manipulation;
   }
   #helpClose:hover { color: #333; }
   .help { color: #666; font-size: 12px; margin-left: 8px; }

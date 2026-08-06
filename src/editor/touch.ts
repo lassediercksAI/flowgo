@@ -33,6 +33,13 @@
 //      that started on the canvas, so the help modal keeps browser
 //      magnification for anyone who needs to enlarge the text.
 //
+// These listeners are bound to `document`, so every touch in the page
+// passes through them — including touches meant for the chrome. A
+// single region guard (onCanvasRegion, below) drops those before any
+// branch can preventDefault them; on iOS a prevented touchstart
+// suppresses the synthesized click, which is what left the feedback
+// link and the help modal's close button dead (brain#256, brain#257).
+//
 // Link-drag from a handle dot mirrors the mouse path in attach.ts:
 // on coarse pointers the handles are larger (CSS in index.html) and
 // always shown for the selected box, since there is no hover. The
@@ -405,6 +412,39 @@ const abortGesture = (opts?: { readonly discardStroke?: boolean }): void => {
 const onCanvasSurface = (target: EventTarget | null): boolean =>
   bindings !== null && classifyTarget(target, bindings.selected) !== null;
 
+// Every drawable layer lives inside one of these. Chrome — #toolbar,
+// #zoomCtl, #contextBar, #helpBtn, #helpOverlay, #feedbackBtn,
+// #live-notice — lives outside them, as a sibling on <body>.
+const CANVAS_LAYERS = "#bg-layer, #bg-svg, #canvas, #edges";
+
+// …with one exception: #alignToolbar is parked inside #canvas so the
+// viewport transform carries it along with the selection. It is chrome
+// wearing a canvas address.
+const CANVAS_CHROME = "#alignToolbar";
+
+// Is this touch ours at all? Answered by REGION, not by classifyTarget:
+// classifyTarget returns null for plenty of things that are genuinely
+// on the canvas (images, a box that is mid-inline-edit, dead space
+// between layers), and a touch on any of those must still be able to
+// start a brush stroke or a pan.
+//
+// This is the guard that keeps document-level preventDefault() away
+// from the chrome. Without it every branch below that claims a touch —
+// brush, line, pan, drag — would preventDefault a press on a toolbar
+// button, and on iOS Safari a prevented touchstart suppresses the
+// synthesized click, so the button silently does nothing. Scoping it
+// here rather than per-element means the next control someone adds to
+// the chrome is covered on the day it lands (brain#256 / brain#257).
+//
+// Only the START of a gesture is filtered. Once a canvas gesture is in
+// flight, onTouchMove / onTouchEnd deliberately keep following the
+// finger wherever it wanders, chrome included — a stroke or a drag
+// must not break when it crosses the mode bar.
+const onCanvasRegion = (target: EventTarget | null): boolean =>
+  target instanceof Element &&
+  target.closest(CANVAS_LAYERS) !== null &&
+  target.closest(CANVAS_CHROME) === null;
+
 // True while a single-finger canvas gesture is live. If one is, the
 // first finger is by definition on the canvas, so a second finger
 // landing anywhere means the user is pinching the canvas.
@@ -443,9 +483,33 @@ const onTouchStart = (e: TouchEvent): void => {
   // A finger came back down while the previous pinch's survivor is
   // still on the glass — still part of the same two-finger episode.
   if (pinchTail) return;
-  // Brush mode: a single-finger press anywhere paints. CSS already
-  // sets pointer-events: none on boxes/texts/lines/strokes/edges
-  // while body.brush-mode is on, so the touch lands on #bg-layer
+  // Tap-out ends editing: if a box / text label is in inline-edit
+  // mode and this touch lands outside that element, blur it. The
+  // blur handler in edit.ts commits the new label and exits edit
+  // mode (which also dismisses the iOS keyboard). Runs for chrome
+  // touches too — reaching for the help button mid-label should
+  // commit the label, not strand it.
+  const editing = document.querySelector<HTMLElement>(
+    '[contenteditable="true"]',
+  );
+  if (editing && !editing.contains(e.target as Node)) {
+    editing.blur();
+  }
+  // Defensive: clear leftover drag-only chrome in case a previous
+  // gesture ended without firing touchend (e.g. navigation or
+  // visibility change interrupted it). The bar is only meant to
+  // show during an *active* drag — never as ambient state.
+  if (!document.body.classList.contains("panning")) {
+    document.body.classList.remove("dragging");
+    armDeleteZone(false);
+  }
+  // The touch landed on chrome, not on the map. Hands off entirely —
+  // no preventDefault, no gesture — so the browser can turn it into
+  // the click the button is listening for. See onCanvasRegion.
+  if (!onCanvasRegion(e.target)) return;
+  // Brush mode: a single-finger press anywhere on the canvas paints.
+  // CSS already sets pointer-events: none on boxes/texts/lines/strokes/
+  // edges while body.brush-mode is on, so the touch lands on #bg-layer
   // either way — but we still need to short-circuit the pan branch
   // below before it claims the gesture.
   if (isBrushMode()) {
@@ -462,24 +526,6 @@ const onTouchStart = (e: TouchEvent): void => {
     e.preventDefault();
     placeLinePoint(t.clientX, t.clientY);
     return;
-  }
-  // Tap-out ends editing: if a box / text label is in inline-edit
-  // mode and this touch lands outside that element, blur it. The
-  // blur handler in edit.ts commits the new label and exits edit
-  // mode (which also dismisses the iOS keyboard).
-  const editing = document.querySelector<HTMLElement>(
-    '[contenteditable="true"]',
-  );
-  if (editing && !editing.contains(e.target as Node)) {
-    editing.blur();
-  }
-  // Defensive: clear leftover drag-only chrome in case a previous
-  // gesture ended without firing touchend (e.g. navigation or
-  // visibility change interrupted it). The bar is only meant to
-  // show during an *active* drag — never as ambient state.
-  if (!document.body.classList.contains("panning")) {
-    document.body.classList.remove("dragging");
-    armDeleteZone(false);
   }
   const w = must();
   const t = e.touches[0]!;
