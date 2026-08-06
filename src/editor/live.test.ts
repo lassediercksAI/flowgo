@@ -9,6 +9,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   decideLiveEvent,
+  startLive,
   currentNotice,
   NOTICE_AFTER_MS,
   RETRY_MS,
@@ -173,5 +174,46 @@ describe("refresh pump", () => {
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(RETRY_MS * 3);
     expect(calls).toBeLessThanOrEqual(2);
+  });
+});
+
+// The editor bundle is shared with the hosted service, which serves no
+// /events route. Before this gate, flowgo-map.com opened an EventSource
+// to a 404 and EventSource's own retry loop parked a "lost the live
+// connection" banner on a page where live updates were never offered.
+describe("startLive opt-in gate", () => {
+  const flag = globalThis as { FLOWGO_LIVE?: boolean };
+  let constructed = 0;
+
+  beforeEach(() => {
+    constructed = 0;
+    resetLive();
+    delete flag.FLOWGO_LIVE;
+    class FakeES {
+      static OPEN = 1;
+      readyState = 0;
+      constructor() {
+        constructed++;
+      }
+      addEventListener() {}
+      close() {}
+    }
+    (globalThis as { EventSource?: unknown }).EventSource = FakeES;
+  });
+
+  afterEach(() => {
+    resetLive();
+    delete flag.FLOWGO_LIVE;
+  });
+
+  it("opens no stream when the server has not opted in", () => {
+    startLive();
+    expect(constructed).toBe(0);
+  });
+
+  it("opens a stream when the server injects FLOWGO_LIVE", () => {
+    flag.FLOWGO_LIVE = true;
+    startLive();
+    expect(constructed).toBe(1);
   });
 });

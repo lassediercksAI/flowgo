@@ -249,7 +249,13 @@ func main() {
 		Version:     resolveVersionString,
 	})
 
-	editorHTML := []byte(flowgo.IndexHTML)
+	// The editor bundle is shared with the hosted service, which has no
+	// /events route (it uses the yrs collab sidecar instead). So the
+	// live-event client is OFF unless a server opts in by injecting
+	// this flag — otherwise flowgo-map.com opens an EventSource to a
+	// 404 and retries forever behind a "lost the live connection"
+	// banner. Only this CLI --host server serves /events today.
+	editorHTML := injectLiveFlag([]byte(flowgo.IndexHTML))
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// No-store: the editor bundle is embedded at build time, so a
 		// browser that heuristically caches this page (no cache headers

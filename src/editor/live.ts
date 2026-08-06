@@ -285,6 +285,13 @@ const onFrame = (raw: string, isHello: boolean): void => {
  */
 export const startLive = (): void => {
   if (typeof EventSource === "undefined") return;
+  // Opt-in, not opt-out. The same bundle is served by the hosted
+  // service, which has no /events route (it uses the yrs collab
+  // sidecar) — without this gate that page opens an EventSource to a
+  // 404 and EventSource retries forever, parking a "lost the live
+  // connection" banner on a site where live updates were never on
+  // offer. Servers that serve /events inject window.FLOWGO_LIVE.
+  if (!(globalThis as { FLOWGO_LIVE?: boolean }).FLOWGO_LIVE) return;
   if (source) return;
   attachNoticeAction();
   const es = new EventSource(
