@@ -35,6 +35,7 @@ import { wireClipboard } from "./clipboard.ts";
 import {
   applyURLView,
   attachNavigationListeners,
+  emptyMap,
   ensureMap,
   goUp,
   navigateTo,
@@ -96,7 +97,11 @@ import { attachZoomControl } from "./zoomctl.ts";
 
 let graph = { maps: [] };
 let currentPath = "/";
-let state = { boxes: [], edges: [] };  // alias for the current map
+// Alias for the current map. Until load() resolves this placeholder
+// IS the map the renderer sees, so it has to carry every container
+// ensureMap guarantees — a pan, zoom or window resize inside the load
+// window runs a cull pass against it (brain#24d).
+let state = emptyMap("/");
 const selected = new Set();
 const lastCursor = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
 

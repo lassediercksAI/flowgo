@@ -51,6 +51,26 @@ export const wireNavigation = (b: NavBindings): void => {
   bindings = b;
 };
 
+// A map with every container present and empty.
+//
+// THE renderer-facing shape: render.ts and culling.ts read
+// map.boxes/texts/lines/edges without nil checks, on the invariant
+// that every map they see has been through ensureMap. main.ts's
+// pre-load placeholder is the one map that never has been, so it
+// takes its shape from here instead of an inline literal — the two
+// used to drift, and the placeholder was missing `texts` entirely
+// (brain#24d: a wheel-pan or window resize before /state answered
+// reached updateCulling and threw on map.texts.length).
+export const emptyMap = (path: string): MapLike => ({
+  path,
+  boxes: [],
+  edges: [],
+  texts: [],
+  lines: [],
+  strokes: [],
+  images: [],
+});
+
 // Idempotent map lookup: ensures the named map exists in `graph.maps`
 // and returns it with every container slice non-null. Other modules
 // receive the resolved map so they can `push` onto its arrays without
@@ -59,9 +79,13 @@ export const ensureMap = (path: string): MapLike => {
   const g = must().getGraph();
   let m = g.maps.find((x) => x.path === path);
   if (!m) {
-    m = { path, boxes: [], edges: [] };
+    m = emptyMap(path);
     g.maps.push(m);
   }
+  // Existing maps come from /state, where Go omits nil slices — fill
+  // the same key set emptyMap() defines. render-culling.test.ts pins
+  // the two against each other so a seventh container can't land in
+  // one and not the other.
   m.boxes ??= [];
   m.edges ??= [];
   m.texts ??= [];

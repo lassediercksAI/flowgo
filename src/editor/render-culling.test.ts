@@ -18,6 +18,7 @@ import {
   wireRender,
 } from "./render.ts";
 import { CULL_MARGIN, wireCulling, type CullRect } from "./culling.ts";
+import { emptyMap, ensureMap, wireNavigation } from "./navigation.ts";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -320,5 +321,110 @@ describe("selection across the materialization boundary", () => {
     // Exports/serialization read the graph, not the DOM — the map
     // must be byte-identical after any amount of cull churn.
     expect(JSON.stringify(h.map)).toBe(snapshot);
+  });
+});
+
+// brain#24d. `flowgo <file>` renders against main.ts's placeholder map
+// until persistence.load() resolves /state. That placeholder used to
+// be an inline `{ boxes: [], edges: [] }` — no `texts` — while
+// updateCulling reads map.texts.length with no nil check. A wheel-pan,
+// a pinch or a window resize inside the load window therefore reached
+// the rAF cull pass against the placeholder and threw
+// "Cannot read properties of undefined (reading 'length')": invisible
+// in the app (load() re-rendered a moment later) but a real uncaught
+// TypeError, and 2 of ~45 browser-smoke runs caught it.
+//
+// The placeholder now comes from emptyMap(), the same constructor
+// ensureMap uses, so the two cannot drift apart again.
+describe("pre-load placeholder map (brain#24d)", () => {
+  const preloadSetup = (): HTMLElement => {
+    document.body.innerHTML = "";
+    const canvas = document.createElement("div");
+    const svg = document.createElementNS(SVG_NS, "svg");
+    const lineLayer = document.createElementNS(SVG_NS, "g") as SVGGElement;
+    const strokeLayer = document.createElementNS(SVG_NS, "g") as SVGGElement;
+    const edgeLayer = document.createElementNS(SVG_NS, "g") as SVGGElement;
+    svg.append(strokeLayer, lineLayer, edgeLayer);
+    document.body.append(canvas, svg);
+
+    // Exactly what main.ts holds before load() resolves. The cast is
+    // only to reconcile navigation's `unknown[]` containers with the
+    // renderer's element types — the OBJECT is the real one, which is
+    // the whole point of the test.
+    const placeholder = emptyMap("/") as unknown as TestMap;
+    const noop = (): void => {};
+    wireRender({
+      canvas,
+      lineLayer,
+      strokeLayer,
+      edgeLayer,
+      currentMap: () => placeholder,
+      graph: () => ({ maps: [] }),
+      currentPath: () => "/",
+      selected: new Set<string>(),
+      selectedEdge: () => null,
+      setSelectedEdge: noop,
+      dropTargetId: () => null,
+      dropTargetHandle: () => null,
+      nearTargetId: () => null,
+      attachBoxHandlers: noop,
+      attachTextHandlers: noop,
+      attachImageHandlers: noop,
+      attachStrokeHandlers: noop,
+      attachLineHandlers: noop,
+      isBrushMode: () => false,
+      setStatus: noop,
+    });
+    wireProximity({
+      currentMap: () => placeholder,
+      link: () => null,
+      nearTargetId: () => null,
+      setNearTargetId: noop,
+    });
+    wireCulling({ viewport: () => HOME });
+    return canvas;
+  };
+
+  it("survives a cull pass before the graph has loaded", () => {
+    const canvas = preloadSetup();
+    // This is the crash: a pan/zoom/resize schedules updateCulling
+    // and it lands before /state answers.
+    expect(() => updateCulling()).not.toThrow();
+    expect(() => updateCulling()).not.toThrow();
+    expect(canvas.children.length).toBe(0);
+  });
+
+  it("survives a render pass before the graph has loaded", () => {
+    const canvas = preloadSetup();
+    expect(() => renderAll()).not.toThrow();
+    expect(canvas.children.length).toBe(0);
+  });
+
+  it("emptyMap() carries every container ensureMap fills", () => {
+    const graph: { maps: Array<Record<string, unknown>> } = { maps: [] };
+    wireNavigation({
+      getGraph: () => graph as never,
+      getCurrentPath: () => "/",
+      setCurrentPath: () => {},
+      setCurrentMap: () => {},
+      clearSelected: () => {},
+      clearSelectedEdge: () => {},
+      renderAll: () => {},
+    });
+    // ensureMap on a map the server sent with every container omitted
+    // — the shape /state actually produces, since Go drops nil slices.
+    graph.maps.push({ path: "/sparse" });
+    const filled = ensureMap("/sparse");
+    const containers = (m: object): string[] =>
+      Object.entries(m)
+        .filter(([, v]) => Array.isArray(v))
+        .map(([k]) => k)
+        .sort();
+    expect(containers(emptyMap("/"))).toEqual(containers(filled));
+    // And every one of them really is an array, so `.length` is safe.
+    for (const [k, v] of Object.entries(emptyMap("/"))) {
+      if (k === "path") continue;
+      expect(Array.isArray(v)).toBe(true);
+    }
   });
 });
