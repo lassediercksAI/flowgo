@@ -230,8 +230,18 @@ perf:
 # in-browser profiling (`flowgo stress.flowgo` + devtools):
 #   just perf-fixture                      → stress.flowgo, 3400 boxes
 #   just perf-fixture big.flowgo 10000     → big.flowgo, 10k boxes
-perf-fixture out="stress.flowgo" boxes="3400":
+#   just perf-fixture hex.flowgo 3400 1    → same map, every box on a
+#                                            FIXED FRAME (hexagon /
+#                                            circle / triangle /
+#                                            resized rectangle, equal
+#                                            quarters). Identical
+#                                            geometry to the plain
+#                                            variant — a controlled A/B
+#                                            of the label-clamp path
+#                                            (brain#258).
+perf-fixture out="stress.flowgo" boxes="3400" shaped="":
     FLOWGO_PERF_FIXTURE_OUT="{{out}}" FLOWGO_PERF_FIXTURE_BOXES="{{boxes}}" \
+    FLOWGO_PERF_FIXTURE_SHAPED="{{shaped}}" \
         pnpm exec vitest run --config vitest.perf.config.ts fixture-write
 
 # Type-check the TypeScript without emitting.

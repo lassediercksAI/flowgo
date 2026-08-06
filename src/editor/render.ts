@@ -33,7 +33,7 @@ import { endpointAnchor } from "./anchors.ts";
 import { updateSelectionToolbar } from "./align.ts";
 import { refreshContextBar } from "./contextbar.ts";
 import { clearBoxResize, resizingBoxId } from "./resize.ts";
-import { shapeLabelClampFrac, updateFixedShapeLabelClamp, updateSizedLabelClamp } from "./label-clamp.ts";
+import { flushLabelClamps, queueLabelClamp, shapeLabelClampFrac } from "./label-clamp.ts";
 import { fixedShapeSize } from "../graph/shape.ts";
 import { invalidateProximityIndex, nearestBoxWithin } from "./proximity-index.ts";
 import {
@@ -530,15 +530,18 @@ const materializeBox = (
   // drop-target / resizing (brain#239, see attachBoxChrome above).
   w.canvas.insertBefore(el, before);
   w.attachBoxHandlers(el, b);
-  // Sized boxes clamp their label to the lines that fit the fixed
-  // frame — must run after append so the measurements are live.
-  if (el.classList.contains("sized")) updateSizedLabelClamp(el);
-  // Special shapes clamp too: fixed silhouette, so overflow would
-  // spill past the edges rather than grow the box. Each shape has
-  // its own usable-height fraction (hexagon vs circle vs triangle).
+  // Fixed-frame boxes clamp their label to the lines that fit the
+  // frame: sized rectangles against their own content box, special
+  // shapes against a per-shape usable-height fraction (the silhouette
+  // would otherwise be overrun, since the box can't grow).
+  //
+  // QUEUED, not measured here (#258): measuring immediately after
+  // insertBefore forces a style+layout flush per box. The caller
+  // flushes once when the batch is built — see flushLabelClamps.
+  if (el.classList.contains("sized")) queueLabelClamp(el, null);
   else {
     const frac = shapeLabelClampFrac(b.shape);
-    if (frac) updateFixedShapeLabelClamp(el, frac);
+    if (frac) queueLabelClamp(el, frac);
   }
 };
 
@@ -623,6 +626,10 @@ export const renderAll = (): void => {
   for (const img of map.images ?? []) {
     if (imageWanted(img, cull)) materializeImage(w, img);
   }
+  // Every insertion is done: one measure+write pass for all the
+  // fixed-frame labels queued above (#258), before anything
+  // downstream reads geometry.
+  flushLabelClamps();
   applyClasses();
   renderLines();
   renderStrokes();
@@ -1287,6 +1294,9 @@ export const renderItems = (ids: Iterable<string>): void => {
     removeItemEls(id, touchedBoxes);
   }
   if (!touchedAny) return;
+  // Batched label clamp for whatever fixed-frame boxes this pass
+  // rebuilt (#258) — one flush for the whole item list.
+  flushLabelClamps();
   // Elements (and possibly rendered sizes) changed for the touched
   // ids — cached rects in the proximity index are suspect.
   invalidateProximityIndex();
@@ -1381,6 +1391,10 @@ export const updateCulling = (): void => {
       chromed.delete(b.id);
     }
   }
+  // Pan-in materialization is done: one measure+write pass for the
+  // fixed-frame labels it queued (#258). This is the hot one — a
+  // zoom step can materialize thousands of boxes in a single tick.
+  flushLabelClamps();
   // Which boxes have elements (and their measured sizes) just changed.
   invalidateProximityIndex();
   // Fresh elements carry no interaction classes; resetting the

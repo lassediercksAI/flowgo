@@ -49,8 +49,9 @@ import {
 import { wireCulling, type CullRect } from "../culling.ts";
 import { copySelection, pasteSelection, wireClipboard } from "../clipboard.ts";
 import { wireMutations } from "../mutations.ts";
+import { resetLabelClampMetrics } from "../label-clamp.ts";
 import { installCounters } from "./counters.ts";
-import { makeStressMap, type FixtureMap } from "./fixture.ts";
+import { makeStressMap, type FixtureMap, type StressOptions } from "./fixture.ts";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -67,8 +68,13 @@ interface Harness {
   readonly selected: Set<string>;
 }
 
-const setup = (n: number): Harness => {
+const setup = (n: number, opts: StressOptions = {}): Harness => {
   document.body.innerHTML = "";
+  // The label-clamp metrics cache is keyed on the class list and is
+  // meant to live as long as the stylesheet does; clearing it per
+  // scenario makes every run measure the COLD cost, so the #258
+  // ceilings can't be satisfied by a previous scenario's warm-up.
+  resetLabelClampMetrics();
   const canvas = document.createElement("div");
   const svg = document.createElementNS(SVG_NS, "svg");
   const lineLayer = document.createElementNS(SVG_NS, "g") as SVGGElement;
@@ -77,7 +83,7 @@ const setup = (n: number): Harness => {
   svg.append(strokeLayer, lineLayer, edgeLayer);
   document.body.append(canvas, svg);
 
-  const map = makeStressMap(n);
+  const map = makeStressMap(n, opts);
   const graph = { maps: [map] };
   const selected = new Set<string>();
   let nearId: string | null = null;
@@ -180,6 +186,95 @@ interface CulledResult {
 }
 
 let culledResult: CulledResult | null = null;
+
+interface ShapedResult {
+  n: number;
+  renderReflows: number;
+  renderStyleReads: number;
+  renderMs: number;
+  panReflows: number;
+  panStyleReads: number;
+  mutationReflows: number;
+}
+
+const shapedResults = new Map<number, ShapedResult>();
+
+interface FrameRun {
+  renderReflows: number;
+  renderStyleReads: number;
+  renderMs: number;
+  panReflows: number;
+  panStyleReads: number;
+  mutationReflows: number;
+  shapeCounts: Record<number, number>;
+  sizedCount: number;
+}
+
+// One pass of the three materialization paths over the same stress
+// map, with (`fixedFrame`) or without the fixed frames. Everything
+// else — geometry, palettes, lines, edges, texts, strokes — is
+// identical between the two, because the fixture assigns frames from
+// the box index and never from its RNG.
+const measureFixedFrameRender = (n: number, fixedFrame: boolean): FrameRun => {
+  const h = setup(n, { fixedFrame });
+  const shapeCounts: Record<number, number> = {};
+  let sizedCount = 0;
+  for (const b of h.map.boxes) {
+    if (b.shape) shapeCounts[b.shape] = (shapeCounts[b.shape] ?? 0) + 1;
+    if (b.w && b.h) sizedCount++;
+  }
+
+  const handle = installCounters();
+  const c = handle.counters;
+  try {
+    // ── full render, culling off: every box materializes ──
+    handle.reset();
+    const t0 = performance.now();
+    renderAll();
+    const renderMs = performance.now() - t0;
+    const renderReflows = c.forcedReflows;
+    const renderStyleReads = c.styleReads;
+
+    // ── incremental rebuild of one box (#238) ──
+    h.map.boxes[0]!.label = "mutated";
+    handle.reset();
+    renderItems(["b0"]);
+    const mutationReflows = c.forcedReflows;
+
+    // ── pan-in materialization (#23a) ──
+    // A window-sized jump: the visible set is entirely new, so the
+    // pan materializes a full window of boxes from cold — the tick
+    // that a zoom step turns into thousands of boxes in a browser.
+    const rect: { current: CullRect } = {
+      current: { x1: 0, y1: 0, x2: 1024, y2: 768 },
+    };
+    wireCulling({ viewport: () => rect.current });
+    renderAll();
+    rect.current = { x1: 2000, y1: 0, x2: 3024, y2: 768 };
+    handle.reset();
+    updateCulling();
+    const panReflows = c.forcedReflows;
+    const panStyleReads = c.styleReads;
+    expect(
+      c.elementsCreated,
+      "fixed-frame pan-in: fixture sanity (the pan really materializes boxes)",
+    ).toBeGreaterThan(20);
+
+    return {
+      renderReflows,
+      renderStyleReads,
+      renderMs,
+      panReflows,
+      panStyleReads,
+      mutationReflows,
+      shapeCounts,
+      sizedCount,
+    };
+  } finally {
+    handle.uninstall();
+    wireCulling(null);
+  }
+};
 
 const fmt = (v: number): string => Math.round(v).toLocaleString("en-US");
 
@@ -541,6 +636,110 @@ describe("perf smoke: editor interaction DOM cost", () => {
     }
   });
 
+  // ── fixed-frame / shaped maps (#258) ─────────────────────────
+  // Every hexagon, circle, triangle and manually-resized box has a
+  // frame that can't grow to fit its label, so the render path has to
+  // work out a line budget for it. Doing that per element right after
+  // insertion forced a synchronous style+layout flush PER BOX — the
+  // textbook layout-thrash pattern, and worth 36.8× in a real browser
+  // (2,282 ms vs 62 ms at ~4,300 visible boxes; see label-clamp.ts).
+  //
+  // jsdom does no layout, so the ceilings here are on the SHAPE of
+  // the access pattern, which is what actually went wrong:
+  //   * forcedReflows — reads issued while the DOM is dirty. Must be
+  //     O(1) per render pass, never O(boxes).
+  //   * styleReads — getComputedStyle calls. Must be O(distinct box
+  //     styles), never O(boxes), because the metrics are memoised on
+  //     the class list.
+  // Both ceilings are ABSOLUTE (no ·n term): that is the assertion.
+  it.each([[SMALL], [LARGE]])(
+    "fixed-frame map with %i boxes clamps labels without per-box layout thrash",
+    (n) => {
+      // Measured as a DELTA against the identical auto-sized map, for
+      // the same reason the browser A/B was run that way: renderAll
+      // has other read/write interleavings (renderEdges measures box
+      // elements, then writes SVG geometry) that have nothing to do
+      // with this card. Subtracting the auto-sized run leaves exactly
+      // the cost the fixed frames added — which is the number #258 is
+      // about, and the one that must not scale with box count.
+      const plain = measureFixedFrameRender(n, false);
+      const shaped = measureFixedFrameRender(n, true);
+
+      // Sanity: the fixture really is exercising all four fixed-frame
+      // paths, or the ceilings below would be guarding nothing.
+      for (const shape of [1, 2, 3]) {
+        expect(
+          shaped.shapeCounts[shape] ?? 0,
+          `fixture carries shape ${shape} boxes`,
+        ).toBeGreaterThan(n / 8);
+      }
+      expect(
+        shaped.sizedCount,
+        "fixture carries resized boxes",
+      ).toBeGreaterThan(n / 8);
+
+      const r: ShapedResult = {
+        n,
+        renderReflows: shaped.renderReflows - plain.renderReflows,
+        renderStyleReads: shaped.renderStyleReads - plain.renderStyleReads,
+        renderMs: shaped.renderMs,
+        panReflows: shaped.panReflows - plain.panReflows,
+        panStyleReads: shaped.panStyleReads - plain.panStyleReads,
+        mutationReflows: shaped.mutationReflows - plain.mutationReflows,
+      };
+      shapedResults.set(n, r);
+
+      // Measured: 1 extra forced reflow for the WHOLE render — the
+      // batched clamp's single read phase. Before batching it was one
+      // per fixed-frame box (1,200 at n=1,200, and 2,282 ms of blocked
+      // main thread at ~4,300 visible boxes in Chrome). The ceiling is
+      // absolute — no ·n term — which is the entire assertion.
+      expect(
+        r.renderReflows,
+        "fixed-frame render: extra forced reflows vs the auto-sized map",
+      ).toBeLessThanOrEqual(10);
+      // Metrics are memoised per class list, so getComputedStyle
+      // tracks the fixture's DISTINCT box styles (4 frame kinds × 9
+      // palettes ≈ 36 here), never the box count. Un-memoising would
+      // put this at 1.75·n = 2,100 at n=1,200.
+      expect(
+        r.renderStyleReads,
+        "fixed-frame render: extra getComputedStyle calls",
+      ).toBeLessThanOrEqual(150);
+
+      // Same again for the pan-in path (#23a materializes a whole
+      // window of boxes in one tick) and for a single-item rebuild
+      // (#238).
+      expect(
+        r.panReflows,
+        "fixed-frame pan-in: extra forced reflows",
+      ).toBeLessThanOrEqual(10);
+      expect(
+        r.panStyleReads,
+        "fixed-frame pan-in: extra getComputedStyle calls",
+      ).toBeLessThanOrEqual(150);
+      expect(
+        r.mutationReflows,
+        "fixed-frame single-item render: extra forced reflows",
+      ).toBeLessThanOrEqual(10);
+    },
+  );
+
+  it("fixed-frame label clamp is O(1) in flushes, not O(boxes)", () => {
+    const s = shapedResults.get(SMALL);
+    const l = shapedResults.get(LARGE);
+    expect(s).toBeDefined();
+    expect(l).toBeDefined();
+    if (!s || !l) return;
+    // 4x the boxes must buy ZERO extra flushes and no extra style
+    // reads. A return to per-element measurement cannot survive this:
+    // it would show up as a 4x ratio on both.
+    expect(l.renderReflows, "render flushes must not grow with box count")
+      .toBeLessThanOrEqual(Math.max(s.renderReflows, 1));
+    expect(l.renderStyleReads, "style reads must not grow with box count")
+      .toBeLessThanOrEqual(s.renderStyleReads * 1.25 + 10);
+  });
+
   it("per-interaction work scales no worse than linearly in box count", () => {
     const s = results.get(SMALL);
     const l = results.get(LARGE);
@@ -595,6 +794,14 @@ afterAll(() => {
       `    pinch 100%→50%      ${fmt(r.pinchElements)} els over 12 frames (worst ${fmt(r.pinchWorstFrame)}), ${r.pinchMs.toFixed(1)}ms`,
       `    select all ${fmt(LARGE)}     ${fmt(r.selAllToggles)} class toggles, ${fmt(r.selAllElements)} els (chrome)`,
       `    off-screen paste    ${fmt(r.culledPasteElements)} els created`,
+    );
+  }
+  for (const r of shapedResults.values()) {
+    lines.push(
+      `  ${fmt(r.n)} boxes, ALL fixed-frame — hex/circle/tri/resized (#258):`,
+      `    initial render      ${fmt(r.renderReflows)} forced reflows, ${fmt(r.renderStyleReads)} getComputedStyle, ${r.renderMs.toFixed(1)}ms`,
+      `    1-box mutation      ${fmt(r.mutationReflows)} forced reflows`,
+      `    culled pan-in       ${fmt(r.panReflows)} forced reflows, ${fmt(r.panStyleReads)} getComputedStyle`,
     );
   }
   lines.push("");
