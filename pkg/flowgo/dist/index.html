@@ -100,7 +100,7 @@
      bottom-left zoom control and the wheel drive.
 
      Set on html / body too so touches on the chrome (toolbar,
-     feedback button, version text, empty surroundings) can't
+     zoom control, version text, empty surroundings) can't
      trigger iOS Safari's URL-bar / page scroll behavior — that was
      the "second scroll area at the bottom" that pulled the canvas
      out of view.
@@ -146,9 +146,9 @@
     pointer-events: none;
   }
   /* Bottom-left zoom cluster: − / percentage / +. Same chrome as
-     #toolbar / #feedbackBtn. Double-clicking the percentage resets
-     the view (Cmd/Ctrl+0), so the whole cluster must not select text
-     on rapid clicks. */
+     #toolbar. Double-clicking the percentage resets the view
+     (Cmd/Ctrl+0), so the whole cluster must not select text on rapid
+     clicks. */
   #zoomCtl {
     position: absolute; z-index: 11;
     bottom: calc(8px + env(safe-area-inset-bottom, 0px));
@@ -174,20 +174,6 @@
     font-size: 12px; font-variant-numeric: tabular-nums;
     min-width: 48px; text-align: center;
   }
-  #feedbackBtn {
-    position: absolute; z-index: 11;
-    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
-    right: calc(8px + env(safe-area-inset-right, 0px));
-    background: #fff; border: 1px solid #ccc; border-radius: 6px;
-    padding: 6px 10px; font-size: 12px; color: #444;
-    text-decoration: none; box-shadow: 0 1px 3px rgba(0,0,0,.1);
-    cursor: pointer;
-    /* touch-action is not inherited — set on the link itself, same as
-       #zoomCtl button / #contextBar button, so iOS Safari treats a tap
-       as a fast-click rather than a maybe-double-tap-to-zoom. */
-    touch-action: manipulation;
-  }
-  #feedbackBtn:hover { background: #f0f0f0; color: #222; }
   #path {
     margin-left: 12px; color: #444;
     /* Default sans stack (inherited from body) — the breadcrumb is
@@ -1363,7 +1349,6 @@
   <line id="ghost-line" x1="0" y1="0" x2="0" y2="0" stroke="#07f" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arrow-ghost)" style="display:none"/>
 </svg>
 <div id="version"></div>
-<a id="feedbackBtn" href="https://study.loquiry.io/p/zvrg-escb-c5wz" target="_blank" rel="noopener noreferrer">Give feedback</a>
 
 </body>
 </html>

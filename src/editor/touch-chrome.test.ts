@@ -5,7 +5,10 @@
 // chrome included. Several branches (brush, line, pan, drag) call
 // preventDefault() on touchstart; on iOS Safari a prevented touchstart
 // suppresses the synthesized click, which is what left the "Give
-// feedback" link and the help modal's ✕ dead on a phone.
+// feedback" link and the help modal's ✕ dead on a phone. (That link is
+// gone from the canvas as of brain#267 — it lives in the wrapper's
+// drawer now — so it no longer appears in the fixture below; the guard
+// it motivated still protects every remaining control.)
 //
 // These tests drive the REAL document listeners and assert the shape of
 // the guard: a touch that starts on chrome is never claimed and never
@@ -85,7 +88,7 @@ beforeAll(() => {
   div("alignToolbar", canvas);
 
   // Chrome: siblings of the canvas layers on <body>.
-  for (const id of ["contextBar", "zoomCtl", "helpBtn", "feedbackBtn"]) {
+  for (const id of ["contextBar", "zoomCtl", "helpBtn"]) {
     div(id, document.body);
   }
   const overlay = div("helpOverlay", document.body);
@@ -181,7 +184,6 @@ const CHROME_IDS = [
   "contextBar",
   "zoomCtl",
   "helpBtn",
-  "feedbackBtn",
   "helpOverlay",
   "helpModal",
   "helpClose",

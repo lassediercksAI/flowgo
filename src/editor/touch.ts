@@ -413,8 +413,8 @@ const onCanvasSurface = (target: EventTarget | null): boolean =>
   bindings !== null && classifyTarget(target, bindings.selected) !== null;
 
 // Every drawable layer lives inside one of these. Chrome — #toolbar,
-// #zoomCtl, #contextBar, #helpBtn, #helpOverlay, #feedbackBtn,
-// #live-notice — lives outside them, as a sibling on <body>.
+// #zoomCtl, #contextBar, #helpBtn, #helpOverlay, #live-notice — lives
+// outside them, as a sibling on <body>.
 const CANVAS_LAYERS = "#bg-layer, #bg-svg, #canvas, #edges";
 
 // …with one exception: #alignToolbar is parked inside #canvas so the
