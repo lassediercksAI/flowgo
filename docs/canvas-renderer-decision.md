@@ -147,7 +147,7 @@ Only row 4 is a rendering problem.
 | 2 | **Undo history memory** | `persistence.ts:63,73` — `UNDO_LIMIT = 100`, `undoStack: string[]` of full-graph JSON | **+5.9 MB heap per edit at 100k** (12 edits: 78 → 149 MB). At the 100-entry limit that is ~590 MB of strings | **No** |
 | 3 | **JS heap for the data model** | ~0.8 KB/box (4.2 MB @ 3.4k, 78.9 MB @ 100k) | 100k ≈ 79 MB before undo history | **No** |
 | 4 | **Materialization cost per visible item** | `render.ts` `materializeBox`, `updateCulling` | see the zoom-out table | **Yes** |
-| 5 | **`O(map)` cull pass per pan re-evaluation** | `updateCulling` (`render.ts:1315`) walks every box/text/image/line/stroke/edge; `requiredEdgeBoxIds` (`culling.ts:227`) builds a fresh `Map` of *all* boxes; `cullEdges` then calls `rebuildBoxIndex(map)` again | pan 33 → 38 ms over 3.4k → 100k | **No** — data-structure problem |
+| 5 | ~~**`O(map)` cull pass per pan re-evaluation**~~ **FIXED, brain#25d** | was: `updateCulling` walked every box/text/image/line/stroke/edge; `requiredEdgeBoxIds` built a fresh `Map` of *all* boxes; `cullEdges` called `rebuildBoxIndex(map)` again. Now a hierarchical grid in data space (`cull-index.ts`) answers it in `O(visible)` | pan 33 → 38 ms over 3.4k → 100k. After #25d, 100k pan: worst rAF gap 45 → 38 ms, time in frames >33 ms **285 → 38 ms**; zoom-out worst 51 → 28 ms | **No** — data-structure problem, fixed as one |
 | 6 | **Initial parse + first render** | 28 → 759 ms over 3.4k → 100k, linear; `/state` fetch+parse alone is 716 ms at 100k | | Partly |
 
 **Rows 1–3 bite before row 4 does.** A 100k map on today's data model is
@@ -185,12 +185,21 @@ visible items instead of ~5,000.** Batching the measurement, or deriving
 the line count arithmetically from `w`/`h` and font size, is a contained
 fix worth doing regardless of what happens to this card.
 
-**`O(map)` cull scan.** Row 5. `proximity-index.ts` already demonstrates
-the fix: a uniform 256 px grid in data space. A sibling index over data
-rects (culling already carries conservative size estimates —
-`EST_ITEM_W/H`) makes the cull pass `O(visible)`. ~200 lines, same shape
-as an existing tested module. **A raster renderer needs this too**, so it
-is not throwaway work either way.
+**`O(map)` cull scan.** Row 5 — **done, brain#25d.** The prediction here
+was right in shape and wrong in one detail: a *sibling* of
+`proximity-index.ts` was the answer, but not a copy of it. That index
+buckets MEASURED DOM rects and skips boxes without elements — precisely
+the boxes culling has to decide about — and its single 256 px level
+suits a fixed 60 px radius, not a viewport rect that grows without
+bound as you zoom out. `cull-index.ts` is therefore a second index:
+same lifecycle idiom (pure data, lazily rebuilt, invalidated at
+`fire()`), a *hierarchical* grid, covering all six layers. Long
+straight lines are bucketed by walking the cells their segments
+traverse rather than by their bounding box, which is what preserves
+#23a's "a line whose endpoints are both off-screen still renders". At
+100k (177,000 items) a warm visibility query costs **0.46 ms** against
+the 12–20 ms scan it replaces. **A raster renderer would need this
+too**, so it was not throwaway work either way.
 
 ---
 

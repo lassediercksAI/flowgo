@@ -17,7 +17,18 @@ import {
   wireProximity,
   wireRender,
 } from "./render.ts";
-import { CULL_MARGIN, wireCulling, type CullRect } from "./culling.ts";
+import {
+  CULL_MARGIN,
+  boxVisible,
+  edgeVisible,
+  imageVisible,
+  lineVisible,
+  requiredEdgeBoxIds,
+  strokeVisible,
+  textVisible,
+  wireCulling,
+  type CullRect,
+} from "./culling.ts";
 import { emptyMap, ensureMap, wireNavigation } from "./navigation.ts";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -434,5 +445,201 @@ describe("pre-load placeholder map (brain#24d)", () => {
       if (k === "path") continue;
       expect(Array.isArray(v)).toBe(true);
     }
+  });
+
+  it("a full rebuild sees geometry a remote patch changed in place", () => {
+    // applyRemotePatch (collab) rewrites the graph and calls renderAll
+    // WITHOUT going through mutations.ts — same length, same arrays,
+    // new coordinates. renderAll's own invalidation is what stops the
+    // cull index answering that from a stale grid (#25d).
+    const h = setup();
+    renderAll();
+    expect(new Set(boxIds(h))).toEqual(
+      new Set(["bIn", "bIn2", "bEdgeA", "bEdgeB"]),
+    );
+    for (const b of h.map.boxes) {
+      // Everything teleports far off-screen, in place, silently.
+      b.x += 60_000;
+      b.y += 60_000;
+    }
+    for (const l of h.map.lines) {
+      l.x1 += 60_000; l.y1 += 60_000; l.x2 += 60_000; l.y2 += 60_000;
+    }
+    renderAll();
+    expect(boxIds(h)).toEqual([]);
+    expect(h.lineLayer.querySelectorAll("[data-id]").length).toBe(0);
+  });
+});
+
+// ── Renderer-level parity fuzz (brain#25d) ──────────────────────
+// #25d replaced the O(map) scan behind culling with a spatial index.
+// cull-index.test.ts proves the QUERY matches a full scan; this proves
+// the RENDERER does — that the DOM after a sequence of pans/zooms
+// contains exactly the elements the pre-#25d full-scan rule says it
+// should, in exactly the same order, whether it got there
+// incrementally (updateCulling) or from a full rebuild (renderAll).
+describe("cull parity fuzz: DOM vs the full-scan rule", () => {
+  const rng = (seed: number): (() => number) => {
+    let s = seed >>> 0;
+    return () => {
+      s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+      return s / 0x100000000;
+    };
+  };
+
+  const randomMap = (r: () => number, n: number): TestMap => {
+    const EXT = 6000;
+    const co = (): number => Math.round((r() * 2 - 1) * EXT);
+    const m: TestMap = {
+      boxes: [], edges: [], texts: [], lines: [], strokes: [], images: [],
+    };
+    for (let i = 0; i < n; i++) {
+      const b: TestMap["boxes"][number] = { id: "b" + i, label: "n" + i, x: co(), y: co() };
+      const k = Math.floor(r() * 5);
+      if (k >= 1 && k <= 3) b.shape = k;
+      else if (k === 4) {
+        b.w = 40 + Math.floor(r() * 200);
+        b.h = 20 + Math.floor(r() * 150);
+      }
+      m.boxes.push(b);
+    }
+    for (let i = 0; i < Math.ceil(n / 3); i++) {
+      m.edges.push({
+        from: "b" + Math.floor(r() * n),
+        to: "b" + Math.floor(r() * n),
+      });
+    }
+    for (let i = 0; i < Math.ceil(n / 4); i++) {
+      m.texts.push({ id: "t" + i, label: "x" + i, x: co(), y: co() });
+    }
+    for (let i = 0; i < Math.ceil(n / 2); i++) {
+      const l: TestMap["lines"][number] = { id: "l" + i, x1: co(), y1: co(), x2: co(), y2: co() };
+      const k = Math.floor(r() * 6);
+      if (k === 0) l.y2 = l.y1;
+      if (k === 1) l.x2 = l.x1;
+      if (k >= 2 && k <= 3) l.mids = [[co(), co()]];
+      l.style = 1 + Math.floor(r() * 3);
+      m.lines.push(l);
+    }
+    for (let i = 0; i < Math.ceil(n / 6); i++) {
+      const pts: Array<[number, number]> = [];
+      let px = co();
+      let py = co();
+      for (let p = 0; p < 2 + Math.floor(r() * 8); p++) {
+        px += Math.floor(r() * 200) - 100;
+        py += Math.floor(r() * 200) - 100;
+        pts.push([px, py]);
+      }
+      m.strokes.push({ id: "s" + i, points: pts });
+    }
+    for (let i = 0; i < Math.ceil(n / 8); i++) {
+      m.images.push({
+        id: "i" + i, src: "data:,", x: co(), y: co(),
+        width: 1 + Math.floor(r() * 400), height: 1 + Math.floor(r() * 400),
+      });
+    }
+    return m;
+  };
+
+  // The pre-#25d rule, spelled out as a scan. Exempt ids are empty in
+  // this fuzz (no gesture is in flight), so `required` — the endpoint
+  // boxes a crossing edge forces into the DOM — is the only override.
+  const oracle = (m: TestMap, raw: CullRect): {
+    boxes: string[]; texts: string[]; images: string[];
+    lines: string[]; strokes: string[]; edges: number;
+  } => {
+    const rect = { x1: raw.x1 - CULL_MARGIN, y1: raw.y1 - CULL_MARGIN,
+                   x2: raw.x2 + CULL_MARGIN, y2: raw.y2 + CULL_MARGIN };
+    const required = requiredEdgeBoxIds(m, rect);
+    const boxes = m.boxes.filter((b) => required.has(b.id) || boxVisible(b, rect));
+    const ids = new Set(boxes.map((b) => b.id));
+    const byId = new Map(m.boxes.map((b) => [b.id, b]));
+    let edges = 0;
+    for (const e of m.edges) {
+      const a = byId.get(e.from);
+      const b = byId.get(e.to);
+      if (!a || !b) continue;
+      if (!edgeVisible(a.x, a.y, b.x, b.y, rect)) continue;
+      if (!ids.has(e.from) || !ids.has(e.to)) continue;
+      edges++;
+    }
+    return {
+      boxes: boxes.map((b) => b.id),
+      texts: m.texts.filter((t) => textVisible(t, rect)).map((t) => t.id),
+      images: m.images.filter((i) => imageVisible(i, rect)).map((i) => i.id),
+      lines: m.lines.filter((l) => lineVisible(l, rect)).map((l) => l.id),
+      strokes: m.strokes
+        .filter((s) => s.points.length >= 2 && strokeVisible(s.points, rect))
+        .map((s) => s.id),
+      edges,
+    };
+  };
+
+  const dom = (h: Harness): {
+    boxes: string[]; texts: string[]; images: string[];
+    lines: string[]; strokes: string[]; edges: number;
+  } => {
+    const pick = (sel: string): string[] =>
+      Array.from(h.canvas.querySelectorAll<HTMLElement>(sel)).map(
+        (el) => el.dataset["id"]!,
+      );
+    const svg = (layer: Element): string[] =>
+      Array.from(layer.querySelectorAll<SVGGElement>("[data-id]")).map(
+        (el) => el.dataset["id"]!,
+      );
+    return {
+      boxes: pick(".box"),
+      texts: pick(".text-item"),
+      images: pick(".image-item"),
+      lines: svg(h.lineLayer),
+      strokes: svg(h.strokeLayer),
+      edges: h.edgeLayer.querySelectorAll(".edge-group").length,
+    };
+  };
+
+  it("matches after every step of a random pan/zoom walk", () => {
+    const r = rng(0x25df0);
+    let sawItems = 0;
+    for (let round = 0; round < 12; round++) {
+      const h = setup();
+      const m = randomMap(r, 60 + Math.floor(r() * 60));
+      h.map.boxes.splice(0, h.map.boxes.length, ...m.boxes);
+      h.map.edges.splice(0, h.map.edges.length, ...m.edges);
+      h.map.texts.splice(0, h.map.texts.length, ...m.texts);
+      h.map.lines.splice(0, h.map.lines.length, ...m.lines);
+      h.map.strokes.splice(0, h.map.strokes.length, ...m.strokes);
+      h.map.images.splice(0, h.map.images.length, ...m.images);
+
+      // Zoom levels are just rect sizes in data space: a 1440×900
+      // window at 400% is 360×225 data px, at 5% it is 28,800×18,000.
+      const step = (): CullRect => {
+        const cx = Math.round((r() * 2 - 1) * 7000);
+        const cy = Math.round((r() * 2 - 1) * 7000);
+        const scale = [0.05, 0.25, 1, 1, 2, 4][Math.floor(r() * 6)]!;
+        return {
+          x1: cx - 720 / scale, y1: cy - 450 / scale,
+          x2: cx + 720 / scale, y2: cy + 450 / scale,
+        };
+      };
+
+      h.rect.current = step();
+      renderAll();
+      for (let s = 0; s < 8; s++) {
+        h.rect.current = step();
+        updateCulling();
+        const got = dom(h);
+        const want = oracle(h.map, h.rect.current);
+        expect(got, `round ${round} step ${s} (incremental)`).toEqual(want);
+        sawItems += got.boxes.length + got.lines.length;
+      }
+      // After a whole walk of incremental steps, a full rebuild at the
+      // final viewport must land on the identical DOM, order included:
+      // no element the walk forgot to drop, none it forgot to insert,
+      // none out of map order.
+      const want = oracle(h.map, h.rect.current);
+      renderAll();
+      expect(dom(h), `round ${round} (renderAll converges)`).toEqual(want);
+    }
+    expect(sawItems, "fixture sanity: the walk really sees items").toBeGreaterThan(200);
   });
 });

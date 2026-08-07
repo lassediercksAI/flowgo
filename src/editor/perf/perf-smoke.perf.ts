@@ -52,6 +52,10 @@ import { copySelection, pasteSelection, wireClipboard } from "../clipboard.ts";
 import { wireMutations } from "../mutations.ts";
 import { resetLabelClampMetrics } from "../label-clamp.ts";
 import { installCounters } from "./counters.ts";
+import {
+  cullIndexMetrics,
+  resetCullIndexMetrics,
+} from "../cull-index.ts";
 import { makeStressMap, type FixtureMap, type StressOptions } from "./fixture.ts";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -190,6 +194,20 @@ interface CulledResult {
 }
 
 let culledResult: CulledResult | null = null;
+
+interface CullScanCost {
+  pan: number;
+  panKept: number;
+  zoom: number;
+  zoomKept: number;
+}
+
+interface CullScanResult {
+  small: CullScanCost;
+  large: CullScanCost;
+}
+
+let cullScanResult: CullScanResult | null = null;
 
 interface ShapedResult {
   n: number;
@@ -729,6 +747,101 @@ describe("perf smoke: editor interaction DOM cost", () => {
     },
   );
 
+  // ── cull scan cost (#25d) ────────────────────────────────────
+  // Culling materialized O(visible) DOM from #23a onwards, but it
+  // DECIDED visibility by walking every item in the map: a 100k map
+  // paid 12-20 ms per pan/zoom frame before drawing anything (measured
+  // in the #25a spike). The DOM-op counters above cannot see that —
+  // the scan touches no DOM at all — so this scenario gates the count
+  // the spatial index exists to bound: how many items the exact
+  // visibility predicate is evaluated on per cull pass.
+  //
+  // Ceilings are ABSOLUTE and IDENTICAL at both map sizes. That is the
+  // whole assertion: 4x the map, same window, same work. Reverting to
+  // the scan puts the LARGE number at ~2.5·n (every box + text + image
+  // + line + stroke + edge, twice over — computeCullPass scanned the
+  // edges again for requiredEdgeBoxIds) = ~3,000 at n=1,200.
+  const cullScanCost = (n: number): {
+    pan: number; panKept: number; zoom: number; zoomKept: number;
+  } => {
+    const h = setup(n);
+    const rect: { current: CullRect } = {
+      current: { x1: 0, y1: 0, x2: 1024, y2: 768 },
+    };
+    wireCulling({ viewport: () => rect.current });
+    try {
+      renderAll();
+      // Steady-state pan: one window-sized step, the common gesture.
+      rect.current = { x1: 400, y1: 0, x2: 1424, y2: 768 };
+      resetCullIndexMetrics();
+      updateCulling();
+      const pan = cullIndexMetrics().tests;
+      const panKept = cullIndexMetrics().kept;
+      expect(
+        cullIndexMetrics().rebuilds,
+        "a pan must not rebuild the index (no data changed)",
+      ).toBe(0);
+      // Zoom out one step: the window grows, so the visible set grows
+      // — legitimately. What must NOT happen is the cost jumping to
+      // map size.
+      rect.current = { x1: -112, y1: -192, x2: 1936, y2: 1728 };
+      resetCullIndexMetrics();
+      updateCulling();
+      const zoom = cullIndexMetrics().tests;
+      const zoomKept = cullIndexMetrics().kept;
+      expect(
+        h.map.boxes.length,
+        "fixture sanity (map is much bigger than the window)",
+      ).toBe(n);
+      return { pan, panKept, zoom, zoomKept };
+    } finally {
+      wireCulling(null);
+    }
+  };
+
+  it("cull pass examines the viewport, not the map", () => {
+    const small = cullScanCost(SMALL);
+    const large = cullScanCost(LARGE);
+    cullScanResult = { small, large };
+    // PRECISION — the fixture-independent statement of the DoD. The
+    // number of items the predicate runs on must be a small constant
+    // times the number it KEEPS, i.e. proportional to what is on
+    // screen. Measured ~2.1x. The old scan ran the predicate on every
+    // item in the map: at n=1,200 that is ~2,500 tests for ~360 kept,
+    // a ratio of 7 — and the ratio grew with the map, which is the
+    // entire bug.
+    for (const [tag, tests, kept] of [
+      ["pan", large.pan, large.panKept],
+      ["zoom-out", large.zoom, large.zoomKept],
+      ["pan (small map)", small.pan, small.panKept],
+    ] as const) {
+      expect(kept, `${tag}: fixture sanity (something is visible)`).toBeGreaterThan(20);
+      expect(
+        tests,
+        `${tag}: visibility tests per item actually kept`,
+      ).toBeLessThanOrEqual(kept * 2.2 + 60);
+    }
+    // Absolute ceilings, no ·n term. Measured 403 tests/pan and 609
+    // tests/zoom-out at n=1,200; the ceilings sit ~50% above. The
+    // fixture's random full-extent lines mean the VISIBLE set itself
+    // is denser on the bigger map (a style-3 line's ink is
+    // approximated by its per-segment bounding box, and those boxes
+    // grow with the map extent), which is why this is not flat — the
+    // precision check above is the map-size-independent one.
+    expect(large.pan, "culled pan: visibility tests").toBeLessThanOrEqual(600);
+    expect(large.zoom, "culled zoom-out: visibility tests").toBeLessThanOrEqual(900);
+    // 4x the map may buy at most 2x the visibility work. A return to
+    // the full scan shows up here as 4x, and grows without bound.
+    expect(
+      large.pan / small.pan,
+      "4x the map, same window: pan visibility-test growth",
+    ).toBeLessThanOrEqual(2);
+    expect(
+      large.zoom / small.zoom,
+      "4x the map, same window: zoom visibility-test growth",
+    ).toBeLessThanOrEqual(2);
+  });
+
   // ── edge rendering (#25b) ────────────────────────────────────
   // renderEdges used to measure an endpoint box (offsetWidth /
   // offsetHeight, twice per endpoint via endpointAnchor), then append
@@ -850,6 +963,14 @@ afterAll(() => {
       `    initial render      ${fmt(r.renderReflows)} forced reflows, ${fmt(r.renderStyleReads)} getComputedStyle, ${r.renderMs.toFixed(1)}ms`,
       `    1-box mutation      ${fmt(r.mutationReflows)} forced reflows`,
       `    culled pan-in       ${fmt(r.panReflows)} forced reflows, ${fmt(r.panStyleReads)} getComputedStyle`,
+    );
+  }
+  if (cullScanResult) {
+    const c = cullScanResult;
+    lines.push(
+      "  cull visibility decision, 1024×768 window (#25d):",
+      `    ${fmt(SMALL)} boxes         ${fmt(c.small.pan)} tests/${fmt(c.small.panKept)} kept per pan, ${fmt(c.small.zoom)}/${fmt(c.small.zoomKept)} per zoom-out`,
+      `    ${fmt(LARGE)} boxes       ${fmt(c.large.pan)} tests/${fmt(c.large.panKept)} kept per pan, ${fmt(c.large.zoom)}/${fmt(c.large.zoomKept)} per zoom-out`,
     );
   }
   lines.push("");
