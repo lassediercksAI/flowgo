@@ -266,6 +266,50 @@ export const SNAPSHOT_ID: string | null = SNAPSHOT_MATCH
   : null;
 export const SNAPSHOT_MODE: boolean = SNAPSHOT_ID !== null;
 
+// Which document this page is editing, as named by the host in the
+// page's own query string (`?map=<name>`). Opaque here: the editor
+// never parses it, it only hands it back on every data request.
+//
+// This is the same idea as SNAPSHOT_ID above — the page's URL says
+// what it is looking at — applied to the editable document instead of
+// a read-only snapshot. It exists because a host may serve many
+// documents to one signed-in user, and "which one" has to survive a
+// bookmark, a second tab and a reload; a server-side "current
+// document" per session cannot do any of those (brain#272).
+//
+// THE CLI IS THE DEFAULT, NOT A SPECIAL CASE. `flowgo --host` serves
+// one file at `/` with an empty query string, so MAP_ID is null, and
+// dataURL() below returns "/state" and "/save" unchanged — the exact
+// bytes on the wire the CLI has always seen. There is no flag to set
+// and no second code path to keep in step: a host that does not name
+// a document gets single-document behaviour by construction.
+// An absent param and a present-but-empty one both mean "not named".
+// Exported for the tests, which would otherwise have to reload this
+// module once per URL shape to cover them.
+export const mapIDFrom = (search: string): string | null =>
+  new URLSearchParams(search).get("map") || null;
+
+/** Build a data-endpoint URL for the given document name. */
+export const dataURLFor = (mapID: string | null, path: string): string =>
+  mapID === null ? path : path + "?map=" + encodeURIComponent(mapID);
+
+// Resolved ONCE, at module load, on purpose: a page addresses one
+// document for its whole life. Re-reading location on each request
+// would let a history.pushState elsewhere in the host silently
+// redirect an in-flight save to a different document.
+export const MAP_ID: string | null =
+  typeof location === "undefined" ? null : mapIDFrom(location.search);
+
+/**
+ * The data-endpoint URL for the document this page is editing.
+ *
+ * Every /state and /save request goes through here so the addressing
+ * can never drift between reading and writing — a read that resolved
+ * to a different document than the write would be a data-loss bug,
+ * not a routing one.
+ */
+const dataURL = (path: string): string => dataURLFor(MAP_ID, path);
+
 export const wirePersistence = (b: PersistenceBindings): void => {
   bindings = b;
 };
@@ -288,7 +332,7 @@ export const load = async (): Promise<void> => {
       g = null;
     }
   } else {
-    const r = await fetch("/state");
+    const r = await fetch(dataURL("/state"));
     noteRevision(r);
     g = (await r.json()) as GraphLike;
   }
@@ -341,7 +385,7 @@ const saveBody = async (body: string): Promise<void> => {
   }
   savesInFlight++;
   try {
-    const r = await fetch("/save", {
+    const r = await fetch(dataURL("/save"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -505,7 +549,7 @@ export const refreshFromServer = async (): Promise<RefreshOutcome> => {
   if (isDirty()) return "deferred";
   let g: GraphLike;
   try {
-    const r = await fetch("/state");
+    const r = await fetch(dataURL("/state"));
     if (!r.ok) throw new Error("HTTP " + r.status);
     noteRevision(r);
     g = (await r.json()) as GraphLike;
