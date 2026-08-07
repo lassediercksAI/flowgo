@@ -118,13 +118,22 @@ interface BoxLike {
   readonly shape?: number;
 }
 
-/** Box rect vs (already margin-expanded) rect. Fixed shapes and
- *  explicitly sized boxes use their exact footprint; auto-sized boxes
- *  use the conservative estimate. */
-export const boxVisible = (b: BoxLike, r: CullRect): boolean => {
+/** The footprint the visibility test gives a box. Fixed shapes and
+ *  explicitly sized boxes use their exact size; auto-sized boxes use
+ *  the conservative estimate. Exported so the spatial index (#25d)
+ *  buckets boxes by the SAME rect the predicate tests — one source of
+ *  truth is what makes the index a pure broad phase. */
+export const boxFootprint = (b: BoxLike): { w: number; h: number } => {
   const fixed = fixedShapeSize(b.shape);
-  const w = fixed ? fixed.w : b.w && b.h ? b.w : EST_ITEM_W;
-  const h = fixed ? fixed.h : b.w && b.h ? b.h : EST_ITEM_H;
+  return {
+    w: fixed ? fixed.w : b.w && b.h ? b.w : EST_ITEM_W,
+    h: fixed ? fixed.h : b.w && b.h ? b.h : EST_ITEM_H,
+  };
+};
+
+/** Box rect vs (already margin-expanded) rect. */
+export const boxVisible = (b: BoxLike, r: CullRect): boolean => {
+  const { w, h } = boxFootprint(b);
   return rectsOverlap(b.x, b.y, b.x + w, b.y + h, r);
 };
 
@@ -144,7 +153,7 @@ export const imageVisible = (
 ): boolean =>
   rectsOverlap(img.x, img.y, img.x + img.width, img.y + img.height, r);
 
-interface LineLike {
+export interface LineLike {
   readonly x1: number;
   readonly y1: number;
   readonly x2: number;
@@ -152,6 +161,24 @@ interface LineLike {
   readonly mids?: ReadonlyArray<readonly [number, number]>;
   readonly style?: number;
 }
+
+/** The control polyline a line's ink follows (endpoints + mids). */
+export const linePoints = (
+  l: LineLike,
+): Array<readonly [number, number]> => [
+  [l.x1, l.y1],
+  ...(l.mids ?? []),
+  [l.x2, l.y2],
+];
+
+/** True when this line's ink is approximated per-SEGMENT-BBOX rather
+ *  than by the segments themselves — smooth-with-mids (2) and
+ *  orthogonal (3) leave the control polyline, so both the predicate
+ *  below and the spatial index (#25d) must widen those to bboxes. */
+export const lineUsesSegmentBoxes = (l: LineLike): boolean => {
+  const style = l.style ?? 1;
+  return style === 3 || (style === 2 && (l.mids?.length ?? 0) > 0);
+};
 
 /** Line vs rect. Style 1 (straight polyline) tests the actual
  *  segments (Liang–Barsky, same as band-select since #1f8) — a long
@@ -165,15 +192,10 @@ interface LineLike {
  *  polyline approximation — a slightly-too-eager selection is
  *  forgivable, an invisible line is not. */
 export const lineVisible = (l: LineLike, r: CullRect): boolean => {
-  const pts: Array<readonly [number, number]> = [
-    [l.x1, l.y1],
-    ...(l.mids ?? []),
-    [l.x2, l.y2],
-  ];
-  const style = l.style ?? 1;
+  const pts = linePoints(l);
   // Style 3 elbows on every consecutive pair (mids or not); style 2
   // only curves when mids exist (without them it renders straight).
-  if (style === 3 || (style === 2 && pts.length > 2)) {
+  if (lineUsesSegmentBoxes(l)) {
     for (let i = 0; i + 1 < pts.length; i++) {
       const [ax, ay] = pts[i]!;
       const [bx, by] = pts[i + 1]!;

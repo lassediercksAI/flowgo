@@ -13,6 +13,7 @@
 //                   collab plugin) can scope its diff to the right
 //                   kind of change without a 30-site audit.
 
+import { invalidateCullIndex, type CullKind } from "./cull-index.ts";
 import { invalidateProximityIndex } from "./proximity-index.ts";
 import { invalidateUidCache } from "./uid.ts";
 
@@ -46,8 +47,29 @@ export const wireMutations = (b: MutationBindings): void => {
   bindings = b;
 };
 
+// Which cull index a mutation kind can have moved (brain#25d).
+// "box" maps to the box index AND the edge index — edge segments are
+// derived from box positions, so dragging a box re-routes them.
+// "currentMap"/"doc" span kinds, so they drop everything (undefined =
+// invalidate all). Mapping the kinds instead of always dropping
+// everything is what keeps a label edit on a 100k map from rebuilding
+// the line/stroke grids it can't have touched.
+const CULL_KIND: Partial<Record<MutationKind, CullKind>> = {
+  box: "box",
+  edge: "edge",
+  text: "text",
+  line: "line",
+  stroke: "stroke",
+  image: "image",
+};
+
 const fire = (kind: MutationKind): void => {
   if (!bindings) throw new Error("mutations: wireMutations() not called");
+  // Geometry the culler indexes may have moved. Same chokepoint, same
+  // lazy-rebuild contract as the proximity index below — this is what
+  // covers a box drag, which mutates b.x/b.y live and never re-renders
+  // until release (brain#25d).
+  invalidateCullIndex(CULL_KIND[kind]);
   // Positions/sizes may have changed, so cached box rects in the
   // proximity index are suspect. This chokepoint is what covers the
   // one geometry change that does NOT go through renderAll: a box

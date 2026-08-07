@@ -46,11 +46,24 @@ import {
   edgeVisible,
   imageVisible,
   lineVisible,
-  requiredEdgeBoxIds,
   strokeVisible,
   textVisible,
   type CullRect,
 } from "./culling.ts";
+import {
+  boxIndexOf,
+  edgeIsLive,
+  imageIndexOf,
+  incidentEdgeIndices,
+  invalidateCullIndex,
+  textIndexOf,
+  visibleBoxIndices,
+  visibleEdgeIndices,
+  visibleImageIndices,
+  visibleLineIndices,
+  visibleStrokeIndices,
+  visibleTextIndices,
+} from "./cull-index.ts";
 
 // Corner codes for the resize grips, clockwise from top-left. Matches
 // the ResizeCorner type in movers.ts; the code doubles as the CSS
@@ -286,14 +299,27 @@ const applyEdgeSelection = (w: RenderBindings): void => {
   appliedSelectedEdge = sel;
 };
 
-// id → box data, rebuilt by every full renderEdges and kept in sync
-// by renderItems. Replaces the per-edge `map.boxes.find()` scans that
-// made renderEdges O(boxes × edges) (#236 seam note).
-let boxById = new Map<string, BoxData>();
+// Empty-layer singletons. `map.images ?? []` would hand the cull
+// index a fresh array on every call, and the index keys its lazy
+// rebuild on array identity — a new array every time means a rebuild
+// every time. Same reasoning for strokes.
+const NO_IMAGES: ImageData[] = [];
+const NO_STROKES: StrokeData[] = [];
 
-const rebuildBoxIndex = (map: CurrentMap): void => {
-  boxById = new Map();
-  for (const b of map.boxes) boxById.set(b.id, b);
+const imagesOf = (map: CurrentMap): readonly ImageData[] =>
+  map.images ?? NO_IMAGES;
+const strokesOf = (map: CurrentMap): readonly StrokeData[] =>
+  map.strokes ?? NO_STROKES;
+
+// id → box data. Used to be a Map this module rebuilt from scratch on
+// every full renderEdges AND on every cull pass (#25d found the second
+// one costing O(boxes) per frame). It now comes off the cull index,
+// which builds the same id → array-index map as a by-product of the
+// spatial index it has to build anyway, and refreshes it lazily at the
+// same mutation seams.
+const boxOf = (map: CurrentMap, id: string): BoxData | undefined => {
+  const i = boxIndexOf(map.boxes, id);
+  return i >= 0 ? map.boxes[i] : undefined;
 };
 
 // Lazy box chrome (brain#239): the 8 link handles + 4 resize grips
@@ -399,6 +425,10 @@ interface CullPass {
   readonly rect: CullRect;
   readonly required: ReadonlySet<string>;
   readonly exempt: ReadonlySet<string>;
+  /** Indices of the edges the rect keeps — computed once here (via the
+   *  spatial index) and reused by the edge passes, which used to
+   *  re-scan the whole edge array to answer the same question. */
+  readonly edgeIdx: readonly number[];
 }
 
 const computeCullPass = (map: CurrentMap): CullPass | null => {
@@ -423,7 +453,18 @@ const computeCullPass = (map: CurrentMap): CullPass | null => {
   const link = proxBindings ? proxBindings.link() : null;
   add(link?.fromId);
   add(link?.handleEl?.parentElement?.dataset?.["id"]);
-  return { raw, rect, required: requiredEdgeBoxIds(map, rect), exempt };
+  // renderEdges measures endpoint ELEMENTS, so an edge that crosses
+  // the viewport with both endpoint boxes off-screen still needs both
+  // boxes in the DOM. This used to walk every edge in the map
+  // (requiredEdgeBoxIds); it is now O(visible edges).
+  const edgeIdx = visibleEdgeIndices(map.boxes, map.edges, rect);
+  const required = new Set<string>();
+  for (const i of edgeIdx) {
+    const e = map.edges[i]!;
+    required.add(e.from);
+    required.add(e.to);
+  }
+  return { raw, rect, required, exempt, edgeIdx };
 };
 
 const boxWanted = (b: BoxData, cull: CullPass | null): boolean =>
@@ -437,6 +478,60 @@ const textWanted = (t: TextData, cull: CullPass | null): boolean =>
 
 const imageWanted = (img: ImageData, cull: CullPass | null): boolean =>
   cull === null || cull.exempt.has(img.id) || imageVisible(img, cull.rect);
+
+// ── Wanted-set queries (brain#25d) ──────────────────────────────
+// The indices of the items a cull pass wants, in MAP ORDER: the
+// spatial-index answer (O(visible)) merged with the ids the pass
+// exempts or requires, which override the geometric test and are
+// looked up by id through the index's id → position map. `cull ===
+// null` (no provider wired) means "everything", and the caller then
+// iterates the array directly rather than materializing an index list
+// as long as the map.
+const mergeWanted = (idx: number[], extra: number[]): number[] => {
+  if (extra.length === 0) return idx;
+  const seen = new Set(idx);
+  for (const i of extra) if (!seen.has(i)) idx.push(i);
+  idx.sort((a, b) => a - b);
+  return idx;
+};
+
+const wantedBoxIndices = (map: CurrentMap, cull: CullPass): number[] => {
+  const extra: number[] = [];
+  const add = (id: string): void => {
+    const i = boxIndexOf(map.boxes, id);
+    if (i >= 0 && !boxVisible(map.boxes[i]!, cull.rect)) extra.push(i);
+  };
+  for (const id of cull.exempt) add(id);
+  for (const id of cull.required) add(id);
+  return mergeWanted(visibleBoxIndices(map.boxes, cull.rect), extra);
+};
+
+const wantedTextIndices = (map: CurrentMap, cull: CullPass): number[] => {
+  const extra: number[] = [];
+  for (const id of cull.exempt) {
+    const i = textIndexOf(map.texts, id);
+    if (i >= 0 && !textVisible(map.texts[i]!, cull.rect)) extra.push(i);
+  }
+  return mergeWanted(visibleTextIndices(map.texts, cull.rect), extra);
+};
+
+const wantedImageIndices = (map: CurrentMap, cull: CullPass): number[] => {
+  const images = imagesOf(map);
+  const extra: number[] = [];
+  for (const id of cull.exempt) {
+    const i = imageIndexOf(images, id);
+    if (i >= 0 && !imageVisible(images[i]!, cull.rect)) extra.push(i);
+  }
+  return mergeWanted(visibleImageIndices(images, cull.rect), extra);
+};
+
+/** Indices 0..n-1 — the "culling is off" answer, so every caller can
+ *  drive one loop over an index list regardless. */
+const allIndices = (n: number): number[] => {
+  const out: number[] = new Array(n);
+  for (let i = 0; i < n; i++) out[i] = i;
+  return out;
+};
 
 // The raw viewport rect the last cull evaluation ran against. Used by
 // scheduleCullUpdate to skip re-evaluating while the viewport has
@@ -622,6 +717,12 @@ export const renderAll = (): void => {
   // Elements (and possibly sizes) were just rebuilt — cached rects in
   // the proximity index are meaningless now.
   invalidateProximityIndex();
+  // renderAll is the "something structural changed" funnel — document
+  // load, undo/redo, map switch, collab apply. Those paths swap graph
+  // slices WITHOUT going through mutations.ts fire(), so this is the
+  // cull index's second invalidation seam (#25d); the array-identity
+  // check inside the index is the third.
+  invalidateCullIndex();
   const map = w.currentMap();
   const g = w.graph();
   const cur = w.currentPath();
@@ -630,14 +731,17 @@ export const renderAll = (): void => {
   // wired) materializes everything.
   const cull = computeCullPass(map);
   lastCullRect = cull ? cull.raw : null;
-  for (const b of map.boxes) {
-    if (boxWanted(b, cull)) materializeBox(w, g, cur, b);
+  const images = imagesOf(map);
+  // Ascending map order into an empty canvas, so plain appends put
+  // every element at its map position without anchor bookkeeping.
+  for (const i of cull ? wantedBoxIndices(map, cull) : allIndices(map.boxes.length)) {
+    materializeBox(w, g, cur, map.boxes[i]!);
   }
-  for (const t of map.texts) {
-    if (textWanted(t, cull)) materializeText(w, t);
+  for (const i of cull ? wantedTextIndices(map, cull) : allIndices(map.texts.length)) {
+    materializeText(w, map.texts[i]!);
   }
-  for (const img of map.images ?? []) {
-    if (imageWanted(img, cull)) materializeImage(w, img);
+  for (const i of cull ? wantedImageIndices(map, cull) : allIndices(images.length)) {
+    materializeImage(w, images[i]!);
   }
   // Every insertion is done: one measure+write pass for all the
   // fixed-frame labels queued above (#258), before anything
@@ -709,9 +813,10 @@ export const renderStrokes = (): void => {
   strokeEls.clear();
   const map = w.currentMap();
   const rect = cullLayerRect();
-  for (const s of map.strokes ?? []) {
+  const strokes = strokesOf(map);
+  for (const i of rect ? visibleStrokeIndices(strokes, rect) : allIndices(strokes.length)) {
+    const s = strokes[i]!;
     if (!s.points || s.points.length < 2) continue;
-    if (rect && !strokeVisible(s.points, rect)) continue;
     materializeStroke(w, s);
   }
 };
@@ -791,12 +896,13 @@ export const renderLines = (): void => {
   lineEls.clear();
   const map = w.currentMap();
   const rect = cullLayerRect();
-  for (const l of map.lines) {
-    // Segment-accurate visibility (#23a): a line whose endpoints are
-    // both far off-screen still renders when its path crosses the
-    // viewport (see lineVisible for the per-style test).
-    if (rect && !lineVisible(l, rect)) continue;
-    materializeLine(w, l);
+  // Segment-accurate visibility (#23a): a line whose endpoints are
+  // both far off-screen still renders when its path crosses the
+  // viewport. The index buckets lines by the cells their segments
+  // actually traverse, so that stays true (see cull-index.ts) —
+  // lineVisible still has the final say.
+  for (const i of rect ? visibleLineIndices(map.lines, rect) : allIndices(map.lines.length)) {
+    materializeLine(w, map.lines[i]!);
   }
 };
 
@@ -1217,27 +1323,26 @@ export const renderEdges = (): void => {
   // materializeEdge re-bakes the current one below.
   appliedSelectedEdge = null;
   const map = w.currentMap();
-  // Full rebuild is the one place the box index refreshes wholesale —
-  // renderAll funnels through here, so a map switch can't leave stale
-  // box data behind for the incremental paths.
-  rebuildBoxIndex(map);
   const sel = w.selectedEdge();
   const rect = cullLayerRect();
+  // Cull by the segment between the endpoint boxes (expanded by
+  // EDGE_REACH for the anchor offsets) — an edge crossing the viewport
+  // with both boxes off-screen still renders; its endpoint boxes are
+  // force-materialized via the cull pass's `required` set so the
+  // element measuring keeps working. O(visible edges) since #25d.
+  const idx = rect
+    ? visibleEdgeIndices(map.boxes, map.edges, rect)
+    : allIndices(map.edges.length);
   // Two phases (brain#25b): every endpoint measurement happens here,
   // through one size cache and with no interleaved writes, so the
   // whole pass costs ONE forced layout instead of one per few edges.
   const size = makeSizeCache();
   const jobs: Array<{ e: EdgeData; c: EdgeCoords }> = [];
-  for (const e of map.edges) {
-    const a = boxById.get(e.from);
-    const b = boxById.get(e.to);
+  for (const i of idx) {
+    const e = map.edges[i]!;
+    const a = boxOf(map, e.from);
+    const b = boxOf(map, e.to);
     if (!a || !b) continue;
-    // Cull by the segment between the endpoint boxes (expanded by
-    // EDGE_REACH for the anchor offsets) — an edge crossing the
-    // viewport with both boxes off-screen still renders; its endpoint
-    // boxes are force-materialized via requiredEdgeBoxIds so the
-    // element measuring keeps working.
-    if (rect && !edgeVisible(a.x, a.y, b.x, b.y, rect)) continue;
     const ea = boxEls.get(e.from);
     const eb = boxEls.get(e.to);
     if (!ea || !eb) continue;
@@ -1259,9 +1364,6 @@ export const renderEdgesFor = (ids: ReadonlySet<string>): void => {
   const map = w.currentMap();
   const rect = cullLayerRect();
   const sel = w.selectedEdge();
-  // Membership check for the stale pass. O(edges) data scan — same
-  // order as the materialize pass below, and pure Set inserts.
-  const live = new Set(map.edges);
   // Phase 1 — every measurement, no writes (brain#25b). The removals
   // below are writes, so they are queued rather than done inline.
   const size = makeSizeCache();
@@ -1270,12 +1372,15 @@ export const renderEdgesFor = (ids: ReadonlySet<string>): void => {
   const fresh: Array<{ e: EdgeData; c: EdgeCoords }> = [];
   for (const [e, g] of edgeEls) {
     if (!ids.has(e.from) && !ids.has(e.to)) continue;
-    const a = boxById.get(e.from);
-    const b = boxById.get(e.to);
+    const a = boxOf(map, e.from);
+    const b = boxOf(map, e.to);
     const ea = boxEls.get(e.from);
     const eb = boxEls.get(e.to);
     if (
-      !live.has(e) || !a || !b || !ea || !eb
+      // "Is this edge still in the map?" — an O(1) membership test on
+      // the cull index's edge set. It used to build a Set of every
+      // edge in the map on every call, i.e. O(edges) per drag frame.
+      !edgeIsLive(map.boxes, map.edges, e) || !a || !b || !ea || !eb
       // An edge whose label is being typed into keeps its DOM even
       // when it pans out of range: destroying it would strand the
       // contenteditable's blur/keydown lifecycle (same rule
@@ -1288,11 +1393,14 @@ export const renderEdgesFor = (ids: ReadonlySet<string>): void => {
     }
     reroute.push({ e, g, c: edgeGeometry(e, a, b, size(ea), size(eb)) });
   }
-  for (const e of map.edges) {
-    if (!ids.has(e.from) && !ids.has(e.to)) continue;
+  // Only the edges actually touching `ids` — an incidence lookup off
+  // the same index, so a drag frame costs O(degree) rather than a walk
+  // over every edge in the map.
+  for (const i of incidentEdgeIndices(map.boxes, map.edges, ids)) {
+    const e = map.edges[i]!;
     if (edgeEls.has(e)) continue;
-    const a = boxById.get(e.from);
-    const b = boxById.get(e.to);
+    const a = boxOf(map, e.from);
+    const b = boxOf(map, e.to);
     if (!a || !b) continue;
     if (rect !== null && !edgeVisible(a.x, a.y, b.x, b.y, rect)) continue;
     const ea = boxEls.get(e.from);
@@ -1354,11 +1462,6 @@ const removeItemEls = (id: string, touchedBoxes: Set<string>): void => {
     b.remove();
     boxEls.delete(id);
     chromed.delete(id);
-  }
-  if (boxById.has(id)) {
-    // Covers culled boxes too (no element, but possibly materialized
-    // incident edges).
-    boxById.delete(id);
     touchedBoxes.add(id);
     return;
   }
@@ -1384,7 +1487,15 @@ const removeItemEls = (id: string, touchedBoxes: Set<string>): void => {
   if (s) {
     s.remove();
     strokeEls.delete(id);
+    return;
   }
+  // Nothing in the DOM claimed the id and it is gone from every layer
+  // of the map, so it was a CULLED box (no element of its own, but
+  // possibly materialized incident edges — a crossing edge keeps its
+  // element while both endpoints are off-screen). This used to be
+  // decided by a `boxById` lookup; the id set is a superset that costs
+  // nothing, because renderEdgesFor only ever matches real endpoints.
+  touchedBoxes.add(id);
 };
 
 // The single-item fast path: rebuild ONLY the named items' elements
@@ -1433,7 +1544,6 @@ export const renderItems = (ids: Iterable<string>): void => {
     const bi = (boxIdx ??= indexById(map.boxes)).get(id) ?? -1;
     if (bi >= 0) {
       const b = map.boxes[bi]!;
-      boxById.set(id, b);
       touchedBoxes.add(id);
       const old = boxEls.get(id);
       if (old) {
@@ -1540,6 +1650,14 @@ export const renderItem = (id: string): void => renderItems([id]);
 // adds/removes canvas elements outside renderAll — #238 (incremental
 // renderAll) will generalize exactly this add/remove-by-id pattern to
 // data mutations.
+//
+// Since #25d the pass is O(visible) end to end. It used to WALK the
+// whole map to work out what was visible — which meant a 100k map paid
+// 12–20 ms per pan/zoom frame before drawing anything, whatever the
+// zoom. Now the wanted set comes from the spatial index (cull-index.ts)
+// and the recycle pass iterates the LIVE ELEMENT MAPS, which are
+// viewport-sized by construction. Neither loop touches an item that is
+// neither on screen nor in the DOM.
 export const updateCulling = (): void => {
   if (!bindings) return;
   const w = must();
@@ -1550,6 +1668,40 @@ export const updateCulling = (): void => {
   const g = w.graph();
   const cur = w.currentPath();
   let materialized = false;
+  const images = imagesOf(map);
+  const wantedBoxes = wantedBoxIndices(map, cull);
+  const wantedTexts = wantedTextIndices(map, cull);
+  const wantedImages = wantedImageIndices(map, cull);
+  // Recycle first, materialize second. Dropping the no-longer-wanted
+  // elements up front is what lets the materialize pass below take its
+  // insertion anchors from the wanted list alone: after this, every
+  // live element IS a wanted one, so "the nearest live element that
+  // follows" and "the nearest wanted element that follows" are the
+  // same thing. (The old pass could interleave the two because it
+  // visited every item in map order anyway.)
+  const dropUnwanted = <T extends { id: string }>(
+    els: Map<string, HTMLElement>,
+    items: readonly T[],
+    wanted: readonly number[],
+    after?: (id: string) => void,
+  ): void => {
+    if (els.size === 0) return;
+    const keep = new Set<string>();
+    for (const i of wanted) keep.add(items[i]!.id);
+    for (const [id, el] of els) {
+      if (keep.has(id)) continue;
+      el.remove();
+      els.delete(id);
+      if (after) after(id);
+    }
+  };
+  dropUnwanted(imageEls, images, wantedImages);
+  dropUnwanted(textEls, map.texts, wantedTexts);
+  dropUnwanted(boxEls, map.boxes, wantedBoxes, (id) => {
+    // The chrome children died with the element; a stale `chromed`
+    // entry would make ensureBoxChrome skip a re-materialized box.
+    chromed.delete(id);
+  });
   // Canvas child order is boxes → texts → images in map order, so the
   // passes run REVERSED (images first, then texts, then boxes) with a
   // running `anchor` — the nearest live element that follows in that
@@ -1557,56 +1709,37 @@ export const updateCulling = (): void => {
   // pan-in elements at their exact map position, closing the #23a
   // z-order divergence (late elements used to append at the end).
   let anchor: HTMLElement | null = null;
-  const images = map.images ?? [];
-  for (let i = images.length - 1; i >= 0; i--) {
-    const img = images[i]!;
+  for (let k = wantedImages.length - 1; k >= 0; k--) {
+    const img = images[wantedImages[k]!]!;
     const el = imageEls.get(img.id);
-    if (imageWanted(img, cull)) {
-      if (el) {
-        anchor = el;
-      } else {
-        materializeImage(w, img, anchor);
-        anchor = imageEls.get(img.id)!;
-        materialized = true;
-      }
-    } else if (el) {
-      el.remove();
-      imageEls.delete(img.id);
+    if (el) {
+      anchor = el;
+    } else {
+      materializeImage(w, img, anchor);
+      anchor = imageEls.get(img.id)!;
+      materialized = true;
     }
   }
-  for (let i = map.texts.length - 1; i >= 0; i--) {
-    const t = map.texts[i]!;
+  for (let k = wantedTexts.length - 1; k >= 0; k--) {
+    const t = map.texts[wantedTexts[k]!]!;
     const el = textEls.get(t.id);
-    if (textWanted(t, cull)) {
-      if (el) {
-        anchor = el;
-      } else {
-        materializeText(w, t, anchor);
-        anchor = textEls.get(t.id)!;
-        materialized = true;
-      }
-    } else if (el) {
-      el.remove();
-      textEls.delete(t.id);
+    if (el) {
+      anchor = el;
+    } else {
+      materializeText(w, t, anchor);
+      anchor = textEls.get(t.id)!;
+      materialized = true;
     }
   }
-  for (let i = map.boxes.length - 1; i >= 0; i--) {
-    const b = map.boxes[i]!;
+  for (let k = wantedBoxes.length - 1; k >= 0; k--) {
+    const b = map.boxes[wantedBoxes[k]!]!;
     const el = boxEls.get(b.id);
-    if (boxWanted(b, cull)) {
-      if (el) {
-        anchor = el;
-      } else {
-        materializeBox(w, g, cur, b, anchor);
-        anchor = boxEls.get(b.id)!;
-        materialized = true;
-      }
-    } else if (el) {
-      el.remove();
-      boxEls.delete(b.id);
-      // The chrome children died with the element; a stale `chromed`
-      // entry would make ensureBoxChrome skip a re-materialized box.
-      chromed.delete(b.id);
+    if (el) {
+      anchor = el;
+    } else {
+      materializeBox(w, g, cur, b, anchor);
+      anchor = boxEls.get(b.id)!;
+      materialized = true;
     }
   }
   // Pan-in materialization is done: one measure+write pass for the
@@ -1633,52 +1766,65 @@ export const updateCulling = (): void => {
   // boundary are added/removed. Same reversed-iteration anchor trick
   // keeps lines/strokes in map order; edges are append-only (see
   // materializeEdge).
-  const rect = cull.rect;
-  cullLines(w, map, rect);
-  cullStrokes(w, map, rect);
-  cullEdges(w, map, rect);
+  cullLines(w, map, cull.rect);
+  cullStrokes(w, map, cull.rect);
+  cullEdges(w, map, cull);
+};
+
+// Recycle-then-materialize for one SVG layer, same shape as the canvas
+// passes above: the wanted list comes from the index (O(visible)) and
+// the drop pass walks the live elements (O(materialized)).
+const cullLayer = <T extends { id: string }>(
+  items: readonly T[],
+  wanted: readonly number[],
+  els: Map<string, SVGGElement>,
+  make: (item: T, before: SVGGElement | null) => SVGGElement,
+): void => {
+  if (els.size > 0) {
+    const keep = new Set<string>();
+    for (const i of wanted) keep.add(items[i]!.id);
+    for (const [id, el] of els) {
+      if (keep.has(id)) continue;
+      el.remove();
+      els.delete(id);
+    }
+  }
+  let anchor: SVGGElement | null = null;
+  for (let k = wanted.length - 1; k >= 0; k--) {
+    const item = items[wanted[k]!]!;
+    anchor = els.get(item.id) ?? make(item, anchor);
+  }
 };
 
 const cullLines = (w: RenderBindings, map: CurrentMap, rect: CullRect): void => {
-  let anchor: SVGGElement | null = null;
-  for (let i = map.lines.length - 1; i >= 0; i--) {
-    const l = map.lines[i]!;
-    const el = lineEls.get(l.id);
-    if (lineVisible(l, rect)) {
-      anchor = el ?? materializeLine(w, l, anchor);
-    } else if (el) {
-      el.remove();
-      lineEls.delete(l.id);
-    }
-  }
+  cullLayer(
+    map.lines,
+    visibleLineIndices(map.lines, rect),
+    lineEls,
+    (l, before) => materializeLine(w, l, before),
+  );
 };
 
 const cullStrokes = (w: RenderBindings, map: CurrentMap, rect: CullRect): void => {
-  let anchor: SVGGElement | null = null;
-  const strokes = map.strokes ?? [];
-  for (let i = strokes.length - 1; i >= 0; i--) {
-    const s = strokes[i]!;
-    if (!s.points || s.points.length < 2) continue;
-    const el = strokeEls.get(s.id);
-    if (strokeVisible(s.points, rect)) {
-      anchor = el ?? materializeStroke(w, s, anchor);
-    } else if (el) {
-      el.remove();
-      strokeEls.delete(s.id);
-    }
-  }
+  const strokes = strokesOf(map);
+  // A <2-point stroke has no path; it was never materialized and the
+  // index never reports it (strokeVisible is false for it), so no
+  // separate guard is needed here.
+  cullLayer(
+    strokes,
+    visibleStrokeIndices(strokes, rect),
+    strokeEls,
+    (s, before) => materializeStroke(w, s, before),
+  );
 };
 
-const cullEdges = (w: RenderBindings, map: CurrentMap, rect: CullRect): void => {
-  // Box data may have shifted since the last full renderEdges (e.g. a
-  // drag that ended in this cull pass) — refresh the index; the cull
-  // pass is O(map) anyway.
-  rebuildBoxIndex(map);
+const cullEdges = (w: RenderBindings, map: CurrentMap, cull: CullPass): void => {
+  const rect = cull.rect;
   const sel = w.selectedEdge();
   const doomed: Array<[EdgeData, SVGGElement]> = [];
   for (const [e, g] of edgeEls) {
-    const a = boxById.get(e.from);
-    const b = boxById.get(e.to);
+    const a = boxOf(map, e.from);
+    const b = boxOf(map, e.to);
     const keep =
       (a && b
         && edgeVisible(a.x, a.y, b.x, b.y, rect)
@@ -1690,15 +1836,18 @@ const cullEdges = (w: RenderBindings, map: CurrentMap, rect: CullRect): void => 
   }
   for (const [e, g] of doomed) dropEdgeEls(e, g);
   // Same two-phase split as renderEdges (brain#25b): measure the
-  // newly-visible edges first, then build them.
+  // newly-visible edges first, then build them. The candidate list was
+  // already computed by computeCullPass (it is the same query that
+  // decides which off-screen endpoint boxes are `required`), so this
+  // pass costs O(visible edges) and re-queries nothing.
   const size = makeSizeCache();
   const fresh: Array<{ e: EdgeData; c: EdgeCoords }> = [];
-  for (const e of map.edges) {
+  for (const i of cull.edgeIdx) {
+    const e = map.edges[i]!;
     if (edgeEls.has(e)) continue;
-    const a = boxById.get(e.from);
-    const b = boxById.get(e.to);
+    const a = boxOf(map, e.from);
+    const b = boxOf(map, e.to);
     if (!a || !b) continue;
-    if (!edgeVisible(a.x, a.y, b.x, b.y, rect)) continue;
     const ea = boxEls.get(e.from);
     const eb = boxEls.get(e.to);
     if (!ea || !eb) continue;
