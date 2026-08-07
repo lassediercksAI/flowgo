@@ -81,7 +81,7 @@ Plain UTF-8 text, one directive per line, `#` for comments.
 map /
 
 box    <id> <label> <x> <y> [sides] [palette] [font] [rotation]
-edge   <id>[:<handle>] <id>[:<handle>]
+edge   <id>[:<handle>] <id>[:<handle>] [palette] [label]
 text   <id> <label> <x> <y> [palette] [font]
 line   <id> <x1> <y1> <x2> <y2>
 stroke <id> <x>,<y> <x>,<y> …
@@ -99,6 +99,16 @@ anchor <id>
   same folding the editor applies to pasted text.
 - `<handle>` is one of `t`, `r`, `b`, `l`, `tl`, `tr`, `bl`, `br` — a side or
   corner of the box. Omit to let the renderer auto-pick the nearest handle.
+- The edge `[label]` is the relationship text drawn at the edge midpoint
+  (double-click an edge in the editor to set it). It is the *fifth* token,
+  behind the palette, because slot 4 has always been the palette and is read
+  as an integer — so a labelled edge with no palette of its own writes the
+  default sentinel `1` to hold the slot: `edge b1 b2 1 "depends on"`. An
+  unlabelled edge writes neither token, so files predating edge labels keep
+  their exact bytes. flowgo ≤ 0.3.12 does not error on the five-token form —
+  its `edge` parser reads at most four tokens and ignores the rest — but it
+  drops the labels the next time it *writes* the file. Opening a labelled map
+  in an old binary is safe; saving from one is lossy.
 - `map <path>` switches the current map. Paths look like `/`, `/b1`, `/b1/c2`.
   Each path corresponds to "the inside of" the box at that path.
 - `anchor <id>` marks one box per map as the recenter target. At most one per

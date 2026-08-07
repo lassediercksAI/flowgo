@@ -69,6 +69,7 @@ const setup = (n: number, withAttach = false): Harness => {
   const lineLayer = document.createElementNS(SVG_NS, "g") as SVGGElement;
   const strokeLayer = document.createElementNS(SVG_NS, "g") as SVGGElement;
   const edgeLayer = document.createElementNS(SVG_NS, "g") as SVGGElement;
+  const edgeLabelLayer = document.createElement("div");
   const ghostLine = document.createElementNS(SVG_NS, "line") as SVGLineElement;
   svg.append(strokeLayer, lineLayer, edgeLayer, ghostLine);
   document.body.append(canvas, svg);
@@ -114,6 +115,8 @@ const setup = (n: number, withAttach = false): Harness => {
     lineLayer,
     strokeLayer,
     edgeLayer,
+    edgeLabelLayer,
+    editEdgeLabel: () => {},
     currentMap: () => map,
     graph: () => graph,
     currentPath: () => "/",

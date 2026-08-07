@@ -88,6 +88,7 @@ interface MutMap {
     fromHandle?: string;
     toHandle?: string;
     palette?: number;
+    label?: string;
   }>;
   texts: Array<{
     id: string;
@@ -211,6 +212,12 @@ export const parseFlowgo = (text: string): ConcreteGraph => {
           const p = int(toks[3]!, lineNo, "edge palette");
           if (p >= 2 && p <= 9) edge.palette = p;
         }
+        // Slot 5 is the edge label — it sits behind the palette
+        // because slot 4 was already the palette (see EdgeData.label
+        // in serialize.ts). An empty label is never written, so an
+        // empty token here just round-trips as "no label".
+        const edgeLabel = toks[4];
+        if (edgeLabel !== undefined && edgeLabel !== "") edge.label = edgeLabel;
         cur.edges.push(edge);
         break;
       }

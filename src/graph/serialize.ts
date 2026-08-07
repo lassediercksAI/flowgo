@@ -30,6 +30,14 @@ export interface EdgeData {
   readonly fromHandle?: string | undefined;
   readonly toHandle?: string | undefined;
   readonly palette?: number | undefined;
+  // Text drawn at the edge midpoint. Serialized as the FIFTH
+  // positional token, after the palette — slot 4 has always been the
+  // palette and pkg/graph reads it as an integer, so a label has to
+  // sit behind it and force a palette token (sentinel 1 when the edge
+  // has none). Unlabelled edges emit nothing extra, keeping the bytes
+  // of every pre-label document identical. Mirrors Edge.Label in
+  // pkg/graph — see the long note there for the full reasoning.
+  readonly label?: string | undefined;
 }
 
 export interface TextData {
@@ -205,7 +213,15 @@ export const serializeGraph = (g: ConcreteGraph): string => {
         ? `${flowgoQuoteId(e.to)}:${e.toHandle}`
         : flowgoQuoteId(e.to);
       let line = `edge ${f} ${t}`;
-      if (isPaletteOrFont(e.palette)) line += " " + e.palette;
+      const label = e.label ?? "";
+      // A label needs the palette slot filled so it lands in a stable
+      // position — sentinel 1 when the edge has no palette of its own
+      // (same trick the `line` directive uses for its mids). An
+      // unlabelled, unstyled edge emits neither token.
+      if (isPaletteOrFont(e.palette) || label !== "") {
+        line += " " + (isPaletteOrFont(e.palette) ? e.palette : 1);
+      }
+      if (label !== "") line += " " + flowgoQuote(label);
       out += line + "\n";
     }
 

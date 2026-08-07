@@ -65,6 +65,36 @@ type Edge struct {
 	To         string `json:"to"`
 	ToHandle   string `json:"toHandle,omitempty"`
 	Palette    int    `json:"palette,omitempty"`
+	// Label is the text drawn at the edge midpoint — "depends on",
+	// "triggers", "owns". Empty means unlabelled.
+	//
+	// Persisted as the FIFTH positional token on the `edge` line,
+	// after the palette: `edge <from> <to> <palette> <label>`. It has
+	// to go after, not before: slot 4 has been the optional palette
+	// since the format existed, and Parse reads it with strconv.Atoi,
+	// so a label there would either be misread as a palette (label
+	// "3") or hard-error every existing reader. A label therefore
+	// forces a palette token to be emitted; when the edge has no
+	// palette of its own the default sentinel `1` fills the slot,
+	// exactly like the `line` directive does to park its mid
+	// coordinates in a stable position. Parse ignores palette 1.
+	//
+	// Unlabelled edges emit no extra token at all, so every document
+	// written before edge labels existed keeps its exact bytes.
+	//
+	// Compatibility (measured against 0.3.12, not assumed): older
+	// binaries do NOT reject the five-token line — their edge case
+	// stops reading after the palette — so an old flowgo opens a
+	// labelled map fine. It drops the labels when it next WRITES the
+	// file. Gentler than the `defaultshape` break in #208, but still
+	// one-way: don't round-trip a labelled map through an old binary.
+	//
+	// Unlike a node, an edge has no id, and the .flowgo format does
+	// not stop a hand-written file from carrying two `edge a b` lines
+	// — so a side-table directive (the `nodesize` / `nodeshape`
+	// pattern) could not say WHICH edge it labelled. The positional
+	// token has no such ambiguity.
+	Label string `json:"label,omitempty"`
 }
 
 // Text is a free-floating annotation.
@@ -300,6 +330,13 @@ func Parse(s string) (Graph, error) {
 				if palette >= 2 && palette <= 9 {
 					edge.Palette = palette
 				}
+			}
+			// Slot 5 is the edge label (see Edge.Label). It sits after
+			// the palette because slot 4 was already claimed; a label
+			// on an otherwise-unstyled edge is written with the
+			// palette sentinel 1 in front of it.
+			if len(toks) >= 5 {
+				edge.Label = toks[4]
 			}
 			g.Maps[cur].Edges = append(g.Maps[cur].Edges, edge)
 		case "text":
@@ -661,8 +698,21 @@ func Serialize(g Graph) string {
 		}
 		for _, e := range m.Edges {
 			fmt.Fprintf(&b, "edge %s %s", joinEndpoint(e.From, e.FromHandle), joinEndpoint(e.To, e.ToHandle))
-			if e.Palette >= 2 && e.Palette <= 9 {
-				fmt.Fprintf(&b, " %d", e.Palette)
+			emitEPalette := e.Palette >= 2 && e.Palette <= 9
+			// A label needs the palette slot filled so it lands in a
+			// stable position — sentinel 1 when the edge has none of
+			// its own (the `line` mids precedent). An unlabelled,
+			// unstyled edge emits neither token, so pre-label
+			// documents are byte-for-byte unchanged.
+			if emitEPalette || e.Label != "" {
+				palette := e.Palette
+				if !emitEPalette {
+					palette = 1
+				}
+				fmt.Fprintf(&b, " %d", palette)
+			}
+			if e.Label != "" {
+				fmt.Fprintf(&b, " %s", quote(e.Label))
 			}
 			b.WriteString("\n")
 		}

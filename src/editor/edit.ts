@@ -1,16 +1,23 @@
-// Inline label editing for boxes and text items. Owns the `editing`
-// flag (it's the gate every keyboard handler in main.ts checks before
-// firing a shortcut), and handles the contenteditable lifecycle
-// including the cancel-deletes rollback for boxes spawned with
-// `Enter` editing on creation.
+// Inline label editing for boxes, text items and edge labels. Owns
+// the `editing` flag (it's the gate every keyboard handler in main.ts
+// checks before firing a shortcut), and handles the contenteditable
+// lifecycle including the cancel-deletes rollback for boxes spawned
+// with `Enter` editing on creation.
 //
-// Two flavours: text items just edit their textContent; boxes wrap
-// their label in a `.box-label` span and read back via el.textContent
-// to capture pasted content the browser sometimes lands as siblings
-// of that span.
+// One lifecycle (beginInlineEdit) with three flavours, so
+// Enter-commits / Escape-reverts / blur-commits and the
+// persistence.ts dirty-tracking behave identically wherever you type:
+//   • text items edit their own textContent;
+//   • boxes wrap their label in a `.box-label` span and read back via
+//     el.innerText to capture pasted content the browser sometimes
+//     lands as siblings of that span;
+//   • edges edit the `.edge-label` div the renderer parks at the edge
+//     midpoint, and an empty commit REMOVES the label rather than
+//     being ignored (an edge with no label is a normal edge; a box
+//     with no label is not a normal box).
 
 import { MAX_LABEL_LEN, normalizeLabel } from "../graph/label.ts";
-import { mutatedBox, mutatedDoc, mutatedText } from "./mutations.ts";
+import { mutatedBox, mutatedDoc, mutatedEdge, mutatedText } from "./mutations.ts";
 
 interface BoxLike {
   id: string;
@@ -43,6 +50,9 @@ interface EditBindings {
    *  used on edit commit so ending a label edit touches one box, not
    *  the whole canvas. */
   readonly renderItem: (id: string) => void;
+  /** Refresh the edge-label layer (render.ts renderEdgeLabels) after
+   *  an edge label was committed or removed. */
+  readonly renderEdgeLabels: () => void;
   readonly setStatus: (s: string) => void;
 }
 
@@ -79,46 +89,150 @@ const readEditableText = (el: HTMLElement): string => {
   return normalizeLabel(t, { maxLength: MAX_LABEL_LEN }).label;
 };
 
-export const startTextEdit = (el: HTMLElement, t: TextLike): void => {
+interface InlineEditSpec {
+  /** Element that becomes contenteditable and takes focus. */
+  readonly host: HTMLElement;
+  /** Element whose contents the caret selects (defaults to host). */
+  readonly caretTarget?: HTMLElement;
+  /** Write the current value into the DOM before focusing. */
+  readonly seed: () => void;
+  /** End of life. `commit` is false only for Escape. */
+  readonly done: (commit: boolean) => void;
+}
+
+// The live editor's teardown, exposed so a renderer that is about to
+// destroy the element underneath one can end it cleanly first.
+// Without it, removing a focused contenteditable leaves `editing` set
+// forever (Chrome fires no blur for a node that was detached), which
+// locks out every keyboard shortcut in the app.
+let activeFinish: ((commit: boolean) => void) | null = null;
+
+// Commit the in-flight edge-label edit, if any. Called by render.ts
+// before a full edge rebuild. Box/text edits are deliberately not
+// covered: their elements survive the edge paths untouched.
+export const commitEdgeLabelEdit = (): void => {
+  if (edgeBeingEdited) activeFinish?.(true);
+};
+
+// The one contenteditable lifecycle every inline editor runs on:
+// claim the `editing` flag, seed + select the text, then commit on
+// blur / bare Enter and revert on Escape (Shift+Enter falls through
+// to the browser so it inserts a line break, which innerText reads
+// back). Every flavour tears down in the same order — listeners off,
+// contenteditable off, flag cleared — BEFORE its own `done` body runs,
+// so a re-render triggered from there can't find a half-lived editor.
+const beginInlineEdit = (spec: InlineEditSpec): void => {
   if (editing) return;
-  editing = el;
-  el.contentEditable = "true";
-  el.textContent = t.label;
-  el.focus();
+  const { host } = spec;
+  editing = host;
+  // setAttribute rather than the contentEditable IDL property: they
+  // are equivalent in a browser (the property reflects the attribute,
+  // and every CSS rule / focusability check reads the attribute), but
+  // jsdom implements only the attribute — so this is what makes the
+  // editor's lifecycle testable at all.
+  host.setAttribute("contenteditable", "true");
+  spec.seed();
+  host.focus();
   const range = document.createRange();
-  range.selectNodeContents(el);
+  range.selectNodeContents(spec.caretTarget ?? host);
   const sel = window.getSelection();
   sel?.removeAllRanges();
   sel?.addRange(range);
 
   const finish = (commit: boolean): void => {
-    el.removeEventListener("blur", onBlur);
-    el.removeEventListener("keydown", onKey);
-    el.contentEditable = "false";
+    host.removeEventListener("blur", onBlur);
+    host.removeEventListener("keydown", onKey);
+    host.setAttribute("contenteditable", "false");
     editing = null;
-    const newLabel = readEditableText(el);
-    if (commit && newLabel && newLabel !== t.label) {
-      t.label = newLabel;
-      mutatedText();
-    }
-    el.textContent = t.label;
+    activeFinish = null;
+    spec.done(commit);
   };
+  activeFinish = finish;
   const onBlur = (): void => finish(true);
   const onKey = (ev: KeyboardEvent): void => {
     if (ev.key === "Enter" && !ev.shiftKey) {
-      // Bare Enter ends editing. Shift+Enter falls through so the
-      // browser inserts a line break naturally — readEditableText
-      // picks it up via innerText on commit.
       ev.preventDefault();
-      el.blur();
+      host.blur();
     } else if (ev.key === "Escape") {
       ev.preventDefault();
       finish(false);
     }
     ev.stopPropagation();
   };
-  el.addEventListener("blur", onBlur);
-  el.addEventListener("keydown", onKey);
+  host.addEventListener("blur", onBlur);
+  host.addEventListener("keydown", onKey);
+};
+
+export const startTextEdit = (el: HTMLElement, t: TextLike): void => {
+  beginInlineEdit({
+    host: el,
+    seed: () => {
+      el.textContent = t.label;
+    },
+    done: (commit) => {
+      const newLabel = readEditableText(el);
+      if (commit && newLabel && newLabel !== t.label) {
+        t.label = newLabel;
+        mutatedText();
+      }
+      el.textContent = t.label;
+    },
+  });
+};
+
+interface EdgeLike {
+  from: string;
+  to: string;
+  label?: string | undefined;
+}
+
+// The edge whose label is being edited right now, or null. Viewport
+// culling and the edge re-route paths in render.ts consult this for
+// the same reason editingId() exists for boxes: this module owns a
+// live contenteditable on that element, and destroying it mid-edit
+// (a wheel-pan while typing, an endpoint drag) would strand the
+// blur/keydown lifecycle with `editing` still set — which locks out
+// every keyboard shortcut in the app.
+let edgeBeingEdited: EdgeLike | null = null;
+export const editingEdge = (): EdgeLike | null => edgeBeingEdited;
+
+// Inline edit of an edge's midpoint label (brain#266). `el` is the
+// `.edge-label` div the renderer parks at the edge midpoint; the
+// renderer also created it for an unlabelled edge on demand, so this
+// function never has to know whether the label already existed.
+//
+// The one deliberate difference from boxes and texts: an empty commit
+// REMOVES the label (the field goes back to undefined and the element
+// disappears on the next render) instead of being silently dropped.
+// That's how a user un-labels an edge — the card's "an empty result
+// removes the label".
+export const startEdgeLabelEdit = (el: HTMLElement, e: EdgeLike): void => {
+  const before = e.label ?? "";
+  beginInlineEdit({
+    host: el,
+    seed: () => {
+      // Set inside seed(), not before the call: beginInlineEdit bails
+      // out when another editor already holds the flag, and a ref set
+      // outside would then leak and exempt an edge nobody is editing.
+      edgeBeingEdited = e;
+      el.textContent = before;
+    },
+    done: (commit) => {
+      edgeBeingEdited = null;
+      const next = commit ? readEditableText(el) : before;
+      if (next !== before) {
+        if (next === "") delete e.label;
+        else e.label = next;
+        mutatedEdge();
+      }
+      // Re-render through the renderer rather than patching the
+      // element here: an emptied label has no element at all, and the
+      // midpoint may need re-measuring if the commit changed nothing
+      // visible. renderEdgeLabels is a coordinate/text rewrite, not a
+      // rebuild, so this is cheap.
+      must().renderEdgeLabels();
+    },
+  });
 };
 
 export interface BoxEditOptions {
@@ -144,21 +258,23 @@ export const startEdit = (
     if (fresh) startEdit(fresh, b, opts);
     return;
   }
-  editing = el;
-  el.contentEditable = "true";
-  labelEl.textContent = b.label;
-  el.focus();
-  const range = document.createRange();
-  range.selectNodeContents(labelEl);
-  const sel = window.getSelection();
-  sel?.removeAllRanges();
-  sel?.addRange(range);
+  beginInlineEdit({
+    host: el,
+    caretTarget: labelEl,
+    seed: () => {
+      labelEl.textContent = b.label;
+    },
+    done: (commit) => finishBoxEdit(el, b, cancelDeletes, commit),
+  });
+};
 
-  const finish = (commit: boolean): void => {
-    el.removeEventListener("blur", onBlur);
-    el.removeEventListener("keydown", onKey);
-    el.contentEditable = "false";
-    editing = null;
+const finishBoxEdit = (
+  el: HTMLElement,
+  b: BoxLike,
+  cancelDeletes: boolean,
+  commit: boolean,
+): void => {
+  {
     // Read from el, not labelEl: contenteditable can land pasted
     // text in sibling text nodes / divs directly under el (outside
     // the span). The SVG polygon and handle divs contribute no text
@@ -208,21 +324,5 @@ export const startEdit = (
     // minus the canvas-wide churn — and re-routes its incident
     // edges (a longer label can change the box's size).
     must().renderItem(b.id);
-  };
-  const onBlur = (): void => finish(true);
-  const onKey = (e: KeyboardEvent): void => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      // Bare Enter ends editing. Shift+Enter falls through so the
-      // browser inserts a line break naturally — finish() reads it
-      // back via innerText on commit.
-      e.preventDefault();
-      el.blur();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      finish(false);
-    }
-    e.stopPropagation();
-  };
-  el.addEventListener("blur", onBlur);
-  el.addEventListener("keydown", onKey);
+  }
 };

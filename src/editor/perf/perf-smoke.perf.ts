@@ -39,6 +39,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   applyClasses,
   renderAll,
+  renderEdges,
   renderEdgesFor,
   renderItems,
   updateCulling,
@@ -80,6 +81,7 @@ const setup = (n: number, opts: StressOptions = {}): Harness => {
   const lineLayer = document.createElementNS(SVG_NS, "g") as SVGGElement;
   const strokeLayer = document.createElementNS(SVG_NS, "g") as SVGGElement;
   const edgeLayer = document.createElementNS(SVG_NS, "g") as SVGGElement;
+  const edgeLabelLayer = document.createElement("div");
   svg.append(strokeLayer, lineLayer, edgeLayer);
   document.body.append(canvas, svg);
 
@@ -94,6 +96,8 @@ const setup = (n: number, opts: StressOptions = {}): Harness => {
     lineLayer,
     strokeLayer,
     edgeLayer,
+    edgeLabelLayer,
+    editEdgeLabel: () => {},
     currentMap: () => map,
     graph: () => graph,
     currentPath: () => "/",
@@ -722,6 +726,50 @@ describe("perf smoke: editor interaction DOM cost", () => {
         r.mutationReflows,
         "fixed-frame single-item render: extra forced reflows",
       ).toBeLessThanOrEqual(10);
+    },
+  );
+
+  // ── edge rendering (#25b) ────────────────────────────────────
+  // renderEdges used to measure an endpoint box (offsetWidth /
+  // offsetHeight, twice per endpoint via endpointAnchor), then append
+  // the edge's SVG group, then measure the next edge's endpoints —
+  // the same read/write interleave #258 fixed for label clamps, worth
+  // one forced layout per edge. It is now two phases sharing one
+  // per-pass size cache, so the whole pass costs a single flush.
+  //
+  // Ceiling is ABSOLUTE (no ·n term) and the same at both sizes: that
+  // is the assertion. Restoring the interleave puts it at one per
+  // edge — 60 at n=300, 240 at n=1,200.
+  it.each([[SMALL], [LARGE]])(
+    "edge render measures every endpoint in one batched pass (%i boxes)",
+    (n) => {
+      const h = setup(n);
+      const handle = installCounters();
+      const c = handle.counters;
+      try {
+        renderAll();
+        // Sanity: the fixture really carries edges, or the ceiling
+        // below would be guarding nothing.
+        expect(
+          h.map.edges.length,
+          "fixture sanity (the stress map has edges)",
+        ).toBeGreaterThan(n / 8);
+        handle.reset();
+        renderEdges();
+        expect(
+          c.forcedReflows,
+          "full edge render: forced reflows must not scale with edge count",
+        ).toBeLessThanOrEqual(2);
+        // One box element measured once, not once per incident edge.
+        handle.reset();
+        renderEdgesFor(new Set(h.map.boxes.slice(0, 20).map((b) => b.id)));
+        expect(
+          c.forcedReflows,
+          "edge re-route: forced reflows must not scale with the moved set",
+        ).toBeLessThanOrEqual(2);
+      } finally {
+        handle.uninstall();
+      }
     },
   );
 

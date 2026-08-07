@@ -82,6 +82,7 @@ const setup = (map: TestMap = makeMap()): Harness => {
   const lineLayer = document.createElementNS(SVG_NS, "g") as SVGGElement;
   const strokeLayer = document.createElementNS(SVG_NS, "g") as SVGGElement;
   const edgeLayer = document.createElementNS(SVG_NS, "g") as SVGGElement;
+  const edgeLabelLayer = document.createElement("div");
   svg.append(strokeLayer, lineLayer, edgeLayer);
   document.body.append(canvas, svg);
 
@@ -96,6 +97,8 @@ const setup = (map: TestMap = makeMap()): Harness => {
     lineLayer,
     strokeLayer,
     edgeLayer,
+    edgeLabelLayer,
+    editEdgeLabel: () => {},
     currentMap: () => map,
     graph: () => ({ maps: [{ path: "/" }] }),
     currentPath: () => "/",
@@ -270,6 +273,38 @@ describe("paste", () => {
     renderEdgesFor(new Set([fresh[0]!]));
     expect(h.edgeLayer.querySelectorAll(".edge-group").length).toBe(3);
     expect(pastedEdgeEl.children[1]!.getAttribute("x1")).not.toBe(before);
+  });
+
+  // brain#266: a copy that silently drops the relationship label
+  // downgrades the connection to a bare line, which is exactly the
+  // information the label exists to carry. Same for alt-drag clone.
+  it("carries an edge's label and palette through paste and clone", () => {
+    const edge = h.map.edges[0]!;
+    (edge as TestEdge & { label?: string; palette?: number }).label = "depends on";
+    (edge as TestEdge & { label?: string; palette?: number }).palette = 5;
+    renderAll();
+    h.selected.add("b0");
+    h.selected.add("b1");
+    applyClasses();
+    copySelection();
+    pasteSelection();
+    const pasted = h.map.edges[h.map.edges.length - 1]! as TestEdge & {
+      label?: string;
+      palette?: number;
+    };
+    expect(pasted.label).toBe("depends on");
+    expect(pasted.palette).toBe(5);
+
+    h.selected.clear();
+    h.selected.add("b0");
+    h.selected.add("b1");
+    cloneSelection();
+    const cloned = h.map.edges[h.map.edges.length - 1]! as TestEdge & {
+      label?: string;
+      palette?: number;
+    };
+    expect(cloned.label).toBe("depends on");
+    expect(cloned.palette).toBe(5);
   });
 
   it("clears a selected edge's class without rebuilding the edge layer", () => {

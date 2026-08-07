@@ -29,6 +29,22 @@ describe("renderFlowgo: basic rendering", () => {
     expect(lines.length).toBe(1);
   });
 
+  // brain#266: an embed that drops the edge label would silently lose
+  // the meaning of the connection — the label is the point of the map.
+  it("renders the edge label at the midpoint, and nothing when absent", () => {
+    renderFlowgo(container, 'node a hi 0 0\nnode b there 200 100\nedge a b 1 "depends on"\n');
+    const labels = container.querySelectorAll<HTMLElement>(".fgi-edge-label");
+    expect(labels.length).toBe(1);
+    expect(labels[0]!.textContent).toBe("depends on");
+    const line = container.querySelector(".fgi-edge-line")!;
+    const mx = (Number(line.getAttribute("x1")) + Number(line.getAttribute("x2"))) / 2;
+    expect(labels[0]!.style.left).toBe(mx + "px");
+
+    container.innerHTML = "";
+    renderFlowgo(container, "node a hi 0 0\nnode b there 200 100\nedge a b\n");
+    expect(container.querySelectorAll(".fgi-edge-label").length).toBe(0);
+  });
+
   it("renders free-floating text elements", () => {
     renderFlowgo(container, 'text t1 "a note" 10 10\n');
     const texts = container.querySelectorAll(".fgi-text");

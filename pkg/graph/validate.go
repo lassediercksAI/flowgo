@@ -141,6 +141,10 @@ func validateWritableMap(m NamedMap) []error {
 				errs = append(errs, fmt.Errorf("map %q: edge[%d] %s %q %s", m.Path, i, ep.what, ep.v, p))
 			}
 		}
+		// The label goes through quote() like a node's, so the same
+		// carriage-return rule applies (it would come back as a
+		// newline). Everything else quoting handles.
+		label("edge", fmt.Sprintf("%s-%s", e.From, e.To), e.Label)
 	}
 	return errs
 }
@@ -230,6 +234,9 @@ func validateMap(m NamedMap) []error {
 		}
 		if !validPalette(e.Palette) {
 			errs = append(errs, fmt.Errorf("map %q: edge[%d] has invalid palette %d", m.Path, i, e.Palette))
+		}
+		if len(e.Label) > MaxLabelLen {
+			errs = append(errs, fmt.Errorf("map %q: edge[%d] label is %d chars (cap is %d)", m.Path, i, len(e.Label), MaxLabelLen))
 		}
 	}
 

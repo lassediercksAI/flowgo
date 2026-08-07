@@ -29,7 +29,8 @@ import {
 } from "../index.ts";
 import { hasSubmapContent } from "../graph/submap.ts";
 import { resolveFont, resolvePalette } from "../graph/palette.ts";
-import { endpointAnchor } from "./anchors.ts";
+import { endpointAnchor, type ElSize } from "./anchors.ts";
+import { commitEdgeLabelEdit, editingEdge } from "./edit.ts";
 import { updateSelectionToolbar } from "./align.ts";
 import { refreshContextBar } from "./contextbar.ts";
 import { clearBoxResize, resizingBoxId } from "./resize.ts";
@@ -150,6 +151,9 @@ interface EdgeData {
   fromHandle?: string;
   toHandle?: string;
   palette?: number;
+  // Relationship text drawn at the edge midpoint (brain#266).
+  // Undefined / empty = unlabelled.
+  label?: string;
 }
 
 interface StrokeData {
@@ -181,6 +185,11 @@ interface RenderBindings {
   readonly lineLayer: SVGGElement;
   readonly strokeLayer: SVGGElement;
   readonly edgeLayer: SVGGElement;
+  /** HTML sibling of the edge SVG that holds the midpoint labels.
+   *  Separate from #canvas because edge labels must paint above the
+   *  edge lines but below the nodes, and separate from the SVG
+   *  because a label is contenteditable — which SVG <text> is not. */
+  readonly edgeLabelLayer: HTMLElement;
   readonly currentMap: () => CurrentMap;
   readonly graph: () => { maps: { path: string }[] };
   readonly currentPath: () => string;
@@ -194,6 +203,10 @@ interface RenderBindings {
   readonly attachTextHandlers: (el: HTMLElement, t: TextData) => void;
   readonly attachImageHandlers: (el: HTMLElement, img: ImageData) => void;
   readonly attachStrokeHandlers: (g: SVGGElement, s: StrokeData) => void;
+  /** Open the inline editor on an edge's midpoint label (edit.ts
+   *  startEdgeLabelEdit, wired through bindings so render.ts keeps
+   *  its "build DOM, don't own interaction" split). */
+  readonly editEdgeLabel: (el: HTMLElement, e: EdgeData) => void;
   readonly attachLineHandlers: (
     g: SVGGElement,
     line: SVGPathElement,
@@ -931,15 +944,44 @@ export const applyClasses = (): void => {
   refreshContextBar();
 };
 
-// Anchor endpoints of an edge, measured from the endpoint elements
-// (offsetWidth/Height → endpointAnchor).
+interface EdgeCoords {
+  ax: number;
+  ay: number;
+  bx: number;
+  by: number;
+}
+
+// Per-pass snapshot of box element sizes (brain#25b). Every edge
+// endpoint needs offsetWidth/offsetHeight, and an edge pass reads the
+// same box element once per incident edge — each read while the
+// document is dirty forces a synchronous layout. Taking the reads
+// through one cache, in a phase that does no writes, collapses a
+// render into a SINGLE forced reflow instead of roughly one per five
+// edges. The snapshot is per pass, never cached across calls: a box
+// resize or a relabel changes these numbers.
+type SizeCache = (el: HTMLElement) => ElSize;
+
+const makeSizeCache = (): SizeCache => {
+  const seen = new Map<HTMLElement, ElSize>();
+  return (el) => {
+    let s = seen.get(el);
+    if (!s) {
+      s = { offsetWidth: el.offsetWidth, offsetHeight: el.offsetHeight };
+      seen.set(el, s);
+    }
+    return s;
+  };
+};
+
+// Anchor endpoints of an edge, from the endpoint elements' sizes.
+// Pure once the sizes are in hand — no DOM access of its own.
 const edgeGeometry = (
   e: EdgeData,
   a: BoxData,
   b: BoxData,
-  ea: HTMLElement,
-  eb: HTMLElement,
-): { ax: number; ay: number; bx: number; by: number } => {
+  ea: ElSize,
+  eb: ElSize,
+): EdgeCoords => {
   const acx = a.x + ea.offsetWidth / 2;
   const acy = a.y + ea.offsetHeight / 2;
   const bcx = b.x + eb.offsetWidth / 2;
@@ -952,10 +994,7 @@ const edgeGeometry = (
 // Write the four line coordinates onto an existing edge group's hit +
 // visible children (fixed structure, see materializeEdge) — the
 // re-route primitive renderEdgesFor uses per incident edge.
-const setEdgeCoords = (
-  g: SVGGElement,
-  c: { ax: number; ay: number; bx: number; by: number },
-): void => {
+const setEdgeCoords = (g: SVGGElement, c: EdgeCoords): void => {
   const kids = g.children;
   for (let i = 0; i < 2; i++) {
     const el = kids[i];
@@ -967,20 +1006,148 @@ const setEdgeCoords = (
   }
 };
 
+// Read an edge group's current coordinates back off the attributes we
+// wrote. Attribute reads are not layout reads, so this is free — it is
+// how the label paths re-derive a midpoint without re-measuring the
+// endpoint boxes.
+const edgeCoordsOf = (g: SVGGElement): EdgeCoords | null => {
+  const el = g.children[0];
+  if (!el) return null;
+  return {
+    ax: Number(el.getAttribute("x1")),
+    ay: Number(el.getAttribute("y1")),
+    bx: Number(el.getAttribute("x2")),
+    by: Number(el.getAttribute("y2")),
+  };
+};
+
+// ── Edge labels (brain#266) ─────────────────────────────────────
+// The label is an HTML div in its own layer rather than an SVG <text>
+// inside the edge group, for two reasons: SVG text is not
+// contenteditable, so inline editing would need a second editor; and
+// `transform: translate(-50%, -50%)` centres the div on the midpoint
+// using its OWN rendered size, which means the renderer never measures
+// a label — no text metrics, no getBBox, nothing that could reopen
+// the layout thrash brain#258 closed.
+//
+// Lifecycle is tied to the edge group: an element exists only while
+// its edge is materialized, so a label culls exactly when its edge
+// does — including the case where both endpoint boxes are off-screen
+// but the edge crosses the viewport (edgeVisible decides, once, for
+// both).
+const edgeLabelEls = new Map<EdgeData, HTMLElement>();
+
+export const getEdgeLabelEl = (e: EdgeData): HTMLElement | null =>
+  edgeLabelEls.get(e) ?? null;
+
+const placeEdgeLabel = (el: HTMLElement, c: EdgeCoords): void => {
+  // Edges render as straight lines, so the midpoint is exact — and it
+  // stays exact through endpoint moves and re-routes because every
+  // path that rewrites the coordinates calls straight through here.
+  el.style.left = (c.ax + c.bx) / 2 + "px";
+  el.style.top = (c.ay + c.by) / 2 + "px";
+};
+
+// Create the label element for an edge that doesn't have one yet.
+// Exported through ensureEdgeLabelEl for the double-click path, which
+// has to open an editor on an edge that is currently unlabelled.
+const makeEdgeLabelEl = (w: RenderBindings, e: EdgeData): HTMLElement => {
+  const el = document.createElement("div");
+  // The label inherits its edge's palette (the card's "beyond
+  // inheriting the edge's" is explicitly out of scope). Baking the
+  // class in at creation is safe because the only way to change an
+  // edge's palette — keys.ts applyPalette — follows up with a full
+  // renderEdges(), which rebuilds this element from scratch.
+  const pal = resolvePalette(e.palette);
+  el.className = "edge-label" + (pal !== 1 ? " palette-" + pal : "");
+  // Keep pointer interaction local: a drag started on the label must
+  // not pan the canvas or start a band selection underneath.
+  el.addEventListener("mousedown", (ev) => ev.stopPropagation());
+  el.addEventListener("dblclick", (ev) => {
+    if (el.isContentEditable) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    must().editEdgeLabel(el, e);
+  });
+  edgeLabelEls.set(e, el);
+  w.edgeLabelLayer.appendChild(el);
+  return el;
+};
+
+// Bring the label element in line with the edge's data + coordinates:
+// create it if the edge gained a label, drop it if the edge lost one,
+// otherwise just move it. An edge whose label is being edited keeps
+// its element and its typed-in text regardless of what the data says
+// (the data only catches up on commit).
+const syncEdgeLabel = (
+  w: RenderBindings,
+  e: EdgeData,
+  c: EdgeCoords,
+): void => {
+  const editing = editingEdge() === e;
+  const text = e.label ?? "";
+  let el = edgeLabelEls.get(e);
+  if (text === "" && !editing) {
+    if (el) {
+      el.remove();
+      edgeLabelEls.delete(e);
+    }
+    return;
+  }
+  if (!el) el = makeEdgeLabelEl(w, e);
+  if (!editing) el.textContent = text;
+  placeEdgeLabel(el, c);
+};
+
+// The label element for `e`, created on demand. The double-click
+// handler on the edge line uses this: an unlabelled edge has no
+// element until the user asks for one.
+export const ensureEdgeLabelEl = (e: EdgeData): HTMLElement | null => {
+  const w = must();
+  const g = edgeEls.get(e);
+  if (!g) return null;
+  const c = edgeCoordsOf(g);
+  if (!c) return null;
+  const el = edgeLabelEls.get(e) ?? makeEdgeLabelEl(w, e);
+  el.textContent = e.label ?? "";
+  placeEdgeLabel(el, c);
+  return el;
+};
+
+// Re-sync every materialized edge's label from its data, reusing the
+// coordinates already on the SVG. Pure attribute reads + writes: no
+// layout is forced, so this is safe to call on every label commit.
+export const renderEdgeLabels = (): void => {
+  if (!bindings) return;
+  const w = must();
+  for (const [e, g] of edgeEls) {
+    const c = edgeCoordsOf(g);
+    if (c) syncEdgeLabel(w, e, c);
+  }
+};
+
+// Drop an edge's DOM: the SVG group and, unless it is mid-edit, its
+// label. Single funnel so no removal path can forget the label and
+// leave it floating over a line that no longer exists.
+const dropEdgeEls = (e: EdgeData, g: SVGGElement): void => {
+  g.remove();
+  edgeEls.delete(e);
+  const label = edgeLabelEls.get(e);
+  if (label) {
+    label.remove();
+    edgeLabelEls.delete(e);
+  }
+};
+
 // Build one edge group. Z-order within the edge layer is append-only:
 // edges are visually uniform 1px lines, so stacking among them is
 // imperceptible — not worth positioned insertion (unlike canvas items).
 const materializeEdge = (
   w: RenderBindings,
   e: EdgeData,
-  a: BoxData,
-  b: BoxData,
-  ea: HTMLElement,
-  eb: HTMLElement,
+  c: EdgeCoords,
   sel: EdgeData | null,
 ): void => {
-  const c = edgeGeometry(e, a, b, ea, eb);
-
   const g = document.createElementNS(SVG_NS, "g");
   const ePal = resolvePalette(e.palette);
   g.setAttribute(
@@ -1006,20 +1173,46 @@ const materializeEdge = (
     ev.stopPropagation();
     w.setSelectedEdge(e);
     w.selected.clear();
+    // applyClasses → applyEdgeSelection moves `.selected` between the
+    // old and new edge elements (#24f). The full renderEdges() this
+    // used to call as well was redundant — and actively harmful: it
+    // destroyed this very element between the two clicks of a
+    // double-click, so the browser found no common ancestor to
+    // dispatch `dblclick` to and the label editor could never open
+    // (brain#266). Selecting an edge is now O(1), not O(edges).
     applyClasses();
-    renderEdges();
-    w.setStatus("edge selected — press Delete to remove");
+    w.setStatus("edge selected — press Delete to remove, double-click to label");
+  });
+
+  // Double-click the line itself to label it. The bg-layer's
+  // dblclick (which spawns a node) never sees this: the listener is
+  // on #bg-layer, and #edges is a sibling SVG above it, so a click
+  // that lands on `.edge-hit` is not in that element's ancestor
+  // chain at all. stopPropagation is belt-and-braces for the day
+  // someone moves the listener to document.
+  g.addEventListener("dblclick", (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const el = ensureEdgeLabelEl(e);
+    if (el) must().editEdgeLabel(el, e);
   });
 
   edgeEls.set(e, g);
   if (e === sel) appliedSelectedEdge = e;
   w.edgeLayer.appendChild(g);
+  syncEdgeLabel(w, e, c);
 };
 
 export const renderEdges = (): void => {
   const w = must();
+  // A live inline edit is about to lose its element. Commit it first
+  // — Chrome fires no blur for a detached node, so leaving it would
+  // wedge the editing flag and lock out every keyboard shortcut.
+  commitEdgeLabelEdit();
   w.edgeLayer.innerHTML = "";
+  w.edgeLabelLayer.innerHTML = "";
   edgeEls.clear();
+  edgeLabelEls.clear();
   // Every edge element (and its `.selected` class) just died;
   // materializeEdge re-bakes the current one below.
   appliedSelectedEdge = null;
@@ -1030,6 +1223,11 @@ export const renderEdges = (): void => {
   rebuildBoxIndex(map);
   const sel = w.selectedEdge();
   const rect = cullLayerRect();
+  // Two phases (brain#25b): every endpoint measurement happens here,
+  // through one size cache and with no interleaved writes, so the
+  // whole pass costs ONE forced layout instead of one per few edges.
+  const size = makeSizeCache();
+  const jobs: Array<{ e: EdgeData; c: EdgeCoords }> = [];
   for (const e of map.edges) {
     const a = boxById.get(e.from);
     const b = boxById.get(e.to);
@@ -1043,8 +1241,9 @@ export const renderEdges = (): void => {
     const ea = boxEls.get(e.from);
     const eb = boxEls.get(e.to);
     if (!ea || !eb) continue;
-    materializeEdge(w, e, a, b, ea, eb, sel);
+    jobs.push({ e, c: edgeGeometry(e, a, b, size(ea), size(eb)) });
   }
+  for (const job of jobs) materializeEdge(w, job.e, job.c, sel);
 };
 
 // Re-route ONLY the edges incident to `ids` (box ids; non-box ids in
@@ -1063,6 +1262,12 @@ export const renderEdgesFor = (ids: ReadonlySet<string>): void => {
   // Membership check for the stale pass. O(edges) data scan — same
   // order as the materialize pass below, and pure Set inserts.
   const live = new Set(map.edges);
+  // Phase 1 — every measurement, no writes (brain#25b). The removals
+  // below are writes, so they are queued rather than done inline.
+  const size = makeSizeCache();
+  const doomed: Array<[EdgeData, SVGGElement]> = [];
+  const reroute: Array<{ e: EdgeData; g: SVGGElement; c: EdgeCoords }> = [];
+  const fresh: Array<{ e: EdgeData; c: EdgeCoords }> = [];
   for (const [e, g] of edgeEls) {
     if (!ids.has(e.from) && !ids.has(e.to)) continue;
     const a = boxById.get(e.from);
@@ -1071,14 +1276,17 @@ export const renderEdgesFor = (ids: ReadonlySet<string>): void => {
     const eb = boxEls.get(e.to);
     if (
       !live.has(e) || !a || !b || !ea || !eb
-      || (rect !== null && !edgeVisible(a.x, a.y, b.x, b.y, rect))
+      // An edge whose label is being typed into keeps its DOM even
+      // when it pans out of range: destroying it would strand the
+      // contenteditable's blur/keydown lifecycle (same rule
+      // editingId() buys for boxes).
+      || (rect !== null && !edgeVisible(a.x, a.y, b.x, b.y, rect)
+        && editingEdge() !== e)
     ) {
-      g.remove();
-      edgeEls.delete(e);
-      if (e === appliedSelectedEdge) appliedSelectedEdge = null;
+      doomed.push([e, g]);
       continue;
     }
-    setEdgeCoords(g, edgeGeometry(e, a, b, ea, eb));
+    reroute.push({ e, g, c: edgeGeometry(e, a, b, size(ea), size(eb)) });
   }
   for (const e of map.edges) {
     if (!ids.has(e.from) && !ids.has(e.to)) continue;
@@ -1090,8 +1298,18 @@ export const renderEdgesFor = (ids: ReadonlySet<string>): void => {
     const ea = boxEls.get(e.from);
     const eb = boxEls.get(e.to);
     if (!ea || !eb) continue;
-    materializeEdge(w, e, a, b, ea, eb, sel);
+    fresh.push({ e, c: edgeGeometry(e, a, b, size(ea), size(eb)) });
   }
+  // Phase 2 — writes only.
+  for (const [e, g] of doomed) {
+    dropEdgeEls(e, g);
+    if (e === appliedSelectedEdge) appliedSelectedEdge = null;
+  }
+  for (const r of reroute) {
+    setEdgeCoords(r.g, r.c);
+    syncEdgeLabel(w, r.e, r.c);
+  }
+  for (const f of fresh) materializeEdge(w, f.e, f.c, sel);
 };
 
 // ── Incremental per-item render (brain#238) ─────────────────────
@@ -1457,19 +1675,24 @@ const cullEdges = (w: RenderBindings, map: CurrentMap, rect: CullRect): void => 
   // pass is O(map) anyway.
   rebuildBoxIndex(map);
   const sel = w.selectedEdge();
+  const doomed: Array<[EdgeData, SVGGElement]> = [];
   for (const [e, g] of edgeEls) {
     const a = boxById.get(e.from);
     const b = boxById.get(e.to);
     const keep =
-      a && b
-      && edgeVisible(a.x, a.y, b.x, b.y, rect)
-      && boxEls.has(e.from)
-      && boxEls.has(e.to);
-    if (!keep) {
-      g.remove();
-      edgeEls.delete(e);
-    }
+      (a && b
+        && edgeVisible(a.x, a.y, b.x, b.y, rect)
+        && boxEls.has(e.from)
+        && boxEls.has(e.to))
+      // Never cull the edge whose label is being typed into.
+      || editingEdge() === e;
+    if (!keep) doomed.push([e, g]);
   }
+  for (const [e, g] of doomed) dropEdgeEls(e, g);
+  // Same two-phase split as renderEdges (brain#25b): measure the
+  // newly-visible edges first, then build them.
+  const size = makeSizeCache();
+  const fresh: Array<{ e: EdgeData; c: EdgeCoords }> = [];
   for (const e of map.edges) {
     if (edgeEls.has(e)) continue;
     const a = boxById.get(e.from);
@@ -1479,8 +1702,9 @@ const cullEdges = (w: RenderBindings, map: CurrentMap, rect: CullRect): void => 
     const ea = boxEls.get(e.from);
     const eb = boxEls.get(e.to);
     if (!ea || !eb) continue;
-    materializeEdge(w, e, a, b, ea, eb, sel);
+    fresh.push({ e, c: edgeGeometry(e, a, b, size(ea), size(eb)) });
   }
+  for (const f of fresh) materializeEdge(w, f.e, f.c, sel);
 };
 
 // How far (data px) the viewport may drift from the last evaluated
