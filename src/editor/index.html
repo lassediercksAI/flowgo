@@ -817,7 +817,27 @@
     box-sizing: border-box; cursor: crosshair; z-index: 5;
     opacity: 0; transition: opacity .12s;
   }
-  .box:hover .handle, .handle.active, .box.proximity-target .handle { opacity: 1; }
+  .box:hover .handle, .handle.active { opacity: 1; }
+  /* The proximity reveal is a FINE-POINTER cue (brain#278). A coarse
+     pointer has no hover, so the only thing that lights these dots
+     there is the mousemove the browser synthesizes from a tap the
+     handlers declined — and that lands wherever the finger did, not on
+     a handle anyone reached for. Tapping chrome that happens to sit
+     within PROXIMITY_PX of a box therefore painted solid, tappable-
+     looking dots on an UNSELECTED box, and touching one dragged the
+     box instead of starting a link (classifyTarget gates handles on
+     selection, because an invisible handle must not claim a touch).
+     An invisible affordance beats a lying one, so on coarse pointers
+     the dots stay hidden until selection entitles them.
+
+     Nothing is lost mid-link-drag: findBoxAt's halo fallback uses the
+     SAME PROXIMITY_PX radius as the proximity cue ("one radius, three
+     cues" — render.ts), so any box near enough to be
+     `proximity-target` is also the `drop-target`. Its green ring and
+     the `.handle.target` dot below carry the cue on their own. */
+  @media (pointer: fine) {
+    .box.proximity-target .handle { opacity: 1; }
+  }
   .box[contenteditable="true"] .handle { display: none; }
   /* Highlight the specific handle that would receive the connection
      if the link drag ended right now. Same green as `.drop-target`
@@ -842,8 +862,11 @@
 
   /* Coarse pointers (touchscreens / styluses): bigger hit targets and
      always-shown handles on the selected box, since :hover doesn't
-     exist. Proximity glow during a drag still overrides via the rule
-     above (`.box.proximity-target .handle`). */
+     exist. SELECTION is the whole entitlement here — proximity does
+     not reveal dots on a coarse pointer (brain#278, see the fine-only
+     rule above), so every visible dot is one classifyTarget will
+     accept. During a link drag the receiving handle still lights via
+     `.handle.target`, which is entitlement-free. */
   @media (pointer: coarse) {
     .handle { width: 22px; height: 22px; }
     .h-t  { top: -28px; }
