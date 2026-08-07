@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.15](https://github.com/lassediercks/flowgo/compare/v0.3.14...v0.3.15) (2026-08-07)
+
+
+### Features
+
+* **editor:** address the edited document by name from the page URL ([45cdfaa](https://github.com/lassediercks/flowgo/commit/45cdfaadcef80c9f8e1fe1609f830e89c6e1d53f))
+
 ## [0.3.14](https://github.com/lassediercks/flowgo/compare/v0.3.13...v0.3.14) (2026-08-07)
 
 
