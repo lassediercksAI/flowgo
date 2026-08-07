@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.14](https://github.com/lassediercks/flowgo/compare/v0.3.13...v0.3.14) (2026-08-07)
+
+
+### Features
+
+* **editor:** label an edge by double-clicking it ([568cace](https://github.com/lassediercks/flowgo/commit/568caceca8704c2e2aff7679ed8572fdca782d3f))
+
 ## [0.3.13](https://github.com/lassediercks/flowgo/compare/v0.3.12...v0.3.13) (2026-08-07)
 
 
