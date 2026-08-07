@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.16](https://github.com/lassediercks/flowgo/compare/v0.3.15...v0.3.16) (2026-08-07)
+
+
+### Bug Fixes
+
+* **editor:** stop touch showing a handle dot that drags the box (brain[#278](https://github.com/lassediercks/flowgo/issues/278)) ([1c5cd45](https://github.com/lassediercks/flowgo/commit/1c5cd451ae08085d221f4e9af21be9b3dd4a18ed))
+
+
+### Performance
+
+* **editor:** make viewport culling O(visible) via a spatial index ([21e4dc6](https://github.com/lassediercks/flowgo/commit/21e4dc659538b6885cc0dbd937f86b31b97277bd))
+* new machine-independent gate on visibility-predicate evaluations ([21e4dc6](https://github.com/lassediercks/flowgo/commit/21e4dc659538b6885cc0dbd937f86b31b97277bd))
+
 ## [0.3.15](https://github.com/lassediercks/flowgo/compare/v0.3.14...v0.3.15) (2026-08-07)
 
 
