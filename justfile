@@ -270,3 +270,22 @@ live-e2e:
 live-e2e-debug:
     pnpm exec vite build --minify false
     node scripts/live-e2e.mjs
+
+# Touch link-drag end-to-end check: builds the CLI, opens the editor in
+# headless Chromium at a phone viewport with hasTouch + isMobile (so
+# `(pointer: coarse)` matches and the finger-sized handles are live),
+# and drives REAL touchstart/touchmove/touchend sequences over CDP —
+# then asserts the resulting edges in the .flowgo the server wrote back.
+# Covers shaped boxes, a pinch-zoomed and panned viewport, link-drop on
+# empty canvas, edge re-route, and a drag path that wanders over the
+# chrome. Same leniency as live-e2e: skips (exit 0) without
+# playwright-core or a chromium, so it is not a CI gate.
+#
+# It does NOT reproduce iOS Safari's click synthesis or gesture* events
+# — the src/editor/touch-*.test.ts suites say the same, and that part
+# still needs a real iPhone.
+#   just touch-e2e
+#   PLAYWRIGHT_CORE=/path/to/playwright-core just touch-e2e
+touch-e2e:
+    pnpm exec vite build
+    node scripts/touch-e2e.mjs
