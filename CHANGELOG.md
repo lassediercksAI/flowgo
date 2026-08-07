@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.12](https://github.com/lassediercks/flowgo/compare/v0.3.11...v0.3.12) (2026-08-07)
+
+
+### Bug Fixes
+
+* **cli:** validate the port range in listenFirstFree, deflake its test ([361a17e](https://github.com/lassediercks/flowgo/commit/361a17e6da1daaab847f085421bca6a384a9d4f9))
+* **editor:** chrome taps survive the document-level touch handlers ([84348ef](https://github.com/lassediercks/flowgo/commit/84348efacfe44f8c57f31f61b1ad970661551411))
+* **editor:** make a pasted copy readable instead of a smear ([#255](https://github.com/lassediercks/flowgo/issues/255)) ([94e2486](https://github.com/lassediercks/flowgo/commit/94e248620a8890c5da5d6e248e970de6859f4000))
+* **editor:** stop a pan or resize mid-load throwing on the placeholder map ([e2aaac0](https://github.com/lassediercks/flowgo/commit/e2aaac01855255a04b3504ae8a39117a5c533343))
+
+
+### Performance
+
+* batch the fixed-frame label clamp instead of reflowing per box ([23931a3](https://github.com/lassediercks/flowgo/commit/23931a3001cadbcbc5a3bc030c09739fbbe143cf))
+* **editor:** take the whole-graph passes off the per-edit path ([fca3cb6](https://github.com/lassediercks/flowgo/commit/fca3cb6931d3c8cebb7ead077fb50e29b691f952))
+
 ## [0.3.11](https://github.com/lassediercks/flowgo/compare/v0.3.10...v0.3.11) (2026-08-06)
 
 
