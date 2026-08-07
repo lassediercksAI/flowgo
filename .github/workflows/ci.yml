@@ -28,10 +28,16 @@ jobs:
       # log prints the full report. See src/editor/perf/.
       - name: perf smoke
         run: pnpm perf
-      - name: vite build (produces dist/index.html committed alongside source)
+      - name: vite build (produces pkg/flowgo/dist/index.html, committed alongside source)
         run: pnpm build
-      - name: dist/index.html is up to date with source
-        run: git diff --exit-code -- dist/index.html
+      # brain#273: this step used to be `git diff --exit-code --
+      # dist/index.html` — a path that has not existed since the bundle
+      # moved under pkg/flowgo/. An unmatched pathspec is an empty diff,
+      # so it exited 0 forever and gated nothing. The script compares
+      # the real path and refuses to pass if the artifact is missing or
+      # untracked, so a future move fails loudly instead of silently.
+      - name: pkg/flowgo/dist/index.html is up to date with source
+        run: ./scripts/check-dist-fresh.sh
 
   validate:
     runs-on: ubuntu-latest
