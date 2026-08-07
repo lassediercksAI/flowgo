@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.13](https://github.com/lassediercks/flowgo/compare/v0.3.12...v0.3.13) (2026-08-07)
+
+
+### Refactoring
+
+* **editor:** remove the canvas "Give feedback" button (brain[#267](https://github.com/lassediercks/flowgo/issues/267)) ([9587a64](https://github.com/lassediercks/flowgo/commit/9587a645bb7c61153972fa641288685d0a35a691))
+
 ## [0.3.12](https://github.com/lassediercks/flowgo/compare/v0.3.11...v0.3.12) (2026-08-07)
 
 
