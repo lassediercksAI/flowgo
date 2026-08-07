@@ -182,6 +182,37 @@ describe("serializeGraph", () => {
     expect(out).toBe("edge a b\nedge a b 5\nedge a:tl b:br 7\n");
   });
 
+  // brain#266. The label is slot 5, behind the palette, so a labelled
+  // edge without a palette of its own writes the sentinel 1 to hold
+  // the slot. An unlabelled edge gains nothing — that is what keeps
+  // every pre-label document byte-identical.
+  it("emits the edge label behind a sentinel palette", () => {
+    const out = serializeGraph({
+      maps: [
+        {
+          path: "/",
+          edges: [
+            { from: "a", to: "b", label: "depends on" },
+            { from: "a", to: "b", palette: 5, label: "owns" },
+            { from: "a", to: "b", label: "" },
+            { from: "a", to: "b" },
+            { from: "a", to: "b", fromHandle: "tl", toHandle: "br", label: "3" },
+          ],
+        },
+      ],
+    });
+    expect(out).toBe(
+      [
+        'edge a b 1 "depends on"',
+        "edge a b 5 owns",
+        "edge a b",
+        "edge a b",
+        "edge a:tl b:br 1 3",
+        "",
+      ].join("\n"),
+    );
+  });
+
   it("emits version directive as the first line when set", () => {
     const out = serializeGraph({
       version: "0.0.23",

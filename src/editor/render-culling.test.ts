@@ -77,6 +77,7 @@ interface Harness {
   readonly lineLayer: SVGGElement;
   readonly strokeLayer: SVGGElement;
   readonly edgeLayer: SVGGElement;
+  readonly edgeLabelLayer: HTMLElement;
   readonly map: TestMap;
   readonly selected: Set<string>;
   readonly setNear: (id: string | null) => void;
@@ -90,6 +91,7 @@ const setup = (): Harness => {
   const lineLayer = document.createElementNS(SVG_NS, "g") as SVGGElement;
   const strokeLayer = document.createElementNS(SVG_NS, "g") as SVGGElement;
   const edgeLayer = document.createElementNS(SVG_NS, "g") as SVGGElement;
+  const edgeLabelLayer = document.createElement("div");
   svg.append(strokeLayer, lineLayer, edgeLayer);
   document.body.append(canvas, svg);
 
@@ -104,6 +106,8 @@ const setup = (): Harness => {
     lineLayer,
     strokeLayer,
     edgeLayer,
+    edgeLabelLayer,
+    editEdgeLabel: () => {},
     currentMap: () => map,
     graph: () => graph,
     currentPath: () => "/",
@@ -138,6 +142,7 @@ const setup = (): Harness => {
     lineLayer,
     strokeLayer,
     edgeLayer,
+    edgeLabelLayer,
     map,
     selected,
     setNear: (id) => {
@@ -344,6 +349,7 @@ describe("pre-load placeholder map (brain#24d)", () => {
     const lineLayer = document.createElementNS(SVG_NS, "g") as SVGGElement;
     const strokeLayer = document.createElementNS(SVG_NS, "g") as SVGGElement;
     const edgeLayer = document.createElementNS(SVG_NS, "g") as SVGGElement;
+  const edgeLabelLayer = document.createElement("div");
     svg.append(strokeLayer, lineLayer, edgeLayer);
     document.body.append(canvas, svg);
 
@@ -358,6 +364,8 @@ describe("pre-load placeholder map (brain#24d)", () => {
       lineLayer,
       strokeLayer,
       edgeLayer,
+      edgeLabelLayer,
+      editEdgeLabel: () => {},
       currentMap: () => placeholder,
       graph: () => ({ maps: [] }),
       currentPath: () => "/",

@@ -114,7 +114,7 @@
      this override is read straight off #helpModal, and #helpModal is
      its own scroll container — the `none` on html/body above does not
      restrict it (that was already true with the old `pinch-zoom`). */
-  html, body, #bg-layer, #canvas, #bg-svg, #edges, .box, .text-item { touch-action: none; }
+  html, body, #bg-layer, #canvas, #bg-svg, #edges, #edge-label-layer, .box, .text-item { touch-action: none; }
   #helpModal { touch-action: pan-y pinch-zoom; }
   #toolbar {
     position: absolute; z-index: 10;
@@ -877,6 +877,58 @@
     filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);
   }
   .edge-group.selected .edge-line { stroke: #07f; stroke-width: 3; }
+
+  /* Edge midpoint labels (brain#266). The layer mirrors #canvas's
+     transform (viewport.applyViewport writes both) so labels pan and
+     zoom with the map; z-index 1 + document order after #edges puts
+     them over the lines but under the nodes. */
+  #edge-label-layer {
+    position: absolute; inset: 0; z-index: 1;
+    pointer-events: none;
+    transform-origin: 0 0;
+  }
+  /* translate(-50%, -50%) centres the label on the midpoint using its
+     OWN rendered size — the browser does the measuring, so the
+     renderer never reads a text metric (see brain#258 / #25b). */
+  .edge-label {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    pointer-events: auto;
+    max-width: 220px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(250,250,250,.92);
+    color: #444;
+    font-size: 12px; line-height: 1.25;
+    text-align: center;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    cursor: text;
+    user-select: none; -webkit-user-select: none;
+  }
+  .edge-label:hover { color: #111; }
+  /* Palette inherited from the edge, matching the stroke colours
+     above so a coloured connection reads as one object. */
+  .edge-label.palette-2 { color: #1d4ed8; }
+  .edge-label.palette-3 { color: #6d28d9; }
+  .edge-label.palette-4 { color: #15803d; }
+  .edge-label.palette-5 { color: #a16207; }
+  .edge-label.palette-6 { color: #b91c1c; }
+  .edge-label.palette-7 { color: #c2410c; }
+  .edge-label.palette-8 { color: #374151; }
+  .edge-label.palette-9 { color: #fff; background: rgba(17,17,17,.92); }
+  .edge-label[contenteditable="true"] {
+    outline: 1px solid #07f;
+    background: #fff;
+    color: #111;
+    user-select: text; -webkit-user-select: text;
+    min-width: 24px;
+  }
+  /* The drawing modes claim every pointer on the canvas; an edge
+     label must not swallow a brush stroke or a line endpoint. */
+  body.brush-mode .edge-label,
+  body.line-mode .edge-label,
+  body.text-mode .edge-label { pointer-events: none; }
   .selection-band {
     position: absolute; z-index: 6; pointer-events: none;
     border: 1px dashed #07f; background: rgba(0,119,255,.08);
@@ -1221,6 +1273,7 @@
       <tr><td>Drag a blue dot onto an existing connected handle</td><td>Re-route the existing connection</td></tr>
       <tr><td>Drag a blue dot into empty space</td><td>Spawn a new node at the cursor and connect to it</td></tr>
       <tr><td>Click an edge</td><td>Select it (turns blue + thicker) · <kbd>Delete</kbd> removes it</td></tr>
+      <tr><td>Double-click an edge (or its label)</td><td>Label the connection — "depends on", "triggers". <kbd>Enter</kbd> commits, <kbd>Esc</kbd> reverts, an empty label removes it</td></tr>
       <tr><td>(creating a new edge)</td><td>Replaces any prior edge between the same pair (undirected)</td></tr>
     </table>
 
@@ -1332,6 +1385,11 @@
   <g id="edge-layer"></g>
   <line id="ghost-line" x1="0" y1="0" x2="0" y2="0" stroke="#07f" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arrow-ghost)" style="display:none"/>
 </svg>
+<!-- Edge midpoint labels. HTML, not SVG <text>, because a label is
+     inline-editable and SVG text is not contenteditable. Declared
+     after #edges and with the same z-index so it paints above the
+     lines; #canvas claims z-index 2, so the nodes still win. -->
+<div id="edge-label-layer"></div>
 <div id="version"></div>
 
 <script type="module" src="./main.ts"></script>

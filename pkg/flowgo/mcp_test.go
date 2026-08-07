@@ -1138,6 +1138,58 @@ func TestActUpdateEdge_PaletteAndHandles(t *testing.T) {
 	}
 }
 
+// Edge labels (brain#266) must be reachable over MCP, not just from
+// the GUI's double-click: set at create, changed in place, and cleared
+// by an explicit empty string.
+func TestActEdge_Label(t *testing.T) {
+	g := freshGraph()
+	g.Maps[0].Boxes = []graph.Box{{ID: "a", Label: "A"}, {ID: "b", Label: "B"}}
+	if _, err := actAddEdge(g, map[string]any{"from": "a", "to": "b", "label": "  depends   on "}); err != nil {
+		t.Fatalf("actAddEdge: %v", err)
+	}
+	if got := g.Maps[0].Edges[0].Label; got != "depends on" {
+		t.Fatalf("create-time label = %q, want normalized %q", got, "depends on")
+	}
+	// Reversed direction still matches (edges are undirected).
+	if _, err := actUpdateEdge(g, map[string]any{"from": "b", "to": "a", "label": "triggers"}); err != nil {
+		t.Fatalf("actUpdateEdge: %v", err)
+	}
+	if got := g.Maps[0].Edges[0].Label; got != "triggers" {
+		t.Fatalf("label = %q after update", got)
+	}
+	// An update that does not mention the label leaves it alone.
+	if _, err := actUpdateEdge(g, map[string]any{"from": "a", "to": "b", "palette": float64(3)}); err != nil {
+		t.Fatalf("actUpdateEdge: %v", err)
+	}
+	if got := g.Maps[0].Edges[0].Label; got != "triggers" {
+		t.Fatalf("unrelated update clobbered the label: %q", got)
+	}
+	// Empty string removes it — same contract as the GUI's empty commit.
+	if _, err := actUpdateEdge(g, map[string]any{"from": "a", "to": "b", "label": ""}); err != nil {
+		t.Fatalf("actUpdateEdge: %v", err)
+	}
+	if got := g.Maps[0].Edges[0].Label; got != "" {
+		t.Fatalf("empty label should clear, got %q", got)
+	}
+}
+
+// A carriage return handed straight to add_edge would be rejected by
+// ValidateWritable on the very next save — NormalizeLabel has to fold
+// it at the boundary, like it does for node and text labels.
+func TestActAddEdge_LabelCarriageReturnFolded(t *testing.T) {
+	g := freshGraph()
+	g.Maps[0].Boxes = []graph.Box{{ID: "a", Label: "A"}, {ID: "b", Label: "B"}}
+	if _, err := actAddEdge(g, map[string]any{"from": "a", "to": "b", "label": "two\r\nlines"}); err != nil {
+		t.Fatalf("actAddEdge: %v", err)
+	}
+	if got := g.Maps[0].Edges[0].Label; got != "two\nlines" {
+		t.Fatalf("label = %q, want CR folded", got)
+	}
+	if errs := graph.ValidateWritable(*g); len(errs) != 0 {
+		t.Fatalf("graph should be writable, got %v", errs)
+	}
+}
+
 func TestActAddEdge_PaletteAtCreate(t *testing.T) {
 	g := freshGraph()
 	g.Maps[0].Boxes = []graph.Box{{ID: "a", Label: "A"}, {ID: "b", Label: "B"}}
@@ -1260,7 +1312,10 @@ func TestInitialize_HasInstructions(t *testing.T) {
 	if inst == "" {
 		t.Fatalf("initialize.result.instructions is empty — first thing most MCP clients show the model is missing")
 	}
-	for _, must := range []string{"path", "coordinate", "palette", "edge", "submap"} {
+	// "edge label" earns its place next to the structural concepts:
+	// an agent that never labels a connection produces a map showing
+	// THAT things connect and never HOW (brain#266).
+	for _, must := range []string{"path", "coordinate", "palette", "edge", "edge label", "submap"} {
 		if !strings.Contains(strings.ToLower(inst), must) {
 			t.Errorf("instructions missing the word %q — agents won't learn this concept from the primer", must)
 		}

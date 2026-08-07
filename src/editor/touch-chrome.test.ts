@@ -77,6 +77,7 @@ beforeAll(() => {
   const ghost = document.createElementNS(SVG_NS, "line");
   ghost.id = "ghost-line";
   edges.appendChild(ghost);
+  div("edge-label-layer", document.body);
   div("zoom-indicator", document.body);
 
   // An image lives inside #canvas but classifyTarget has no branch for

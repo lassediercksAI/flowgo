@@ -59,6 +59,11 @@ export const applyViewport = (): void => {
   // attribute with the same convention. Order matters: scale first
   // (around origin), then translate by an un-scaled offset.
   byId("canvas").style.transform = `translate(${tx}px, ${ty}px) scale(${s})`;
+  // Edge labels are HTML in their own layer (they're contenteditable,
+  // which SVG <text> is not), so they need the same CSS transform the
+  // canvas gets rather than the SVG `transform` attribute below.
+  byId("edge-label-layer").style.transform =
+    `translate(${tx}px, ${ty}px) scale(${s})`;
   for (const layer of ["line-layer", "stroke-layer", "edge-layer"]) {
     byId(layer).setAttribute("transform", `translate(${tx} ${ty}) scale(${s})`);
   }

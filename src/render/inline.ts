@@ -70,6 +70,13 @@ const STYLE_CSS = `
 .fgi-text.fgi-font-2 { font-size: 16px; } .fgi-text.fgi-font-3 { font-size: 18px; } .fgi-text.fgi-font-4 { font-size: 20px; }
 .fgi-text.fgi-font-5 { font-size: 24px; } .fgi-text.fgi-font-6 { font-size: 28px; } .fgi-text.fgi-font-7 { font-size: 34px; }
 .fgi-text.fgi-font-8 { font-size: 42px; } .fgi-text.fgi-font-9 { font-size: 56px; }
+.fgi-edge-label {
+  position: absolute; transform: translate(-50%, -50%); pointer-events: none;
+  max-width: 220px; padding: 1px 5px; border-radius: 4px;
+  background: rgba(255,255,255,.92); color: #444;
+  font-size: 12px; line-height: 1.25; text-align: center;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
 .fgi-image { position: absolute; pointer-events: none; }
 .fgi-image img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .fgi-edge-line, .fgi-line-line { stroke: #333; stroke-width: 2; fill: none; }
@@ -329,6 +336,20 @@ export const renderFlowgo = (
       line.setAttribute("y2", String(by));
       g.appendChild(line);
       edgeLayer.appendChild(g);
+
+      // Midpoint label (brain#266). Read-only here, so it could have
+      // been an SVG <text> — it's an HTML div for the same reason the
+      // editor's is: translate(-50%,-50%) centres it on the midpoint
+      // without anything measuring the text.
+      const label = e.label ?? "";
+      if (label !== "") {
+        const el = document.createElement("div");
+        el.className = "fgi-edge-label";
+        el.style.left = (ax + bx) / 2 + "px";
+        el.style.top = (ay + by) / 2 + "px";
+        el.textContent = label;
+        layer.appendChild(el);
+      }
     }
 
     renderCrumbs();

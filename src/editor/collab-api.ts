@@ -67,6 +67,9 @@ export interface FlowgoEdge {
   to: string;
   toHandle?: string;
   palette?: number;
+  /** Relationship text drawn at the edge midpoint (brain#266).
+   *  Mirrors pkg/graph.Edge.Label. */
+  label?: string;
 }
 
 export interface FlowgoText {

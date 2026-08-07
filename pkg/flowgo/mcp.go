@@ -59,9 +59,12 @@ STYLING (1-9 SCALES)
 EDGE HANDLES
 fromHandle/toHandle pin the connection to a specific side or corner of the source/target node: t (top), r (right), b (bottom), l (left), tl, tr, bl, br. Omit both to let the renderer auto-pick the nearest pair. Edges are undirected — add_edge from A to B is the same edge as B to A; update_edge / delete_edge match in either order.
 
+EDGE LABELS
+An edge carries an optional label drawn at its midpoint — "depends on", "triggers", "owns". Set it with add_edge/update_edge 'label'; pass an empty string to update_edge to remove it. Label the relationship whenever the connection's meaning isn't obvious from the two node names: a map that shows only THAT things connect, never HOW, throws away most of what a system map is for.
+
 WHEN TO USE WHICH ENTITY
 - node: the labelled unit of the conceptual graph (the add_box/update_box/delete_box tools keep their historical names — nodes were formerly called boxes). Use for things that have meaning and connect.
-- edge: a connection between two nodes. Always between nodes — not to text or lines.
+- edge: a connection between two nodes. Always between nodes — not to text or lines. Carries an optional label naming the relationship.
 - text: a free-floating annotation. Use for callouts, headers, labels that aren't graph nodes.
 - line: a static segment with optional control points. Use for arrows, dividers, geometric shapes.
 - stroke: freehand polyline. Use for sketchy annotations; agents rarely need this.
@@ -92,7 +95,7 @@ UTF-8 text, one directive per line, '#' for comments.
     map /
 
     node   <id> <label> <x> <y> [sides] [palette] [font] [rotation]
-    edge   <id>[:<handle>] <id>[:<handle>] [palette]
+    edge   <id>[:<handle>] <id>[:<handle>] [palette] [label]
     text   <id> <label> <x> <y> [palette] [font]
     line   <id> <x1> <y1> <x2> <y2> [palette] [mid <x>,<y> ...]
     stroke <id> <x>,<y> <x>,<y> ... [palette]
@@ -132,6 +135,15 @@ Notes:
   (the GUI's resize feature). Omitted = auto-size to the label.
   Never combined with a non-zero nodeshape — special shapes are not resizable.
 - 'anchor <id>' is at most once per map — the per-map recenter target.
+- The edge '[label]' is the text drawn at the edge midpoint ("depends
+  on", "triggers"). It is the FIFTH token, behind the palette, because
+  slot 4 has always been the palette and is read as an integer; a
+  labelled edge with no palette of its own therefore writes the
+  default sentinel palette 1 to hold the slot ('edge a b 1 "owns"').
+  An unlabelled edge writes neither token, so files predating edge
+  labels keep their exact bytes. Older flowgo binaries (<= 0.3.12)
+  read such a line without error — their edge parser stops after the
+  palette — but drop the labels when they next write the file.
 - 'defaultshape <n>' is a document-level preference (before any map):
   the shape a canvas double-click creates in this file (1 hexagon,
   2 circle, 3 triangle; absent = rectangle). Set/cleared via the
@@ -722,6 +734,11 @@ func actAddEdge(g *Graph, args map[string]any) (any, error) {
 	fromHandle := stringArg(args, "fromHandle", "")
 	toHandle := stringArg(args, "toHandle", "")
 	edge := Edge{From: from, FromHandle: fromHandle, To: to, ToHandle: toHandle}
+	// Normalized like every other label the MCP accepts: whitespace
+	// collapsed, CR folded to LF, capped at MaxLabelLen — the raw
+	// string would otherwise be able to carry a carriage return that
+	// ValidateWritable rejects on the very next save.
+	edge.Label = graph.NormalizeLabel(stringArg(args, "label", ""))
 	if v, ok := args["palette"]; ok {
 		p, err := styleProp(v, "palette")
 		if err != nil {
@@ -750,6 +767,7 @@ func actUpdateEdge(g *Graph, args map[string]any) (any, error) {
 	_, hasFromHandle := args["fromHandle"]
 	_, hasToHandle := args["toHandle"]
 	_, hasPalette := args["palette"]
+	_, hasLabel := args["label"]
 	m := ensureMapAt(g, path)
 	for i := range m.Edges {
 		e := &m.Edges[i]
@@ -780,6 +798,11 @@ func actUpdateEdge(g *Graph, args map[string]any) (any, error) {
 				return nil, err
 			}
 			e.Palette = p
+		}
+		if hasLabel {
+			// Empty string removes the label — same contract as the
+			// GUI, where committing an empty inline edit drops it.
+			e.Label = graph.NormalizeLabel(stringArg(args, "label", ""))
 		}
 		return mcpToolText("ok"), nil
 	}
@@ -1322,8 +1345,10 @@ func mcpTools() []mcpToolDef {
 
 	handleSchema := schemaString("Edge endpoint handle: t r b l tl tr bl br (sides + corners). Omit to autoroute to the nearest handle.")
 
+	edgeLabelSchema := schemaString("Optional relationship label drawn at the edge midpoint — \"depends on\", \"triggers\", \"owns\". Keep it to a few words. Whitespace is collapsed and the text is capped at 500 characters.")
+
 	addTool("add_edge",
-		"Add an undirected edge between two nodes in the same map. Replaces any prior edge between the same pair. Edges only connect nodes — not text, lines, or strokes.",
+		"Add an undirected edge between two nodes in the same map. Replaces any prior edge between the same pair. Edges only connect nodes — not text, lines, or strokes. Pass 'label' to name the relationship the edge represents.",
 		map[string]any{
 			"path":       schemaString("Map path: '/' for root, '/<node_id>' for a node's submap, '/<node_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
 			"from":       schemaString("Source node id."),
@@ -1331,10 +1356,11 @@ func mcpTools() []mcpToolDef {
 			"fromHandle": handleSchema,
 			"toHandle":   handleSchema,
 			"palette":    paletteSchema,
+			"label":      edgeLabelSchema,
 		}, []string{"from", "to"})
 
 	addTool("update_edge",
-		"Update the edge between two nodes: re-aim a handle or set the palette. Identify the edge by 'from'/'to' in either order (edges are undirected); handle args are interpreted relative to the args' direction.",
+		"Update the edge between two nodes: re-aim a handle, set the palette, or set/clear the midpoint label. Identify the edge by 'from'/'to' in either order (edges are undirected); handle args are interpreted relative to the args' direction.",
 		map[string]any{
 			"path":       schemaString("Map path: '/' for root, '/<node_id>' for a node's submap, '/<node_id>/<inner_id>' deeper. Defaults to '/'. Submaps are created implicitly on first write."),
 			"from":       schemaString("One endpoint node id (matches in either direction)."),
@@ -1342,6 +1368,7 @@ func mcpTools() []mcpToolDef {
 			"fromHandle": handleSchema,
 			"toHandle":   handleSchema,
 			"palette":    schemaNumber("Optional palette index 1..9 (1 resets to default)."),
+			"label":      schemaString("Relationship label drawn at the edge midpoint. Pass an empty string to remove the label."),
 		}, []string{"from", "to"})
 
 	addTool("delete_edge",

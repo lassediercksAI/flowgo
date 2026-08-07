@@ -76,6 +76,7 @@ const setup = (map: TestMap = makeMap()): Harness => {
   const lineLayer = document.createElementNS(SVG_NS, "g") as SVGGElement;
   const strokeLayer = document.createElementNS(SVG_NS, "g") as SVGGElement;
   const edgeLayer = document.createElementNS(SVG_NS, "g") as SVGGElement;
+  const edgeLabelLayer = document.createElement("div");
   svg.append(strokeLayer, lineLayer, edgeLayer);
   document.body.append(canvas, svg);
 
@@ -88,6 +89,8 @@ const setup = (map: TestMap = makeMap()): Harness => {
     lineLayer,
     strokeLayer,
     edgeLayer,
+    edgeLabelLayer,
+    editEdgeLabel: () => {},
     currentMap: () => map,
     graph: () => graph,
     currentPath: () => "/",

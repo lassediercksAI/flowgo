@@ -23,7 +23,18 @@ interface BoxLike {
   readonly shape?: number | undefined;
 }
 
-const boxFor = (el: HTMLElement, b: BoxLike): Box2D => ({
+// Anything that can report a box's rendered size. A live HTMLElement
+// satisfies it structurally, and so does a plain
+// `{ offsetWidth, offsetHeight }` snapshot — which is what lets
+// render.ts read every box element's size ONCE per pass and then run
+// the anchor maths without touching the DOM again (brain#25b: the
+// per-edge read/write interleave in renderEdges).
+export interface ElSize {
+  readonly offsetWidth: number;
+  readonly offsetHeight: number;
+}
+
+const boxFor = (el: ElSize, b: BoxLike): Box2D => ({
   x: b.x,
   y: b.y,
   width: el.offsetWidth,
@@ -31,14 +42,14 @@ const boxFor = (el: HTMLElement, b: BoxLike): Box2D => ({
 });
 
 export const handleAnchor = (
-  el: HTMLElement,
+  el: ElSize,
   b: BoxLike,
   code: HandleCode,
 ): Vec2 => handleAnchorPure(boxFor(el, b), code, b.shape);
 
 export const nearestHandle = (
   b: BoxLike,
-  el: HTMLElement,
+  el: ElSize,
   fx: number,
   fy: number,
 ): HandleCode => nearestHandlePure(boxFor(el, b), [fx, fy], b.shape);
@@ -77,7 +88,7 @@ export const pickTargetHandle = (
 // hexagon endpoints land on the silhouette.
 export const endpointAnchor = (
   b: BoxLike,
-  el: HTMLElement,
+  el: ElSize,
   code: string | null | undefined,
   towardX: number,
   towardY: number,

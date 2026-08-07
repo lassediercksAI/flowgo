@@ -53,6 +53,32 @@ describe("parseFlowgo", () => {
     });
   });
 
+  // brain#266: slot 5 is the edge label, behind the palette. Palette 1
+  // is the sentinel that holds the slot for an otherwise-unstyled
+  // labelled edge and must not become a real palette.
+  it("parses the edge label out of slot 5", () => {
+    const g = parseFlowgo('node b1 a 0 0\nnode b2 b 1 1\nedge b1 b2 1 "depends on"\n');
+    expect(g.maps![0]!.edges![0]).toEqual({
+      from: "b1",
+      to: "b2",
+      label: "depends on",
+    });
+    const styled = parseFlowgo("node b1 a 0 0\nnode b2 b 1 1\nedge b1:t b2:bl 5 owns\n");
+    expect(styled.maps![0]!.edges![0]).toEqual({
+      from: "b1",
+      fromHandle: "t",
+      to: "b2",
+      toHandle: "bl",
+      palette: 5,
+      label: "owns",
+    });
+  });
+
+  it("reads a hand-written empty edge label token as no label", () => {
+    const g = parseFlowgo('node b1 a 0 0\nnode b2 b 1 1\nedge b1 b2 1 ""\n');
+    expect(g.maps![0]!.edges![0]).toEqual({ from: "b1", to: "b2" });
+  });
+
   it("parses nodesize / nodeshape / anchor annotations onto an existing box", () => {
     const g = parseFlowgo("node b1 hi 0 0\nnodesize b1 100 50\nnodeshape b1 1\nanchor b1\n");
     expect(g.maps![0]!.boxes![0]).toMatchObject({ w: 100, h: 50, shape: 1, anchor: true });
@@ -114,7 +140,7 @@ describe("parseFlowgo", () => {
             { id: "b2", label: "hex", x: 10, y: 20, shape: 1, anchor: true },
             { id: "b3", label: "sized", x: 5, y: 5, w: 120, h: 60 },
           ],
-          edges: [{ from: "b1", to: "b2", fromHandle: "t", toHandle: "bl", palette: 6 }],
+          edges: [{ from: "b1", to: "b2", fromHandle: "t", toHandle: "bl", palette: 6, label: "depends on" }],
           texts: [{ id: "t1", label: "hello\nworld", x: 3, y: 4, palette: 2, font: 5 }],
           lines: [{ id: "l1", x1: 0, y1: 0, x2: 9, y2: 9, palette: 7, style: 2, mids: [[3, 3], [6, 6]] }],
           strokes: [{ id: "s1", points: [[0, 0], [1, 1], [2, 2]], palette: 8 }],

@@ -54,6 +54,9 @@ interface EdgeLike {
   fromHandle?: string;
   to: string;
   toHandle?: string;
+  palette?: number;
+  /** Relationship label drawn at the edge midpoint (brain#266). */
+  label?: string;
 }
 
 interface CurrentMap {
@@ -159,6 +162,10 @@ export const cloneSelection = (): Map<string, string> => {
       const edgeCopy: EdgeLike = { from: newFrom, to: newTo };
       if (ed.fromHandle) edgeCopy.fromHandle = ed.fromHandle;
       if (ed.toHandle) edgeCopy.toHandle = ed.toHandle;
+      // A cloned connection keeps its colour and its label — the
+      // duplicate is meant to be a duplicate (brain#266).
+      if (ed.palette) edgeCopy.palette = ed.palette;
+      if (ed.label) edgeCopy.label = ed.label;
       map.edges.push(edgeCopy);
     }
   }

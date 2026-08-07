@@ -60,7 +60,7 @@ import {
   cloneSelection as cloneSelectionPure,
   wireClone,
 } from "./clone.ts";
-import { wireEdit } from "./edit.ts";
+import { startEdgeLabelEdit, wireEdit } from "./edit.ts";
 import { invalidateUidCache, mintId, wireUid } from "./uid.ts";
 import {
   applyClasses,
@@ -68,6 +68,7 @@ import {
   getBoxEl,
   getTextEl,
   renderAll,
+  renderEdgeLabels,
   renderItems,
   scheduleCullUpdate,
   wireProximity,
@@ -120,6 +121,7 @@ let nearTargetId = null;  // box close enough to the cursor for proximity
 
 const canvas = document.getElementById("canvas");
 const edgeLayer = document.getElementById("edge-layer");
+const edgeLabelLayer = document.getElementById("edge-label-layer");
 const lineLayer = document.getElementById("line-layer");
 const strokeLayer = document.getElementById("stroke-layer");
 const ghostLine = document.getElementById("ghost-line");
@@ -179,6 +181,8 @@ wireRender({
   lineLayer,
   strokeLayer,
   edgeLayer,
+  edgeLabelLayer,
+  editEdgeLabel: (el, e) => startEdgeLabelEdit(el, e),
   currentMap: () => state,
   graph: () => graph,
   currentPath: () => currentPath,
@@ -282,6 +286,7 @@ wireEdit({
   selected,
   renderAll: () => renderAll(),
   renderItem: (id) => renderItems([id]),
+  renderEdgeLabels: () => renderEdgeLabels(),
   setStatus,
 });
 

@@ -84,6 +84,9 @@ interface EdgeLike {
   fromHandle?: string;
   to: string;
   toHandle?: string;
+  palette?: number;
+  /** Relationship label drawn at the edge midpoint (brain#266). */
+  label?: string;
 }
 
 interface CurrentMap {
@@ -196,12 +199,18 @@ export const copySelection = (): boolean => {
   }
   for (const e of map.edges) {
     if (boxIds.has(e.from) && boxIds.has(e.to)) {
-      edges.push({
+      // Everything the edge carries travels with it: dropping the
+      // palette or the label here would make copy-paste quietly
+      // downgrade a connection to a bare line.
+      const copy: EdgeLike = {
         from: e.from,
         fromHandle: e.fromHandle ?? "",
         to: e.to,
         toHandle: e.toHandle ?? "",
-      });
+      };
+      if (e.palette) copy.palette = e.palette;
+      if (e.label) copy.label = e.label;
+      edges.push(copy);
     }
   }
   if (!boxes.length && !texts.length && !lines.length && !images.length) {
@@ -323,6 +332,8 @@ export const pasteSelection = (): void => {
     const newEdge: EdgeLike = { from, to };
     if (ed.fromHandle) newEdge.fromHandle = ed.fromHandle;
     if (ed.toHandle) newEdge.toHandle = ed.toHandle;
+    if (ed.palette) newEdge.palette = ed.palette;
+    if (ed.label) newEdge.label = ed.label;
     map.edges.push(newEdge);
   }
   // The paste cascade can drop hexagons onto occupied spots (the

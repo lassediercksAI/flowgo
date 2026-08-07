@@ -64,6 +64,7 @@ beforeAll(() => {
   // Layers applyViewport() writes to.
   el("bg-layer");
   const canvas = el("canvas");
+  el("edge-label-layer");
   const svg = document.createElementNS(SVG_NS, "svg");
   document.body.appendChild(svg);
   for (const id of ["line-layer", "stroke-layer", "edge-layer"]) {
