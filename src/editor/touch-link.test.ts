@@ -40,6 +40,8 @@
 // run (Chromium CDP Input.dispatchTouchEvent, 390×780, hasTouch) covers
 // the engine end; iOS itself needs a device.
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { attachTouchListeners, wireTouch } from "./touch.ts";
 import { applyViewport, viewport } from "./viewport.ts";
@@ -548,32 +550,62 @@ describe("touch link-drag entitlement and mode interaction", () => {
 
   // The `selected.has(boxId)` gate in classifyTarget has exactly one
   // live case left. Under lazy chrome an unselected box usually has no
-  // handle element at all, so the gate is unreachable — EXCEPT when the
+  // handle ELEMENT at all, so the gate is unreachable — EXCEPT when the
   // box was entitled some other way. Proximity is that way: a touch the
   // handlers decline (a tap on chrome) is not preventDefault'ed, so the
   // browser synthesizes a mousemove, mouse.ts's idle hover path runs
-  // updateProximity, and the nearest box gets its dots — solid, because
-  // `.box.proximity-target .handle { opacity: 1 }` applies on coarse
-  // pointers too. The dot is then visible but inert: touching it drags
-  // the box (verified in a real coarse-pointer Chromium).
+  // updateProximity, and the nearest box within PROXIMITY_PX gets its
+  // chrome — on a box the user never selected and may never have
+  // touched.
   //
-  // This test pins the CURRENT behaviour rather than blessing it. It is
-  // a pre-existing divergence from desktop, where a hover-revealed
-  // handle does start a link, and it is the only known wart on this
-  // path. Changing it is a product decision — make it deliberate, and
-  // change this test with it.
-  it("a proximity-revealed handle on an unselected box drags the box, not a link", () => {
+  // On touch, such a handle MUST NOT start a link (brain#278): the
+  // proximity entitlement is an accident of where a declined tap
+  // landed, not a reach for that dot, so honouring it would turn a
+  // sloppy touch near any box into a stray edge instead of a pan. The
+  // gate below is what refuses it. Its other half is the stylesheet:
+  // the proximity reveal is scoped to `@media (pointer: fine)`, so the
+  // dot this test grabs is INVISIBLE on a coarse pointer — the next
+  // test pins that, and `just touch-e2e` measures the computed opacity
+  // in a real coarse-pointer Chromium. Visible-and-inert was the bug;
+  // invisible-and-inert is the contract.
+  it("a proximity-entitled handle on an unselected box drags the box, not a link", () => {
     const b = map.boxes.find((x) => x.id === "b")!;
     updateProximity(b.x + 1, b.y + 1);
     expect(state.nearId).toBe("b");
     const h = handleEl("b", "l");
-    expect(h, "proximity entitles chrome, so the dot exists and is visible").not.toBeNull();
+    expect(h, "proximity entitles chrome, so the element exists").not.toBeNull();
     expect(selected.has("b")).toBe(false);
     fire("touchstart", h!, [boxCentre("b")]);
     expect(state.link).toBeNull();
     expect(state.drag).not.toBeNull();
     fire("touchcancel", h!, []);
     clearProximity();
+  });
+
+  // The stylesheet half of the same contract. jsdom applies no CSS and
+  // matches no media query, so this reads the source of truth
+  // (src/editor/index.html, which pnpm build inlines into
+  // pkg/flowgo/dist) and asserts that the ONE rule which can reveal a
+  // handle without selection is fine-pointer-only. Without this, the
+  // test above keeps passing while the dot goes back to lying.
+  it("the proximity reveal is scoped to fine pointers, so no coarse dot is inert", () => {
+    // Vite rewrites import.meta.url to an http URL, so resolve from the
+    // vitest root (the repo) instead.
+    const css = readFileSync(join(process.cwd(), "src/editor/index.html"), "utf8");
+    const revealers = [...css.matchAll(/^[^\n{}]*\.proximity-target[^\n{}]*\{[^}]*\}/gm)]
+      .map((m) => m[0]);
+    expect(revealers.length, "expected exactly one .proximity-target handle rule").toBe(1);
+    // …and it lives inside `@media (pointer: fine)`.
+    const at = css.indexOf(revealers[0]!);
+    const open = css.lastIndexOf("@media", at);
+    expect(open, "the rule is not inside any @media block").toBeGreaterThan(-1);
+    const guard = css.slice(open, css.indexOf("{", open));
+    expect(guard).toMatch(/pointer:\s*fine/);
+    // The guard must not have closed before the rule: count braces
+    // between the @media's `{` and the rule.
+    const between = css.slice(css.indexOf("{", open) + 1, at);
+    const depth = (between.match(/\{/g) ?? []).length - (between.match(/\}/g) ?? []).length;
+    expect(depth, "the @media block closed before the rule").toBe(0);
   });
 
   it("brush mode claims the touch instead of starting a link", () => {

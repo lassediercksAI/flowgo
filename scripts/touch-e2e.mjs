@@ -31,7 +31,12 @@
 //   - it still works after a pinch and a pan, at scale != 1,
 //   - the drag survives a path that wanders over the chrome,
 //   - re-routing an existing edge works,
-//   - brush / line mode hide the handles instead of half-claiming them.
+//   - brush / line mode hide the handles instead of half-claiming them,
+//   - a dot the user can SEE is a dot that works: a chrome tap still
+//     entitles a nearby unselected box's chrome, but the proximity
+//     reveal is fine-pointer-only, so nothing visible is inert
+//     (brain#278 — needs a real engine for both the synthesized
+//     mousemove and the media query).
 //
 // SCOPE, honestly: Chromium reproduces the touch SEQUENCE, so the drag
 // is meaningfully tested. It does NOT reproduce iOS Safari's click
@@ -521,6 +526,81 @@ const main = async () => {
       const edges = edgesOf(s.file);
       check(edges.length === 1, "GRAPH STATE: a re-route leaves exactly one edge", JSON.stringify(edges));
       check(edges.length === 1 && / c(:\w+)?$/.test(edges[0]), "GRAPH STATE: …now anchored to c, not b", JSON.stringify(edges));
+    });
+
+    // ---------------------------------------------------------
+    section("8. a proximity-lit dot must not lie (brain#278)");
+    // ---------------------------------------------------------
+    // The one live case of classifyTarget's `selected.has(boxId)` gate.
+    // A tap on chrome is declined by onTouchStart WITHOUT
+    // preventDefault, so the browser synthesizes a mousemove at the
+    // finger; mouse.ts's idle hover path runs updateProximity and
+    // entitles the nearest box within PROXIMITY_PX — a box nobody
+    // selected. Before the fix its dots were painted solid (opacity 1)
+    // yet touching one dragged the box. This is the half jsdom cannot
+    // see: it takes a real coarse-pointer engine to synthesize the
+    // mousemove AND resolve the media query.
+    await scenario("box a A 0 -200\nbox b B 0 120\n", async (s) => {
+      const bar = await s.rectOf("#contextBar");
+      check(!!bar, "the touch context bar is on screen");
+      // A point ON the bar itself — not on one of its buttons, which
+      // preventDefault on pointerup and so suppress the compatibility
+      // mouse events — and close enough to box b to be inside the
+      // proximity radius. A fixture where no such point exists is a
+      // FIXTURE error: the case would silently not be under test.
+      const spot = await s.page.evaluate(() => {
+        const el = document.getElementById("contextBar");
+        const box = document.querySelector('.box[data-id="b"]');
+        if (!el || !box) return null;
+        const r = el.getBoundingClientRect();
+        const b = box.getBoundingClientRect();
+        for (let y = r.top + 2; y < r.bottom - 2; y += 4) {
+          for (let x = r.left + 2; x < r.right - 2; x += 4) {
+            if (document.elementFromPoint(x, y) !== el) continue;
+            const dx = Math.max(b.left - x, 0, x - b.right);
+            const dy = Math.max(b.top - y, 0, y - b.bottom);
+            if (Math.hypot(dx, dy) <= 55) return { x, y };
+          }
+        }
+        return null;
+      });
+      if (!spot) throw new Error("fixture: no bare context-bar point within the proximity radius of box b");
+
+      await s.tap(spot.x, spot.y);
+      const near = await s.chromeOf("b");
+      // The mechanism must still fire, or the opacity check below is
+      // vacuous — we are asserting the dot is HIDDEN, not that the
+      // chrome was never built.
+      check(near.cls.includes("proximity-target"), "a chrome tap still leaks a mousemove into the proximity cue", JSON.stringify(near.cls));
+      check(near.handles === 8, "…which entitles the box's chrome (brain#239)", JSON.stringify(near));
+      check(!near.cls.includes("selected"), "…on a box the user never selected", JSON.stringify(near.cls));
+      const opacity = await s.page.evaluate(() =>
+        getComputedStyle(document.querySelector('.box[data-id="b"] .handle[data-handle="t"]')).opacity);
+      check(opacity === "0", "brain#278: the dots stay INVISIBLE on a coarse pointer", `opacity=${opacity}`);
+
+      // …and the gate that made them inert is still there, so invisible
+      // and inert agree instead of contradicting each other.
+      const h = await s.rectOf('.box[data-id="b"] .handle[data-handle="t"]');
+      const a = await s.rectOf('.box[data-id="a"]');
+      await s.touch("touchStart", [[h.x, h.y]]);
+      await wait(30);
+      for (const p of s.lerp(h, a, 8)) {
+        await s.touch("touchMove", [[p.x, p.y]]);
+        await wait(16);
+      }
+      await s.touch("touchEnd", []);
+      await wait(500);
+      check(edgesOf(s.file).length === 0, "GRAPH STATE: touching one starts no link", JSON.stringify(edgesOf(s.file)));
+
+      // Control, in the same page: fine-scoping the proximity rule must
+      // not have taken the SELECTION reveal with it.
+      const ac = await s.mustReach("a");
+      await s.tap(ac.x, ac.y);
+      const selOpacity = await s.page.evaluate(() =>
+        getComputedStyle(document.querySelector('.box[data-id="a"] .handle[data-handle="b"]')).opacity);
+      check(selOpacity === "1", "a SELECTED box's dots are still visible", `opacity=${selOpacity}`);
+      await s.linkDrag("a", "b", { x: h.x, y: h.y });
+      check(edgesOf(s.file).length === 1, "GRAPH STATE: …and still start a link", JSON.stringify(edgesOf(s.file)));
     });
 
     section("uncaught page errors");

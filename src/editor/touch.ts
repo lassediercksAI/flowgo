@@ -280,6 +280,13 @@ const classifyTarget = (
   // box is selected, so accepting an invisible-handle touch would
   // start a connection from a target the user can't see. Falling
   // through to the box-body drag instead matches the visible UI.
+  //
+  // This gate and the coarse-pointer stylesheet are two halves of one
+  // contract (brain#278): the CSS scopes the proximity reveal to fine
+  // pointers precisely so that "visible" and "selected" cannot come
+  // apart here. Widen either half without the other and the dot starts
+  // lying again — either a visible dot that drags the box, or an
+  // invisible one that starts a link.
   const handleEl = target.closest<HTMLElement>(".handle");
   if (handleEl) {
     const boxEl = handleEl.parentElement?.closest?.<HTMLElement>(".box") ?? null;
