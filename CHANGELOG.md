@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.17](https://github.com/lassediercks/flowgo/compare/v0.3.16...v0.3.17) (2026-08-08)
+
+
+### Bug Fixes
+
+* **editor:** make the ↑ Up button survive a tap with no click ([1b8d1f8](https://github.com/lassediercks/flowgo/commit/1b8d1f890de12c7bdda8be5525bd77069d84b167))
+
 ## [0.3.16](https://github.com/lassediercks/flowgo/compare/v0.3.15...v0.3.16) (2026-08-07)
 
 
