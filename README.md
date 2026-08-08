@@ -1,25 +1,48 @@
 # flowgo
 
-A tiny mind-map / flowchart editor that round-trips between a browser GUI and a
-plain-text `.flowgo` file. Every change in the GUI rewrites the file, and the
-file is the source of truth — you can hand-edit it, version-control it, or
-generate it from another tool.
+**Your agent draws the map, you drag the boxes to fix it, and the whole thing
+is a text file in git.**
 
-> **License:** [AGPL-3.0](LICENSE). The core editor and MCP server are AGPL —
-> use, modify, and self-host freely. Network use of a modified version
-> obligates you to share the source under the same license.
->
-> The hosted collaboration / sharing service at **flowgo-map.com** is a
-> separate proprietary product running on top of this core. It is not part of
-> the AGPL release.
+A nested diagram editor that round-trips between a browser GUI and a plain-text
+`.flowgo` file. Every change in the GUI rewrites the file, and the file is the
+source of truth — hand-edit it, version-control it, or let an agent generate it
+over MCP. Every box can contain its own submap, so a map grows *inward* instead
+of sprawling.
+
+## Why not just use Mermaid?
+
+Use Mermaid until it gets too big. flowgo starts where Mermaid stops.
+
+|  | Mermaid / PlantUML | D2 | Excalidraw | **flowgo** |
+|---|---|---|---|---|
+| Source of truth | text | text | JSON blob | **text** |
+| Human can drag it | no | no | yes | **yes** |
+| GUI edits write back to source | — | — | no | **yes** |
+| Nested drill-down | no | containers | no | **every box** |
+| Diffs in a PR | yes | yes | not readably | **yes** |
+
+The row that matters is the third one. Mermaid and D2 are render pipelines with
+no editor, so there is nothing for a GUI to write back into. Excalidraw has the
+canvas but its file is a JSON blob nobody hand-edits. **flowgo is the one where
+the file, the canvas, and the agent are all editing the same thing** — which is
+what makes an agent-drawn diagram correctable instead of disposable.
+
+Flowcharts, sequence diagrams, ER/UML and Gantt charts are Mermaid's job and
+flowgo doesn't try to compete there. flowgo is for maps with nested structure:
+architecture models, system maps, thinking canvases, plans with sub-plans.
 
 ## Try it
 
 The path of least resistance, in order:
 
-**1. In your browser, no install:** [flowgo-map.com](https://flowgo-map.com)
+**1. From an agent, nothing installed:** point any MCP client at
+`https://flowgo-map.com/api/mcp` and call `create_map(flowgo_text)`. One call,
+no binary, returns a public share URL. See [MCP](#mcp-ai-integration) below and
+[`agent-skill/`](agent-skill/) for a ready-made Claude Code Skill.
 
-**2. On macOS / Linux via Homebrew:**
+**2. In your browser, no install:** [flowgo-map.com](https://flowgo-map.com)
+
+**3. On macOS / Linux via Homebrew:**
 
 ```
 brew install lassediercks/flowgo/flowgo
@@ -29,7 +52,7 @@ flowgo new
 The tap lives at [lassediercks/homebrew-flowgo](https://github.com/lassediercks/homebrew-flowgo)
 and tracks the latest release. `brew upgrade flowgo` pulls new versions.
 
-**3. On your machine, one command:**
+**4. On your machine, one command:**
 
 ```
 go install github.com/lassediercks/flowgo@latest
@@ -52,27 +75,7 @@ with one seed box.
 
 ---
 
-## Contributing
-
-Everything below is for working on flowgo itself.
-
-### Local dev loop
-
-```
-just dev
-```
-
-Runs `vite build --watch` for the frontend and re-runs `go run` whenever any
-`*.go` file or `dist/index.html` changes. Requires `pnpm` and `go`. Ctrl+C
-tears both processes down cleanly.
-
-Other recipes:
-
-- `just build` — frontend bundle + `./flowgo` binary
-- `just test` — vitest + `go test ./...`
-- `just typecheck` — `tsc --noEmit`
-
-### File format
+## The file format
 
 Plain UTF-8 text, one directive per line, `#` for comments.
 
@@ -114,7 +117,7 @@ anchor <id>
 - `anchor <id>` marks one box per map as the recenter target. At most one per
   map; the parser/serializer enforce the invariant.
 
-#### Example
+### Example
 
 ```
 box b1 "Project" 120 100
@@ -134,7 +137,7 @@ box d1 "Bug #42" 100 100
 Files without any `map` directive parse as a single root map — fully
 backwards-compatible with the flat form.
 
-### Embedding (standalone renderer)
+## Embedding (standalone renderer)
 
 `pnpm build:inline` builds `dist-inline/flowgo-inline.js`: a single
 dependency-free script that renders `.flowgo` text read-only, with
@@ -154,9 +157,15 @@ first, then open the file). This is the same entry point Obsidian/VS
 Code/remark plugins and the browser extension render against — see
 `src/render/inline.ts`.
 
-### MCP (AI integration)
+## MCP (AI integration)
 
-`flowgo <file>` also serves a [Model Context Protocol](https://spec.modelcontextprotocol.io)
+**Hosted, zero-install:** [flowgo-map.com](https://flowgo-map.com) runs a remote
+MCP at `https://flowgo-map.com/api/mcp` with a `create_map(flowgo_text)` tool —
+one call, no local binary, returns a public share URL. See
+[`agent-skill/`](agent-skill/) for a ready-to-install Claude Code Skill (`/map`)
+and Cursor command wired up to it.
+
+Locally, `flowgo <file>` also serves a [Model Context Protocol](https://spec.modelcontextprotocol.io)
 endpoint at `/mcp` on the same port as the GUI. Point any MCP client (Claude
 Desktop, Cursor, etc.) at:
 
@@ -199,13 +208,7 @@ All tools take an optional `path` (defaults to `/`) so AI can target submaps.
 The transport is JSON-RPC 2.0 over POST (streamable-HTTP, simple form — no
 sessions or SSE).
 
-**Hosted, zero-install:** [flowgo-map.com](https://flowgo-map.com) also runs
-a remote MCP at `https://flowgo-map.com/api/mcp` with a `create_map(flowgo_text)`
-tool — one call, no local binary, returns a public share URL. See
-[`agent-skill/`](agent-skill/) for a ready-to-install Claude Code Skill
-(`/map`) and Cursor command wired up to it.
-
-#### Signing in from an agent (hosted only)
+### Signing in from an agent (hosted only)
 
 Hosted sessions are anonymous by default: maps you create are reachable by
 link but belong to nobody. The hosted server additionally offers an
@@ -232,6 +235,41 @@ account-linking seam (`flowgo.MCPAuth`), not replace it.
 The library exposes this as `flowgo.Config.Auth` (a `flowgo.MCPAuth`
 implementation supplied by the host). It is `nil` for the CLI and for
 `flowgo serve`, which is why `authenticate` doesn't appear there.
+
+## License
+
+[AGPL-3.0](LICENSE). The core editor and MCP server are AGPL — use, modify and
+self-host freely. Network use of a modified version obligates you to share the
+source under the same license.
+
+The hosted collaboration / sharing service at **flowgo-map.com** is a separate
+proprietary product running on top of this core. It is not part of the AGPL
+release.
+
+The `.flowgo` format is plain text you can read without the tool, which is the
+practical guarantee: whatever happens to this project, your maps stay legible.
+
+---
+
+## Contributing
+
+Everything below is for working on flowgo itself.
+
+### Local dev loop
+
+```
+just dev
+```
+
+Runs `vite build --watch` for the frontend and re-runs `go run` whenever any
+`*.go` file or `dist/index.html` changes. Requires `pnpm` and `go`. Ctrl+C
+tears both processes down cleanly.
+
+Other recipes:
+
+- `just build` — frontend bundle + `./flowgo` binary
+- `just test` — vitest + `go test ./...`
+- `just typecheck` — `tsc --noEmit`
 
 ### Releases
 
