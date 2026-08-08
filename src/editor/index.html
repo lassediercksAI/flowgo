@@ -136,6 +136,15 @@
   #toolbar button {
     margin-right: 6px; flex: none;
     display: inline-flex; align-items: center; gap: 4px;
+    /* touch-action is not inherited, but the effective value is the
+       intersection with every ancestor's — and html/body above are
+       `none`. Set it on the button itself so a tap is treated as a
+       tap, same as #helpBtn / #zoomCtl button / #contextBar button.
+       Paired with toolbar.ts's pointer-first activation: brain#294. */
+    touch-action: manipulation;
+    /* A tap that starts a text selection on the label can swallow the
+       activation on touch. Chrome doesn't need to be selectable. */
+    user-select: none; -webkit-user-select: none;
   }
   #version {
     position: absolute;
@@ -1380,7 +1389,7 @@
     <h3>Navigation</h3>
     <table>
       <tr><td>Long-press a node</td><td>Enter its submap</td></tr>
-      <tr><td><kbd>↑ Up</kbd> button (top-left)</td><td>Navigate one level up</td></tr>
+      <tr><td><kbd>↑ Up</kbd> button (top centre)</td><td>Navigate one level up</td></tr>
       <tr><td>Tap the <kbd>/</kbd> breadcrumb segment</td><td>Jump back to the root map (intermediate levels are collapsed into "…")</td></tr>
     </table>
 

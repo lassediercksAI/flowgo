@@ -603,6 +603,75 @@ const main = async () => {
       check(edgesOf(s.file).length === 1, "GRAPH STATE: …and still start a link", JSON.stringify(edgesOf(s.file)));
     });
 
+    // ---------------------------------------------------------
+    section("9. ↑ Up survives a tap with no synthesized click (brain#294)");
+    // ---------------------------------------------------------
+    // Up is the only way out of a submap on a phone, and it was the
+    // last chrome control whose only activation path was `click`. iOS
+    // Safari does not reliably synthesize one from a tap while
+    // touch.ts holds its document-level {passive:false} listeners
+    // (brain#256/#257) — which reads as "the up button does not work
+    // at all". Chromium can't reproduce iOS's synthesis, but it CAN
+    // reproduce the outcome: preventDefault() on touchend suppresses
+    // the compatibility mouse events, click included. Before the fix
+    // that killed Up while #helpBtn and #zoomCtl carried on.
+    await scenario("map /\nbox a A 0 0\nmap /a\nbox b B 0 0\n", async (s) => {
+      const intoSubmap = async () => {
+        await s.page.evaluate(() => { location.hash = "#/a"; });
+        await wait(500);
+      };
+      const hash = () => s.page.evaluate(() => location.hash);
+      const upRect = () => s.rectOf("#upBtn");
+
+      await intoSubmap();
+      check((await hash()).startsWith("#/a"), "in the submap", await hash());
+      const up = await upRect();
+      check(!!up && up.w > 0, "the ↑ Up button is on screen", JSON.stringify(up));
+      const reach = await s.page.evaluate(([x, y]) => {
+        const el = document.elementFromPoint(x, y);
+        return el ? (el.closest("button")?.id ?? el.id ?? el.tagName) : null;
+      }, [up.x, up.y]);
+      check(reach === "upBtn", "…and nothing is painted over it", String(reach));
+      check(
+        (await s.page.evaluate(() => getComputedStyle(document.getElementById("upBtn")).touchAction)) === "manipulation",
+        "…and it opts back in to tap handling (html/body are touch-action: none)",
+      );
+
+      // Baseline: an ordinary tap climbs a level.
+      await s.tap(up.x, up.y);
+      await wait(500);
+      check((await hash()).replace(/\?.*/, "") === "#/", "a tap climbs one level", await hash());
+
+      // Now the failure mode. Count clicks on the button so a pass
+      // can't be the old path quietly working.
+      await intoSubmap();
+      await s.page.evaluate(() => {
+        window.__upClicks = 0;
+        document.getElementById("upBtn").addEventListener("click", () => { window.__upClicks++; }, true);
+        window.addEventListener("touchend", (e) => e.preventDefault(), { capture: true, passive: false });
+      });
+      const up2 = await upRect();
+      await s.tap(up2.x, up2.y);
+      await wait(500);
+      const clicks = await s.page.evaluate(() => window.__upClicks);
+      check(clicks === 0, "the tap really produced no click", `clicks=${clicks}`);
+      check((await hash()).replace(/\?.*/, "") === "#/", "brain#294: …and Up climbed anyway", await hash());
+      check(
+        (await s.page.evaluate(() => document.getElementById("upBtn").style.display)) === "none",
+        "…landing at the root, where the button hides itself",
+      );
+
+      // Control, same page, same suppression: the controls that were
+      // already pointer-first are unaffected, so this is measuring the
+      // toolbar and not a broken harness.
+      const z = await s.rectOf("#zoomCtl button");
+      const before = await s.page.evaluate(() => document.getElementById("zoomCtl").textContent);
+      await s.tap(z.x, z.y);
+      await wait(300);
+      const after = await s.page.evaluate(() => document.getElementById("zoomCtl").textContent);
+      check(before !== after, "control: #zoomCtl was already pointer-first and still works", `${before} -> ${after}`);
+    });
+
     section("uncaught page errors");
     check(errors.length === 0, "no uncaught errors in any page");
     for (const e of errors) log(`\n${e}`);
