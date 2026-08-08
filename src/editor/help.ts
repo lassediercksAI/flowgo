@@ -31,6 +31,12 @@ export const isHelpOpen = (): boolean =>
 // held for a fixed window rather than a setTimeout(0) — long enough to
 // swallow a late click, short enough that a deliberate second tap
 // (open → close → open) still registers.
+// NOTE (brain#294): toolbar.ts has a sibling helper of the same name
+// with deliberately different semantics. This latch spans BOTH events,
+// which is right for a toggle — a second activation inside the window
+// would just undo the first. Up is repeatable (three fast taps must
+// climb three levels), so its latch only ever suppresses the click
+// that trails a pointerup, never a pointerup. Don't merge them.
 const ACTIVATION_LATCH_MS = 500;
 
 const onActivate = (el: Element, run: () => void): void => {

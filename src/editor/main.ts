@@ -18,6 +18,7 @@ import {
 } from "../index.ts";
 
 import { attachHelpListeners } from "./help.ts";
+import { attachToolbarButtons } from "./toolbar.ts";
 import {
   recenter as recenterPure,
   toDataX,
@@ -518,9 +519,10 @@ attachContextBar();
 // percentage resets the view like Cmd/Ctrl+0.
 attachZoomControl({ currentMap: () => state });
 
-document.getElementById("upBtn").addEventListener("click", goUp);
-document.getElementById("downloadBtn").addEventListener("click", downloadFlowgo);
-document.getElementById("reshareBtn").addEventListener("click", reshare);
+// Top toolbar: ↑ Up plus the two snapshot-mode buttons. Activation is
+// pointer-first (brain#294) — see toolbar.ts for why a bare `click`
+// leaves Up dead on iOS.
+attachToolbarButtons({ goUp, downloadFlowgo, reshare });
 
 // Suppress middle-click autoscroll/paste so we can use it for navigation.
 // (auxclick is suppressed inside attachMouseListeners.)
