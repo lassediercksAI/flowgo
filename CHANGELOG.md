@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.18](https://github.com/lassediercks/flowgo/compare/v0.3.17...v0.3.18) (2026-08-10)
+
+
+### Bug Fixes
+
+* **editor:** give hexagon and triangle a real border at every zoom ([fbd2e0f](https://github.com/lassediercks/flowgo/commit/fbd2e0f62701539481b2efd51013f0d3bae39268))
+
 ## [0.3.17](https://github.com/lassediercks/flowgo/compare/v0.3.16...v0.3.17) (2026-08-08)
 
 
