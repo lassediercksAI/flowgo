@@ -401,6 +401,10 @@
      src/graph/hex.ts depends on the uniform size. */
   .box.hex {
     --hex-poly: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+    /* --hex-poly scaled about (50%, 50%) by k = (apothem − 2) / apothem
+       ≈ 0.98076, so every edge sits a true 2px inside its outer twin.
+       See the ::after rule below for why an inset box will not do. */
+    --hex-poly-inner: polygon(25.48% 0.97%, 74.52% 0.97%, 99.01% 50%, 74.52% 99.03%, 25.48% 99.03%, 0.99% 50%);
     --hex-border: #333;
     --hex-fill: #fff;
     background: transparent;
@@ -422,7 +426,23 @@
     pointer-events: none;
   }
   .box.hex::before { inset: 0; background: var(--hex-border); z-index: 0; }
-  .box.hex::after { inset: 2px; background: var(--hex-fill); z-index: 1; }
+  /* The fill is a SHRUNKEN POLYGON, not an inset box. `inset: 2px` used
+     to be here, and it is wrong for any edge that isn't axis-aligned:
+     insetting the bounding box by d moves a slanted edge inward by
+     d·sin(θ) perpendicular, not d. On the hexagon that made the six
+     diagonal edges ~1.73px against the flat top and bottom's 2px, and
+     the thin ones then rounded away to nothing when the canvas was
+     scaled down (brain#2b0).
+     --hex-poly-inner is --hex-poly scaled about the centre by
+     (apothem − 2) / apothem, which offsets every edge by a true 2px.
+     Both polygons are in percentages of the fixed 240×208 hexagon; if
+     that size ever changes, recompute this one with it. */
+  .box.hex::after {
+    inset: 0;
+    clip-path: var(--hex-poly-inner);
+    background: var(--hex-fill);
+    z-index: 1;
+  }
   .box.hex .box-label {
     position: relative;
     z-index: 2;
@@ -549,6 +569,14 @@
      half where the silhouette is widest. */
   .box.tri {
     --tri-poly: polygon(50% 0%, 100% 100%, 0% 100%);
+    /* --tri-poly scaled about the INCENTRE (50%, 66.68%) by
+       k = (r − 3) / r with r = 69.31px, the incircle radius of the
+       240×208 triangle. Scaling about the incentre is what makes the
+       offset uniform: every edge of a triangle is tangent to the
+       incircle, so shrinking that circle by 3px moves all three edges
+       3px inward. The apex is the reason this matters most — an inset
+       box leaves almost no ink there at all. */
+    --tri-poly-inner: polygon(50% 2.88%, 97.84% 98.56%, 2.16% 98.56%);
     --tri-border: #333;
     --tri-fill: #fff;
     background: transparent;
@@ -576,7 +604,15 @@
     pointer-events: none;
   }
   .box.tri::before { inset: 0; background: var(--tri-border); z-index: 0; }
-  .box.tri::after { inset: 3px; background: var(--tri-fill); z-index: 1; }
+  /* Was `inset: 3px`, which painted a 3px base and ~1.5px slants that
+     tapered to nothing at the apex — measured 6 device px on the bottom
+     against 2–3 on the diagonals at dpr 2. See --tri-poly-inner. */
+  .box.tri::after {
+    inset: 0;
+    clip-path: var(--tri-poly-inner);
+    background: var(--tri-fill);
+    z-index: 1;
+  }
   .box.tri .box-label {
     position: relative;
     z-index: 2;

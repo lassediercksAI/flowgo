@@ -46,12 +46,18 @@ const STYLE_CSS = `
 .fgi-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .fgi-svg { position: absolute; left: 0; top: 0; overflow: visible; width: 1px; height: 1px; z-index: 1; }
 .fgi-layer { position: absolute; left: 0; top: 0; z-index: 2; }
-.fgi-box { position: absolute; min-width: 80px; padding: 0.55em 0.85em; background: #fff; color: #333; border: 2px solid #333; border-radius: 6px; font-size: 14px; line-height: 1.25; text-align: center; white-space: pre-wrap; word-break: break-word; }
+.fgi-box { position: absolute; isolation: isolate; min-width: 80px; padding: 0.55em 0.85em; background: #fff; color: #333; border: 2px solid #333; border-radius: 6px; font-size: 14px; line-height: 1.25; text-align: center; white-space: pre-wrap; word-break: break-word; }
 .fgi-box.fgi-has-submap { cursor: pointer; box-shadow: 4px 4px 0 0 #222; }
 .fgi-box.fgi-sized { display: flex; align-items: center; justify-content: center; overflow: hidden; }
-.fgi-box.fgi-hex { border: none; background: #fff; clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%); box-shadow: inset 0 0 0 2px #333; }
+.fgi-box.fgi-hex { border: none; background: transparent; box-shadow: none; }
+.fgi-box.fgi-hex::before, .fgi-box.fgi-hex::after { content: ""; position: absolute; inset: 0; pointer-events: none; }
+.fgi-box.fgi-hex::before { clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%); background: #333; z-index: -2; }
+.fgi-box.fgi-hex::after { clip-path: polygon(25.48% 0.97%, 74.52% 0.97%, 99.01% 50%, 74.52% 99.03%, 25.48% 99.03%, 0.99% 50%); background: #fff; z-index: -1; }
 .fgi-box.fgi-circle { border-radius: 50%; }
-.fgi-box.fgi-tri { border: none; background: #fff; clip-path: polygon(50% 0%, 100% 100%, 0% 100%); padding-top: 1.6em; box-shadow: inset 0 0 0 2px #333; }
+.fgi-box.fgi-tri { border: none; background: transparent; box-shadow: none; padding-top: 1.6em; }
+.fgi-box.fgi-tri::before, .fgi-box.fgi-tri::after { content: ""; position: absolute; inset: 0; pointer-events: none; }
+.fgi-box.fgi-tri::before { clip-path: polygon(50% 0%, 100% 100%, 0% 100%); background: #333; z-index: -2; }
+.fgi-box.fgi-tri::after { clip-path: polygon(50% 2.88%, 97.84% 98.56%, 2.16% 98.56%); background: #fff; z-index: -1; }
 .fgi-box.fgi-palette-2 { background: #bfdbfe; border-color: #1d4ed8; color: #1e3a8a; }
 .fgi-box.fgi-palette-3 { background: #ddd6fe; border-color: #6d28d9; color: #4c1d95; }
 .fgi-box.fgi-palette-4 { background: #bbf7d0; border-color: #15803d; color: #14532d; }
