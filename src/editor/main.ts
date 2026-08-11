@@ -384,6 +384,7 @@ wireClipboard({
   currentMap: () => state,
   findTextById,
   findLineById,
+  findStrokeById,
   findImageById,
   mintId: uid,
   renderItems: (ids) => renderItems(ids),

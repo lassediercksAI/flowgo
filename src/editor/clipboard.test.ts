@@ -47,12 +47,18 @@ interface Img {
   width: number;
   height: number;
 }
+interface Stroke {
+  id: string;
+  points: Array<[number, number]>;
+  palette?: number;
+}
 
 interface State {
   boxes: Box[];
   texts: Text[];
   lines: Line[];
   edges: Edge[];
+  strokes: Stroke[];
   images: Img[];
   selected: Set<string>;
 }
@@ -62,6 +68,7 @@ const makeState = (): State => ({
   texts: [],
   lines: [],
   edges: [],
+  strokes: [],
   images: [],
   selected: new Set(),
 });
@@ -81,10 +88,12 @@ const wire = (s: State): void => {
       edges: s.edges,
       texts: s.texts,
       lines: s.lines,
+      strokes: s.strokes,
       images: s.images,
     }),
     findTextById: (id) => s.texts.find((t) => t.id === id),
     findLineById: (id) => s.lines.find((l) => l.id === id),
+    findStrokeById: (id) => s.strokes.find((st) => st.id === id),
     findImageById: (id) => s.images.find((i) => i.id === id),
     mintId: (p) => `${p}_new${++n}`,
     renderItems: (ids) => { rendered = [...ids]; },
@@ -92,6 +101,7 @@ const wire = (s: State): void => {
       s.boxes = s.boxes.filter((b) => !s.selected.has(b.id));
       s.texts = s.texts.filter((t) => !s.selected.has(t.id));
       s.lines = s.lines.filter((l) => !s.selected.has(l.id));
+      s.strokes = s.strokes.filter((st) => !s.selected.has(st.id));
       s.selected.clear();
     },
     setStatus: () => {},
@@ -389,6 +399,7 @@ const wireMaps = (
     currentMap: () => cur(),
     findTextById: (id) => cur().texts.find((t) => t.id === id),
     findLineById: (id) => cur().lines.find((l) => l.id === id),
+    findStrokeById: () => undefined,
     findImageById: (id) => cur().images.find((i) => i.id === id),
     mintId: (p) => `${p}_new${++n}`,
     renderItems: () => {},
@@ -540,5 +551,101 @@ describe("paste cascade (#255)", () => {
     const spots = new Set(s.boxes.map((b) => `${b.x},${b.y}`));
     expect(spots.size).toBe(3);
     for (const b of s.boxes.slice(1)) expect(b.shape).toBe(1);
+  });
+});
+
+describe("brushed strokes", () => {
+  it("copy + paste duplicates a stroke, nudged by the cascade", () => {
+    const s = makeState();
+    s.strokes = [{ id: "s1", points: [[0, 0], [10, 5], [20, 0]], palette: 3 }];
+    s.selected = new Set(["s1"]);
+    wire(s);
+
+    expect(copySelection()).toBe(true);
+    pasteSelection();
+
+    expect(s.strokes).toHaveLength(2);
+    const pasted = s.strokes[1]!;
+    expect(pasted.id).toBe("s_new1");
+    expect(pasted.palette).toBe(3);
+    expect(pasted.points).toEqual([
+      [PASTE_OFFSET_PX, PASTE_OFFSET_PX],
+      [10 + PASTE_OFFSET_PX, 5 + PASTE_OFFSET_PX],
+      [20 + PASTE_OFFSET_PX, PASTE_OFFSET_PX],
+    ]);
+    // The paste is selected and named to the incremental render.
+    expect(s.selected.has("s_new1")).toBe(true);
+    expect(rendered).toContain("s_new1");
+  });
+
+  it("buffers a snapshot: mutating the original after copy leaves the paste unchanged", () => {
+    const s = makeState();
+    s.strokes = [{ id: "s1", points: [[0, 0], [10, 10]] }];
+    s.selected = new Set(["s1"]);
+    wire(s);
+
+    copySelection();
+    s.strokes[0]!.points[0]![0] = 999; // warp the live stroke
+    pasteSelection();
+
+    expect(s.strokes[1]!.points[0]).toEqual([PASTE_OFFSET_PX, PASTE_OFFSET_PX]);
+  });
+
+  it("cut removes the stroke and paste brings it back", () => {
+    const s = makeState();
+    s.strokes = [{ id: "s1", points: [[5, 5], [15, 15]] }];
+    s.selected = new Set(["s1"]);
+    wire(s);
+
+    cutSelection();
+    expect(s.strokes).toHaveLength(0);
+
+    pasteSelection();
+    expect(s.strokes).toHaveLength(1);
+    expect(s.strokes[0]!.points).toEqual([
+      [5 + PASTE_OFFSET_PX, 5 + PASTE_OFFSET_PX],
+      [15 + PASTE_OFFSET_PX, 15 + PASTE_OFFSET_PX],
+    ]);
+  });
+
+  it("a stroke-only selection is copyable at all", () => {
+    // Regression pin: copySelection used to return false when the
+    // selection held no boxes/texts/lines/images, so a brushed line
+    // could never enter the clipboard.
+    const s = makeState();
+    s.strokes = [{ id: "s1", points: [[0, 0], [1, 1]] }];
+    s.selected = new Set(["s1"]);
+    wire(s);
+    expect(copySelection()).toBe(true);
+  });
+
+  it("creates the strokes array on a map that has none", () => {
+    // A map deserialized from JSON can lack the strokes key entirely
+    // (the Go side omits empty slices). currentMap() returns the live
+    // map object, so the paste's lazily-created array must stick.
+    const map: {
+      boxes: Box[]; edges: Edge[]; texts: Text[]; lines: Line[];
+      strokes?: Stroke[]; images: Img[];
+    } = { boxes: [], edges: [], texts: [], lines: [], images: [] };
+    const strokeSource: Stroke[] = [{ id: "s1", points: [[0, 0], [1, 1]] }];
+    const selected = new Set<string>(["s1"]);
+    let n = 0;
+    wireMutations({ scheduleSave: () => {} });
+    wireClipboard({
+      selected,
+      currentMap: () => map,
+      findTextById: () => undefined,
+      findLineById: () => undefined,
+      findStrokeById: (id) => strokeSource.find((st) => st.id === id),
+      findImageById: () => undefined,
+      mintId: (p) => `${p}_new${++n}`,
+      renderItems: () => {},
+      deleteSelection: () => {},
+      setStatus: () => {},
+      clearSelectedEdge: () => {},
+    });
+    copySelection();
+    pasteSelection();
+    expect(map.strokes).toHaveLength(1);
   });
 });

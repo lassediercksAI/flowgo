@@ -136,6 +136,7 @@ const setup = (n: number, opts: StressOptions = {}): Harness => {
     currentMap: () => map,
     findTextById: (id) => map.texts.find((t) => t.id === id),
     findLineById: (id) => map.lines.find((l) => l.id === id),
+    findStrokeById: () => undefined,
     findImageById: () => undefined,
     mintId: (p) => `${p}_p${++minted}`,
     renderItems: (ids) => renderItems(ids),

@@ -70,6 +70,12 @@ interface LineLike {
   style?: number;
 }
 
+interface StrokeLike {
+  id: string;
+  points: Array<[number, number]>;
+  palette?: number;
+}
+
 interface ImageLike {
   id: string;
   src: string;
@@ -94,6 +100,7 @@ interface CurrentMap {
   edges: EdgeLike[];
   texts: TextLike[];
   lines: LineLike[];
+  strokes?: StrokeLike[];
   images?: ImageLike[];
   /** Submap path ("/" for the root map). Present on every real map;
    *  optional here only so test doubles can stay minimal. */
@@ -104,6 +111,7 @@ interface ClipboardBuffer {
   boxes: BoxLike[];
   texts: TextLike[];
   lines: LineLike[];
+  strokes: StrokeLike[];
   images: ImageLike[];
   edges: EdgeLike[];
   /** Cascade steps already spent, per target map path. The source map
@@ -120,6 +128,7 @@ interface ClipboardBindings {
   readonly currentMap: () => CurrentMap;
   readonly findTextById: (id: string) => TextLike | undefined;
   readonly findLineById: (id: string) => LineLike | undefined;
+  readonly findStrokeById: (id: string) => StrokeLike | undefined;
   readonly findImageById: (id: string) => ImageLike | undefined;
   readonly mintId: (prefix: string) => string;
   /** Incremental render of a known id set (render.ts renderItems,
@@ -144,12 +153,16 @@ const must = (): ClipboardBindings => {
 };
 
 export const copySelection = (): boolean => {
-  const { selected, currentMap, findTextById, findLineById, findImageById } = must();
+  const {
+    selected, currentMap, findTextById, findLineById, findStrokeById,
+    findImageById,
+  } = must();
   if (selected.size === 0) return false;
   const map = currentMap();
   const boxes: BoxLike[] = [];
   const texts: TextLike[] = [];
   const lines: LineLike[] = [];
+  const strokes: StrokeLike[] = [];
   const images: ImageLike[] = [];
   const edges: EdgeLike[] = [];
   const boxIds = new Set<string>();
@@ -185,6 +198,15 @@ export const copySelection = (): boolean => {
       lines.push(copy);
       continue;
     }
+    const st = findStrokeById(id);
+    if (st) {
+      // Deep-copy the points: the buffer must not alias live geometry,
+      // or moving the original after a copy would warp the clipboard.
+      const copy: StrokeLike = { id: st.id, points: st.points.map(([x, y]) => [x, y]) };
+      if (st.palette) copy.palette = st.palette;
+      strokes.push(copy);
+      continue;
+    }
     const img = findImageById(id);
     if (img) {
       images.push({
@@ -213,13 +235,13 @@ export const copySelection = (): boolean => {
       edges.push(copy);
     }
   }
-  if (!boxes.length && !texts.length && !lines.length && !images.length) {
+  if (!boxes.length && !texts.length && !lines.length && !strokes.length && !images.length) {
     return false;
   }
   // A fresh copy resets the cascade, and seeds the map it came from so
   // the very first paste back into it is already nudged clear of the
   // original.
-  buffer = { boxes, texts, lines, images, edges, steps: new Map([[mapKey(map), 0]]) };
+  buffer = { boxes, texts, lines, strokes, images, edges, steps: new Map([[mapKey(map), 0]]) };
   // Mirror box/text labels to the OS clipboard so external editors can
   // paste plain text. Internal paste still reads `buffer`, so structure
   // (edges, shapes, positions) round-trips losslessly inside flowgo.
@@ -305,6 +327,20 @@ export const pasteSelection = (): void => {
     if (l.mids?.length) pasted.mids = l.mids.map(([x, y]) => [x + dx, y + dy]);
     map.lines.push(pasted);
     selected.add(newId);
+  }
+  if (buffer.strokes.length) {
+    if (!map.strokes) map.strokes = [];
+    for (const st of buffer.strokes) {
+      const newId = mintId("s");
+      idMap.set(st.id, newId);
+      const pasted: StrokeLike = {
+        id: newId,
+        points: st.points.map(([x, y]) => [x + dx, y + dy]),
+      };
+      if (st.palette) pasted.palette = st.palette;
+      map.strokes.push(pasted);
+      selected.add(newId);
+    }
   }
   if (buffer.images.length) {
     if (!map.images) map.images = [];
