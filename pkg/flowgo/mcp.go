@@ -515,8 +515,73 @@ func actSetState(g *Graph, args map[string]any) (any, error) {
 		}
 		return nil, fmt.Errorf("graph rejected: %s", strings.Join(msgs, "; "))
 	}
+	// Raw graphs arrive without live snapping, so enforce the hexagon
+	// never-overlap invariant here — the same repair the editor runs
+	// after paste (settleHexBoxes).
+	settleGraphHexes(&newG)
 	*g = newG
 	return mcpToolText("ok"), nil
+}
+
+// otherHexCenters collects the centres of every hexagon box in m
+// except excludeID — the obstacle set a snapping hex measures
+// against. Boxes store their top-left; the lattice works on centres.
+func otherHexCenters(m *NamedMap, excludeID string) []graph.HexPoint {
+	var out []graph.HexPoint
+	for _, b := range m.Boxes {
+		if b.Shape != 1 || b.ID == excludeID {
+			continue
+		}
+		out = append(out, graph.HexPoint{X: b.X + graph.HexW/2, Y: b.Y + graph.HexH/2})
+	}
+	return out
+}
+
+// snapHexBox lattice-snaps one hexagon box against the other hexes in
+// its map, mutating X/Y in place — the MCP-side twin of the editor's
+// live drag-snap (src/graph/hex.ts). Out of magnetic range the box
+// stays exactly where the agent put it; the snap radius exceeding the
+// hex width is what keeps that overlap-free (see pkg/graph/hex.go).
+func snapHexBox(m *NamedMap, b *Box) {
+	if b.Shape != 1 {
+		return
+	}
+	proposed := graph.HexPoint{X: b.X + graph.HexW/2, Y: b.Y + graph.HexH/2}
+	if c, ok := graph.SnapHexCenter(proposed, otherHexCenters(m, b.ID)); ok {
+		b.X = c.X - graph.HexW/2
+		b.Y = c.Y - graph.HexH/2
+	}
+}
+
+// settleGraphHexes repairs the never-overlap invariant across every
+// map of a graph that arrived without live snapping (set_state,
+// create_map): overlapping hexagons are relocated to the nearest free
+// lattice cell, everything else passes through untouched. Mirrors the
+// editor's settleHexBoxes (src/editor/hex.ts).
+func settleGraphHexes(g *Graph) {
+	for mi := range g.Maps {
+		m := &g.Maps[mi]
+		var idx []int
+		var centers []graph.HexPoint
+		for i := range m.Boxes {
+			if m.Boxes[i].Shape != 1 {
+				continue
+			}
+			idx = append(idx, i)
+			centers = append(centers, graph.HexPoint{
+				X: m.Boxes[i].X + graph.HexW/2,
+				Y: m.Boxes[i].Y + graph.HexH/2,
+			})
+		}
+		if len(idx) < 2 {
+			continue
+		}
+		settled := graph.SettleHexCenters(centers)
+		for k, i := range idx {
+			m.Boxes[i].X = settled[k].X - graph.HexW/2
+			m.Boxes[i].Y = settled[k].Y - graph.HexH/2
+		}
+	}
 }
 
 func actAddBox(g *Graph, args map[string]any) (any, error) {
@@ -571,6 +636,9 @@ func actAddBox(g *Graph, args map[string]any) (any, error) {
 			return nil, fmt.Errorf("this shape has a fixed size and is not resizable — omit w/h")
 		}
 	}
+	// Hexagons lattice-snap near other hexagons and never overlap —
+	// the tool schema promises exactly what the GUI does on create.
+	snapHexBox(m, &box)
 	m.Boxes = append(m.Boxes, box)
 	return mcpToolText(id), nil
 }
@@ -698,6 +766,12 @@ func actUpdateBox(g *Graph, args map[string]any) (any, error) {
 			if newShape != 0 {
 				m.Boxes[i].W, m.Boxes[i].H = 0, 0
 			}
+		}
+		// A hexagon that moved — or a box that just became one —
+		// lattice-snaps against the map's other hexes, same as a GUI
+		// drag-drop or shape change.
+		if hasX || hasY || hasShape {
+			snapHexBox(m, &m.Boxes[i])
 		}
 		return mcpToolText("ok"), nil
 	}
@@ -1577,6 +1651,9 @@ func createMap(ctx context.Context, sessionID string, args map[string]any) (any,
 		}
 		return nil, fmt.Errorf("graph rejected: %s", strings.Join(msgs, "; "))
 	}
+	// Same invariant repair as set_state: raw .flowgo text can stack
+	// hexagons in ways the GUI never could.
+	settleGraphHexes(&g)
 	return shareGraph(g, sessionOwnerID(ctx, sessionID, args))
 }
 

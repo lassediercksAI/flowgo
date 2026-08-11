@@ -224,6 +224,24 @@ describe("settleHexCenters", () => {
       }
     }
   });
+
+  it("repairs a blob wider than the magnetic snap's search window", () => {
+    // 200 hexes stacked inside one cell's footprint settle into a
+    // blob of ~8 rings — deeper than the snap's 6-ring window. Repair
+    // must scale its search with the population instead of giving up
+    // and leaving residual overlap (which is exactly what a stress
+    // import of stacked hexes used to do).
+    const stack = Array.from({ length: 200 }, (_, i) => ({
+      x: i % 7,
+      y: Math.floor(i / 7),
+    }));
+    const out = settleHexCenters(stack);
+    for (let i = 0; i < out.length; i++) {
+      for (let j = i + 1; j < out.length; j++) {
+        expect(hexesOverlap(out[i]!, out[j]!)).toBe(false);
+      }
+    }
+  });
 });
 
 describe("hexClusterIds", () => {

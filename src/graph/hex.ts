@@ -50,10 +50,30 @@ export const HEX_ROW = HEX_H; // 208
 // considers separate.
 export const HEX_SNAP_RADIUS = HEX_W * 1.01; // 242.4
 
-// How far (in rings) nearestFreeCell searches before giving up. Ring
-// n holds 6·n cells, so 6 rings cover 127 cells — far beyond any
-// realistic contiguous blob around a drop point.
+// How far (in rings) the magnetic snap searches for a free cell
+// before giving up. Ring n holds 6·n cells, so 6 rings cover 127
+// cells — far beyond any realistic contiguous blob around a DROP
+// point, and deliberately shallow: a snap target far from the
+// proposed position would feel like teleportation.
 const MAX_SEARCH_RINGS = 6;
+
+// Hard ceiling for the settle path's population-scaled search (see
+// settleRings). 64 rings is 12,481 cells — enough to re-seat ~3,000
+// fully stacked hexagons; beyond that settling degrades to
+// best-effort rather than costing quadratic blow-up.
+const MAX_SETTLE_RINGS = 64;
+
+// Search depth deep enough that a free cell is guaranteed to exist
+// within it: an off-lattice hexagon blocks at most 4 cells of any
+// given lattice (its 2× Minkowski hexagon has 4 hexes of area), so
+// covering 4·(n+1) cells always leaves one free. Rings through
+// radius R hold 1+3R(R+1) cells; solving for R gives ~sqrt(4n/3).
+// Floored at the snap depth, capped at MAX_SETTLE_RINGS.
+const settleRings = (occupied: number): number =>
+  Math.min(
+    MAX_SETTLE_RINGS,
+    Math.max(MAX_SEARCH_RINGS, Math.ceil(Math.sqrt((4 * (occupied + 1)) / 3)) + 1),
+  );
 
 // Float-dust tolerance for the overlap test: snapped positions are
 // sums of an arbitrary origin and integer steps, so distances meant
@@ -165,17 +185,18 @@ const ring = (center: Axial, radius: number): Axial[] => {
 // `origin`. A cell is free when a hexagon centred there would overlap
 // none of the `occupied` centres — this also rejects the cell of any
 // off-lattice hex sitting close enough to intrude. Searches outward
-// ring by ring from the cell containing `p`; within the first ring
-// that has any free cell, picks the one closest to `p`. Returns null
-// only if MAX_SEARCH_RINGS rings are all blocked (practically
-// unreachable).
+// ring by ring from the cell containing `p`, up to `maxRings` (the
+// shallow snap depth by default); within the first ring that has any
+// free cell, picks the one closest to `p`. Returns null when every
+// cell inside `maxRings` is blocked.
 export const nearestFreeCell = (
   origin: HexPoint,
   p: HexPoint,
   occupied: ReadonlyArray<HexPoint>,
+  maxRings: number = MAX_SEARCH_RINGS,
 ): Axial | null => {
   const start = nearestCell(origin, p);
-  for (let radius = 0; radius <= MAX_SEARCH_RINGS; radius++) {
+  for (let radius = 0; radius <= maxRings; radius++) {
     let best: Axial | null = null;
     let bestD = Infinity;
     for (const cell of ring(start, radius)) {
@@ -222,9 +243,14 @@ export const snapHexCenter = (
 // the nearest free cell on the lattice anchored at the hex it
 // collided with. Returns a new array; positions of non-colliding
 // hexes are passed through untouched.
+// Unlike the magnetic snap, repair must not give up just because the
+// neighbourhood is crowded — a raw import can stack hexes inside a
+// blob far wider than the snap's 6-ring window — so the search depth
+// scales with the population (settleRings).
 export const settleHexCenters = (
   centers: ReadonlyArray<HexPoint>,
 ): HexPoint[] => {
+  const rings = settleRings(centers.length);
   const settled: HexPoint[] = [];
   for (const c of centers) {
     const collided = settled.find((s) => hexesOverlap(s, c));
@@ -232,7 +258,7 @@ export const settleHexCenters = (
       settled.push(c);
       continue;
     }
-    const cell = nearestFreeCell(collided, c, settled);
+    const cell = nearestFreeCell(collided, c, settled, rings);
     settled.push(cell ? axialToWorld(collided, cell) : c);
   }
   return settled;

@@ -35,6 +35,7 @@
 
 import { SESSION_ID } from "./live.ts";
 import type { RefreshOutcome } from "./live.ts";
+import { settleHexBoxIds } from "./hex.ts";
 
 interface MapLike {
   path: string;
@@ -119,6 +120,25 @@ export const resetGraphPasses = (): void => {
   passes.stringify = 0;
   passes.parse = 0;
   passes.fingerprint = 0;
+};
+
+// Invariant repair on arrival: hexagons in a fetched graph can
+// violate the never-overlap contract (raw imports, hand-edited files,
+// pre-snap MCP writers) — the GUI's own gestures always settle, but a
+// document written behind our back never did. Repair BEFORE anything
+// fingerprints or serializes the graph, so the settled form is the
+// only form this session ever compares against — a baseline of the
+// raw form would read as permanently dirty and wedge the live-apply
+// path ("deferred" forever). Deterministic, so every session settles
+// an identical file identically.
+const settleGraphHexes = (g: GraphLike): void => {
+  for (const m of g.maps) {
+    if (Array.isArray(m.boxes)) {
+      settleHexBoxIds(
+        m.boxes as Array<{ id: string; x: number; y: number; shape?: number }>,
+      );
+    }
+  }
 };
 
 /** The one place the whole live document gets serialized. */
@@ -339,6 +359,7 @@ export const load = async (): Promise<void> => {
   if (!g || !g.maps || g.maps.length === 0) {
     g = { maps: [{ path: "/", boxes: [], edges: [] }] };
   }
+  settleGraphHexes(g);
   b.setGraph(g);
   setSaved(serializeDoc(g));
   undoStack = [];
@@ -561,6 +582,7 @@ export const refreshFromServer = async (): Promise<RefreshOutcome> => {
   // in milliseconds, but a keystroke or a drag fits in it easily, and
   // applying over that would silently drop it.
   if (isDirty()) return "deferred";
+  settleGraphHexes(g);
   // Nothing to do — e.g. the agent's write raced our own save and the
   // file already says what we say. Not an error, and no rebuild: the
   // fingerprint compare is what stops a cosmetic shape difference
