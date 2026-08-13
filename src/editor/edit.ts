@@ -239,6 +239,23 @@ export interface BoxEditOptions {
   readonly cancelDeletes?: boolean;
 }
 
+// Pure halves of the cancel-deletes rollback, extracted so the path
+// arithmetic is testable without a DOM. A box on the current map owns
+// the sub-map at `<currentPath>/<id>` ("/" is the one path that must
+// not double its slash).
+export const spawnedBoxMapPath = (currentPath: string, id: string): string =>
+  currentPath === "/" ? "/" + id : currentPath + "/" + id;
+
+// Drop the removed box's own sub-map and every map nested under it —
+// prefix-matched on "<path>/" so removing "/b1" leaves "/b10" alone.
+export const pruneMapsUnder = <M extends { path: string }>(
+  maps: M[],
+  removedPath: string,
+): M[] =>
+  maps.filter(
+    (m) => m.path !== removedPath && !m.path.startsWith(removedPath + "/"),
+  );
+
 export const startEdit = (
   el: HTMLElement,
   b: BoxLike,
@@ -296,11 +313,9 @@ const finishBoxEdit = (
         (e) => e.from !== b.id && e.to !== b.id,
       );
       const cur = w.getCurrentPath();
-      const removedPath = cur === "/" ? "/" + b.id : cur + "/" + b.id;
+      const removedPath = spawnedBoxMapPath(cur, b.id);
       const g = w.getGraph();
-      g.maps = g.maps.filter(
-        (m) => m.path !== removedPath && !m.path.startsWith(removedPath + "/"),
-      );
+      g.maps = pruneMapsUnder(g.maps, removedPath);
       w.setGraph(g);
       w.setCurrentMap(w.ensureMap(cur));
       w.selected.delete(b.id);
