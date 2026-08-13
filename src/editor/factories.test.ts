@@ -384,6 +384,22 @@ describe("wired", () => {
       expect(getBoxEl("b1")!.getAttribute("contenteditable")).toBe("true");
     });
 
+    it("Escape removes the just-spawned box (cancelDeletes armed)", () => {
+      // The module header promises this and the link-drop spawns in
+      // mouse.ts/touch.ts arm it; the double-click spawns didn't,
+      // which left a "new"-labelled box behind on Escape. All three
+      // creation variants share this call site, so one probe suffices
+      // per variant (hex/fixed-shape variants asserted below).
+      createBoxAt(10, 20);
+      const host = document.querySelector<HTMLElement>('[contenteditable="true"]')!;
+      host.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+      );
+      expect(map.boxes).toHaveLength(0);
+      expect(document.querySelector('[data-box-id="b1"], #b1')).toBeNull();
+      expect(isEditing()).toBe(false);
+    });
+
     it("records exactly one box mutation", () => {
       createBoxAt(10, 20);
       expect(state.kinds).toEqual(["box"]);

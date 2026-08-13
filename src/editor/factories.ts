@@ -178,7 +178,7 @@ export const createBoxAt = (
       renderEdges();
     }
     applyClasses();
-    startEdit(el, b);
+    startEdit(el, b, { cancelDeletes: true });
   }
 };
 
@@ -212,7 +212,7 @@ const createHexBoxAt = (center: { x: number; y: number }): void => {
       renderEdges();
     }
     applyClasses();
-    startEdit(el, b);
+    startEdit(el, b, { cancelDeletes: true });
   }
 };
 
@@ -246,7 +246,7 @@ const createFixedShapeBoxAt = (
       renderEdges();
     }
     applyClasses();
-    startEdit(el, b);
+    startEdit(el, b, { cancelDeletes: true });
   }
 };
 
