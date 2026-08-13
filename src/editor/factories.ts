@@ -79,6 +79,52 @@ interface FactoryBindings {
   readonly setStatus: (s: string) => void;
 }
 
+// ── Pure helpers (exported for direct testing) ──────────────────
+
+// Palette / font / line-style overrides persist only when they are
+// real overrides: 1 is the default (represented by absence on the
+// wire), 0/undefined mean "no preference", and anything outside the
+// 2..9 directive range is dropped rather than persisted. Shared by
+// createTextAt (palette, font) and createLineSegment (palette, style).
+export const inheritedStyle = (n: number | undefined): number | undefined =>
+  n && n >= 2 && n <= 9 ? n : undefined;
+
+// Everything in the map that survives deleting `sel`: items go by id;
+// edges go when EITHER endpoint was deleted. Image references go too,
+// but the underlying media files are content-addressed and may be
+// shared by clones / pasted copies, so they stay on disk — only the
+// reference is removed. Pure: returns fresh arrays, never mutates.
+export const survivingItems = (
+  map: CurrentMap,
+  sel: ReadonlySet<string>,
+): CurrentMap => ({
+  boxes: map.boxes.filter((b) => !sel.has(b.id)),
+  edges: map.edges.filter((e) => !sel.has(e.from) && !sel.has(e.to)),
+  texts: map.texts.filter((t) => !sel.has(t.id)),
+  lines: map.lines.filter((l) => !sel.has(l.id)),
+  strokes: (map.strokes ?? []).filter((s) => !sel.has(s.id)),
+  images: (map.images ?? []).filter((i) => !sel.has(i.id)),
+});
+
+// A deleted box takes its submap and every descendant with it. The
+// submap of box `id` on the map at `currentPath` lives at
+// "<currentPath>/<id>" ("/<id>" at the root); the "/" boundary in the
+// startsWith test is what keeps "/ab" alive when "/a" is removed.
+export const withoutSubmaps = <M extends { path: string }>(
+  maps: M[],
+  currentPath: string,
+  boxIds: ReadonlyArray<string>,
+): M[] => {
+  let out = maps;
+  for (const id of boxIds) {
+    const removedPath = currentPath === "/" ? "/" + id : currentPath + "/" + id;
+    out = out.filter(
+      (m) => m.path !== removedPath && !m.path.startsWith(removedPath + "/"),
+    );
+  }
+  return out;
+};
+
 let bindings: FactoryBindings | null = null;
 const must = (): FactoryBindings => {
   if (!bindings) throw new Error("factories: wireFactories() not called");
@@ -267,8 +313,10 @@ export const createTextAt = (
   const w = must();
   const id = w.mintId("t");
   const t: TextLike = { id, label: "text", x: cx, y: cy };
-  if (palette && palette >= 2 && palette <= 9) t.palette = palette;
-  if (font && font >= 2 && font <= 9) t.font = font;
+  const p = inheritedStyle(palette);
+  if (p) t.palette = p;
+  const f = inheritedStyle(font);
+  if (f) t.font = f;
   w.currentMap().texts.push(t);
   renderItems([id]);
   const el = w.canvas.querySelector<HTMLElement>(`.text-item[data-id="${id}"]`);
@@ -300,8 +348,10 @@ export const createLineSegment = (
   const w = must();
   const id = w.mintId("l");
   const l: LineLike = { id, x1, y1, x2, y2 };
-  if (palette && palette >= 2 && palette <= 9) l.palette = palette;
-  if (style && style >= 2 && style <= 9) l.style = style;
+  const p = inheritedStyle(palette);
+  if (p) l.palette = p;
+  const s = inheritedStyle(style);
+  if (s) l.style = s;
   w.currentMap().lines.push(l);
   w.selected.clear();
   w.selected.add(id);
@@ -323,23 +373,11 @@ export const deleteSelection = (): void => {
   const map = w.currentMap();
   const ids = Array.from(sel);
   const boxIds = ids.filter((id) => map.boxes.some((b) => b.id === id));
-  map.boxes = map.boxes.filter((b) => !sel.has(b.id));
-  map.edges = map.edges.filter((e) => !sel.has(e.from) && !sel.has(e.to));
-  map.texts = map.texts.filter((t) => !sel.has(t.id));
-  map.lines = map.lines.filter((l) => !sel.has(l.id));
-  map.strokes = (map.strokes ?? []).filter((s) => !sel.has(s.id));
-  // Media files are content-addressed and may be shared by clones /
-  // pasted copies, so we leave them on disk — only the reference goes.
-  map.images = (map.images ?? []).filter((i) => !sel.has(i.id));
+  Object.assign(map, survivingItems(map, sel));
   // Drop each deleted box's submap and any descendants.
   const cur = w.currentPath();
   const g = w.graph();
-  for (const id of boxIds) {
-    const removedPath = cur === "/" ? "/" + id : cur + "/" + id;
-    g.maps = g.maps.filter(
-      (m) => m.path !== removedPath && !m.path.startsWith(removedPath + "/"),
-    );
-  }
+  g.maps = withoutSubmaps(g.maps, cur, boxIds);
   w.setGraph(g);
   w.setCurrentMap(w.ensureMap(cur));
   sel.clear();
