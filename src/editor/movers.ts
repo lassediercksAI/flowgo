@@ -14,6 +14,40 @@ import { updateSizedLabelClamp } from "./label-clamp.ts";
 export const GRID = 20;
 export const snap = (v: number): number => Math.round(v / GRID) * GRID;
 
+// Pure core of every plain translate-mover (box / text / image / line
+// endpoint): start position + pointer delta, optionally shift-snapped
+// to the grid. Extracted so the geometry is testable without DOM.
+export const translateWithSnap = (
+  startX: number,
+  startY: number,
+  dx: number,
+  dy: number,
+  doSnap: boolean | undefined,
+): { x: number; y: number } => {
+  let nx = startX + dx;
+  let ny = startY + dy;
+  if (doSnap) {
+    nx = snap(nx);
+    ny = snap(ny);
+  }
+  return { x: nx, y: ny };
+};
+
+// Pure core of the rigid-body movers (whole line, stroke): the shared
+// delta every point translates by. Shift snaps the ANCHOR point (line
+// endpoint 1 / first stroke point) to the grid and the rest follow by
+// the same offset, so the shape is preserved.
+export const rigidSnapDelta = (
+  anchorX: number,
+  anchorY: number,
+  dx: number,
+  dy: number,
+  doSnap: boolean | undefined,
+): { dx: number; dy: number } =>
+  doSnap
+    ? { dx: snap(anchorX + dx) - anchorX, dy: snap(anchorY + dy) - anchorY }
+    : { dx, dy };
+
 export interface BoxLike {
   x: number;
   y: number;
@@ -41,7 +75,8 @@ export interface LineLike {
 
 // Mirrors render.ts linePathD — kept here so the movers can rewrite
 // the live SVG path without round-tripping through the renderer.
-const linePathD = (l: LineLike): string => {
+// Exported for tests (pure geometry).
+export const linePathD = (l: LineLike): string => {
   const mids = l.mids ?? [];
   const points: Array<[number, number]> = [
     [l.x1, l.y1],
@@ -101,14 +136,9 @@ export const makeBoxMover = (b: BoxLike, el: HTMLElement | null): Mover => {
   return {
     el,
     apply(dx, dy, ev) {
-      let nx = startX + dx;
-      let ny = startY + dy;
-      if (ev?.shiftKey) {
-        nx = snap(nx);
-        ny = snap(ny);
-      }
-      b.x = nx;
-      b.y = ny;
+      const p = translateWithSnap(startX, startY, dx, dy, ev?.shiftKey);
+      b.x = p.x;
+      b.y = p.y;
       if (el) {
         el.style.left = b.x + "px";
         el.style.top = b.y + "px";
@@ -127,6 +157,37 @@ export type ResizeCorner = "tl" | "tr" | "bl" | "br";
 export const MIN_BOX_W = 80;
 export const MIN_BOX_H = 36;
 
+// Pure geometry of a corner-grip resize (see makeBoxResizeMover for
+// the full rules). Returns the new frame; x/y equal the start values
+// unless the dragged corner anchors that axis from the left/top.
+export const resizeBoxFrame = (
+  start: { x: number; y: number; w: number; h: number },
+  corner: ResizeCorner,
+  dx: number,
+  dy: number,
+  doSnap: boolean | undefined,
+): { x: number; y: number; w: number; h: number } => {
+  const fromLeft = corner === "tl" || corner === "bl";
+  const fromTop = corner === "tl" || corner === "tr";
+  let nw = fromLeft ? start.w - dx : start.w + dx;
+  let nh = fromTop ? start.h - dy : start.h + dy;
+  if (doSnap) {
+    nw = snap(nw);
+    nh = snap(nh);
+  }
+  nw = Math.max(MIN_BOX_W, Math.round(nw));
+  nh = Math.max(MIN_BOX_H, Math.round(nh));
+  // Left/top-anchored drags reposition so the opposite edge pins.
+  // Deriving x from the clamped width (rather than raw dx) keeps
+  // the pinned edge exactly still when the min-size clamp kicks in.
+  return {
+    x: fromLeft ? start.x + (start.w - nw) : start.x,
+    y: fromTop ? start.y + (start.h - nh) : start.y,
+    w: nw,
+    h: nh,
+  };
+};
+
 // Resize a box by dragging one of its corner grips. The opposite
 // corner stays pinned: dragging `br` grows width/height directly,
 // dragging `tl` moves x/y while the far edge holds still, and the
@@ -141,32 +202,24 @@ export const makeBoxResizeMover = (
   el: HTMLElement,
   corner: ResizeCorner,
 ): Mover => {
-  const startX = b.x;
-  const startY = b.y;
-  const startW = b.w ?? el.offsetWidth;
-  const startH = b.h ?? el.offsetHeight;
+  const start = {
+    x: b.x,
+    y: b.y,
+    w: b.w ?? el.offsetWidth,
+    h: b.h ?? el.offsetHeight,
+  };
   const fromLeft = corner === "tl" || corner === "bl";
   const fromTop = corner === "tl" || corner === "tr";
   return {
     el,
     apply(dx, dy, ev) {
-      let nw = fromLeft ? startW - dx : startW + dx;
-      let nh = fromTop ? startH - dy : startH + dy;
-      if (ev?.shiftKey) {
-        nw = snap(nw);
-        nh = snap(nh);
-      }
-      nw = Math.max(MIN_BOX_W, Math.round(nw));
-      nh = Math.max(MIN_BOX_H, Math.round(nh));
-      b.w = nw;
-      b.h = nh;
-      // Left/top-anchored drags reposition so the opposite edge pins.
-      // Deriving x from the clamped width (rather than raw dx) keeps
-      // the pinned edge exactly still when the min-size clamp kicks in.
-      if (fromLeft) b.x = startX + (startW - nw);
-      if (fromTop) b.y = startY + (startH - nh);
-      el.style.width = nw + "px";
-      el.style.height = nh + "px";
+      const f = resizeBoxFrame(start, corner, dx, dy, ev?.shiftKey);
+      b.w = f.w;
+      b.h = f.h;
+      if (fromLeft) b.x = f.x;
+      if (fromTop) b.y = f.y;
+      el.style.width = f.w + "px";
+      el.style.height = f.h + "px";
       el.style.left = b.x + "px";
       el.style.top = b.y + "px";
       el.classList.add("sized");
@@ -189,6 +242,25 @@ export const makeBoxResizeMover = (
 // width/height here (or anywhere): resizing is a rectangle-only
 // feature, and all the lattice math depends on the uniform size.
 // Shift-grid snap is deliberately ignored: the hex lattice IS the grid.
+// Pure geometry of a single-hex drag tick: translate the start
+// top-left by the pointer delta, then let the magnetic lattice snap
+// the CENTRE (or leave it free when out of range / no fit).
+export const hexDragPosition = (
+  startX: number,
+  startY: number,
+  dx: number,
+  dy: number,
+  otherHexCenters: ReadonlyArray<{ x: number; y: number }>,
+): { x: number; y: number } => {
+  const cx = startX + dx + HEX_W / 2;
+  const cy = startY + dy + HEX_H / 2;
+  const snapped = snapHexCenter({ x: cx, y: cy }, otherHexCenters);
+  return {
+    x: (snapped?.x ?? cx) - HEX_W / 2,
+    y: (snapped?.y ?? cy) - HEX_H / 2,
+  };
+};
+
 export const makeHexMover = (
   b: BoxLike,
   el: HTMLElement | null,
@@ -199,11 +271,9 @@ export const makeHexMover = (
   return {
     el,
     apply(dx, dy, _ev) {
-      const cx = startX + dx + HEX_W / 2;
-      const cy = startY + dy + HEX_H / 2;
-      const snapped = snapHexCenter({ x: cx, y: cy }, otherHexCenters);
-      b.x = (snapped?.x ?? cx) - HEX_W / 2;
-      b.y = (snapped?.y ?? cy) - HEX_H / 2;
+      const p = hexDragPosition(startX, startY, dx, dy, otherHexCenters);
+      b.x = p.x;
+      b.y = p.y;
       if (el) {
         el.style.left = b.x + "px";
         el.style.top = b.y + "px";
@@ -222,6 +292,23 @@ export const makeHexMover = (
 // Returns one mover per member so the drag loop's `.dragging` class
 // toggling reaches every element; only the first (controller) does
 // any work, the rest are position-keepers.
+// Pure geometry of a multi-hex drag tick: the ONE shared delta that
+// moves the whole formation, after group-snapping. `origPositions`
+// are the members' top-left positions at drag start.
+export const hexGroupDragDelta = (
+  origPositions: ReadonlyArray<{ x: number; y: number }>,
+  dx: number,
+  dy: number,
+  otherHexCenters: ReadonlyArray<{ x: number; y: number }>,
+): { x: number; y: number } => {
+  const centers = origPositions.map((o) => ({
+    x: o.x + dx + HEX_W / 2,
+    y: o.y + dy + HEX_H / 2,
+  }));
+  const snap = snapHexGroup(centers, otherHexCenters);
+  return { x: dx + (snap?.x ?? 0), y: dy + (snap?.y ?? 0) };
+};
+
 export const makeHexGroupMovers = (
   members: ReadonlyArray<{ b: BoxLike; el: HTMLElement | null }>,
   otherHexCenters: ReadonlyArray<{ x: number; y: number }>,
@@ -230,13 +317,9 @@ export const makeHexGroupMovers = (
   const controller: Mover = {
     el: members[0]!.el,
     apply(dx, dy, _ev) {
-      const centers = orig.map((o) => ({
-        x: o.x + dx + HEX_W / 2,
-        y: o.y + dy + HEX_H / 2,
-      }));
-      const snap = snapHexGroup(centers, otherHexCenters);
-      const ddx = dx + (snap?.x ?? 0);
-      const ddy = dy + (snap?.y ?? 0);
+      const d = hexGroupDragDelta(orig, dx, dy, otherHexCenters);
+      const ddx = d.x;
+      const ddy = d.y;
       for (const o of orig) {
         o.m.b.x = o.x + ddx;
         o.m.b.y = o.y + ddy;
@@ -271,14 +354,9 @@ export const makeImageMover = (img: ImageLike, el: HTMLElement | null): Mover =>
   return {
     el,
     apply(dx, dy, ev) {
-      let nx = startX + dx;
-      let ny = startY + dy;
-      if (ev?.shiftKey) {
-        nx = snap(nx);
-        ny = snap(ny);
-      }
-      img.x = nx;
-      img.y = ny;
+      const p = translateWithSnap(startX, startY, dx, dy, ev?.shiftKey);
+      img.x = p.x;
+      img.y = p.y;
       if (el) {
         el.style.left = img.x + "px";
         el.style.top = img.y + "px";
@@ -291,7 +369,23 @@ export const makeImageMover = (img: ImageLike, el: HTMLElement | null): Mover =>
 // aspect ratio (width drives, height follows). Shift snaps the new
 // width to the grid. MIN_IMAGE keeps the asset from collapsing to an
 // unclickable sliver.
-const MIN_IMAGE = 20;
+export const MIN_IMAGE = 20;
+
+// Pure geometry of an image resize tick: width follows the pointer
+// (shift-snapped, floored at MIN_IMAGE), height follows the captured
+// aspect ratio.
+export const resizeImageDims = (
+  startW: number,
+  aspect: number,
+  dx: number,
+  doSnap: boolean | undefined,
+): { width: number; height: number } => {
+  let nw = startW + dx;
+  if (doSnap) nw = snap(nw);
+  if (nw < MIN_IMAGE) nw = MIN_IMAGE;
+  return { width: nw, height: Math.max(MIN_IMAGE, Math.round(nw * aspect)) };
+};
+
 export const makeImageResizeMover = (
   img: ImageLike,
   el: HTMLElement,
@@ -302,11 +396,9 @@ export const makeImageResizeMover = (
   return {
     el,
     apply(dx, _dy, ev) {
-      let nw = startW + dx;
-      if (ev?.shiftKey) nw = snap(nw);
-      if (nw < MIN_IMAGE) nw = MIN_IMAGE;
-      img.width = nw;
-      img.height = Math.max(MIN_IMAGE, Math.round(nw * aspect));
+      const d = resizeImageDims(startW, aspect, dx, ev?.shiftKey);
+      img.width = d.width;
+      img.height = d.height;
       el.style.width = img.width + "px";
       el.style.height = img.height + "px";
     },
@@ -319,14 +411,9 @@ export const makeTextMover = (t: TextLike, el: HTMLElement | null): Mover => {
   return {
     el,
     apply(dx, dy, ev) {
-      let nx = startX + dx;
-      let ny = startY + dy;
-      if (ev?.shiftKey) {
-        nx = snap(nx);
-        ny = snap(ny);
-      }
-      t.x = nx;
-      t.y = ny;
+      const p = translateWithSnap(startX, startY, dx, dy, ev?.shiftKey);
+      t.x = p.x;
+      t.y = p.y;
       if (el) {
         el.style.left = t.x + "px";
         el.style.top = t.y + "px";
@@ -352,14 +439,15 @@ export const makeLineMover = (
   return {
     el: gEl,
     apply(dx, dy, ev) {
-      let ddx = dx;
-      let ddy = dy;
-      if (ev?.shiftKey) {
-        // Snap endpoint 1 to the grid; endpoint 2 (and all mids)
-        // follow by the same offset so the line's shape is preserved.
-        ddx = snap(startX1 + dx) - startX1;
-        ddy = snap(startY1 + dy) - startY1;
-      }
+      // Snap is anchored on endpoint 1; endpoint 2 (and all mids)
+      // follow by the same offset so the line's shape is preserved.
+      const { dx: ddx, dy: ddy } = rigidSnapDelta(
+        startX1,
+        startY1,
+        dx,
+        dy,
+        ev?.shiftKey,
+      );
       l.x1 = startX1 + ddx;
       l.y1 = startY1 + ddy;
       l.x2 = startX2 + ddx;
@@ -424,12 +512,13 @@ export const makeLineEndpointMover = (
   return {
     el: refs.g,
     apply(dx, dy, ev) {
-      let nx = startX + dx;
-      let ny = startY + dy;
-      if (ev?.shiftKey) {
-        nx = snap(nx);
-        ny = snap(ny);
-      }
+      const { x: nx, y: ny } = translateWithSnap(
+        startX,
+        startY,
+        dx,
+        dy,
+        ev?.shiftKey,
+      );
       if (endpoint === 1) {
         l.x1 = nx;
         l.y1 = ny;
@@ -475,15 +564,16 @@ export const makeStrokeMover = (
   return {
     el: gEl,
     apply(dx, dy, ev) {
-      let ddx = dx;
-      let ddy = dy;
-      if (ev?.shiftKey && orig.length > 0) {
-        // Snap the first point to the grid; the rest translate by the
-        // same offset so the stroke's shape is preserved.
-        const p0 = orig[0]!;
-        ddx = snap(p0[0] + dx) - p0[0];
-        ddy = snap(p0[1] + dy) - p0[1];
-      }
+      // Snap is anchored on the first point; the rest translate by
+      // the same offset so the stroke's shape is preserved.
+      const p0 = orig[0];
+      const { dx: ddx, dy: ddy } = rigidSnapDelta(
+        p0?.[0] ?? 0,
+        p0?.[1] ?? 0,
+        dx,
+        dy,
+        ev?.shiftKey && orig.length > 0,
+      );
       for (let i = 0; i < orig.length; i++) {
         const o = orig[i]!;
         s.points[i] = [o[0] + ddx, o[1] + ddy];
