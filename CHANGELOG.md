@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.19](https://github.com/lassediercks/flowgo/compare/v0.3.18...v0.3.19) (2026-08-13)
+
+
+### Features
+
+* **editor:** copy, cut and paste brushed strokes ([0917a36](https://github.com/lassediercks/flowgo/commit/0917a366545fc6de0addf0c444b9dfa2377ed321))
+
+
+### Bug Fixes
+
+* **editor:** arm cancelDeletes on the double-click box spawns ([e29db74](https://github.com/lassediercks/flowgo/commit/e29db744b236f2a62ae9e5937314e7809c036012))
+* **editor:** cancel self-drop link drags and keep shift-click selections ([d638c5d](https://github.com/lassediercks/flowgo/commit/d638c5d45a716107a3dbe6bf121d8dc7fac3e6fb))
+* **editor:** zoom-reset first-tap sentinel and keyboard-dead bar controls ([e28e3fa](https://github.com/lassediercks/flowgo/commit/e28e3fa0021f599d803df284a6c4a9aa783e8421))
+* **hex:** enforce the hexagon never-overlap invariant on every data path ([01751f9](https://github.com/lassediercks/flowgo/commit/01751f9bb6201b5a12cf4f45f57b940dc005b138))
+
 ## [0.3.18](https://github.com/lassediercks/flowgo/compare/v0.3.17...v0.3.18) (2026-08-10)
 
 
