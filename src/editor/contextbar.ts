@@ -75,6 +75,37 @@ export const wireContextBar = (b: ContextBarBindings): void => {
   ctxBindings = b;
 };
 
+// ── Pure helpers (exported for direct testing) ──────────────────
+
+// The 1-9 ladder step shared by every stepper the bar grows (font
+// size is the only one today) — same clamp keys.ts applies to +/-.
+export const clampedStep = (value: number, dir: 1 | -1): number =>
+  Math.min(9, Math.max(1, value + dir));
+
+// Target + highlighted shape for the cursor-mode shape row.
+// `defaultShape` is passed as a getter so the file default is only
+// consulted when it is actually the target — preserves the original
+// inline logic, which never read it while a selection existed.
+export const cursorShapeTarget = (
+  selected: ReadonlySet<string>,
+  boxes: readonly BoxLike[],
+  defaultShape: () => number,
+): { readonly forSelection: boolean; readonly current: number } => {
+  // `find`, not `filter`: only the first selected box is read, and
+  // this runs on every applyClasses — allocating a selection-sized
+  // array behind every band-select / paste was pure waste (#24f).
+  const firstSelectedBox = boxes.find((b) => selected.has(b.id));
+  // Mirrors keys.ts's Alt+1..4: "nothing selected" (not "nothing
+  // selected THAT'S A BOX") is what flips to the default-shape
+  // target, so an empty selection or a selection of only
+  // texts/lines/strokes both land here.
+  const forSelection = selected.size > 0;
+  return {
+    forSelection,
+    current: forSelection ? (firstSelectedBox?.shape ?? 0) : defaultShape(),
+  };
+};
+
 // Called from render.ts's applyClasses() whenever the selection
 // changes, so the bar's shape row flips between "sets the selection's
 // shape" and "sets the file's default shape" the moment a box gets
@@ -152,8 +183,7 @@ const buildStepper = (
   readout.className = "ctx-stepper-value";
 
   const step = (dir: 1 | -1): void => {
-    const next = Math.min(9, Math.max(1, get() + dir));
-    set(next);
+    set(clampedStep(get(), dir));
     sync();
   };
 
@@ -347,16 +377,11 @@ export const attachContextBar = (): void => {
 
     if (m === "cursor") {
       if (!ctxBindings) return;
-      // `find`, not `filter`: only the first selected box is read, and
-      // this runs on every applyClasses — allocating a selection-sized
-      // array behind every band-select / paste was pure waste (#24f).
-      const firstSelectedBox = ctxBindings.currentMap().boxes.find((b) => ctxBindings!.selected.has(b.id));
-      // Mirrors keys.ts's Alt+1..4: "nothing selected" (not "nothing
-      // selected THAT'S A BOX") is what flips to the default-shape
-      // target, so an empty selection or a selection of only
-      // texts/lines/strokes both land here.
-      const forSelection = ctxBindings.selected.size > 0;
-      const current = forSelection ? (firstSelectedBox?.shape ?? 0) : getDefaultShape();
+      const { forSelection, current } = cursorShapeTarget(
+        ctxBindings.selected,
+        ctxBindings.currentMap().boxes,
+        getDefaultShape,
+      );
       cluster = document.createElement("div");
       cluster.className = "ctx-cluster";
       cluster.appendChild(buildShapeRow(forSelection, current, sync));

@@ -31,6 +31,38 @@ const STEP = 1.25;
 // as the double-click/double-tap that resets the view.
 const DOUBLE_MS = 400;
 
+// ── Pure helpers (exported for direct testing) ──────────────────
+
+// Readout text + step-button disable flags for a scale. The 1e-6
+// epsilon absorbs float drift from repeated multiplicative steps so
+// "at the clamp" is still recognised when s is 0.5000000000000001
+// rather than exactly MIN_SCALE.
+export const zoomDisplay = (
+  s: number,
+): {
+  readonly text: string;
+  readonly outDisabled: boolean;
+  readonly inDisabled: boolean;
+} => ({
+  text: `${Math.round(s * 100)}%`,
+  outDisabled: s <= MIN_SCALE + 1e-6,
+  inDisabled: s >= MAX_SCALE - 1e-6,
+});
+
+// Double-tap bookkeeping for the % readout: given the recorded
+// previous-tap timestamp and the current one, decide whether this
+// activation completes a double-tap (reset) and what to record for
+// the next activation. A completed double-tap clears the record so a
+// third tap inside the window starts a fresh pair instead of firing
+// a second reset.
+export const levelTapAdvance = (
+  last: number,
+  now: number,
+): { readonly reset: boolean; readonly last: number } =>
+  now - last < DOUBLE_MS
+    ? { reset: true, last: 0 }
+    : { reset: false, last: now };
+
 const stepZoom = (factor: number): void => {
   zoomAt(
     window.innerWidth / 2,
@@ -81,13 +113,9 @@ export const attachZoomControl = (w: {
 
   let lastLevelTap = 0;
   const level = make("Zoom level — double-click to reset", () => {
-    const now = performance.now();
-    if (now - lastLevelTap < DOUBLE_MS) {
-      lastLevelTap = 0;
-      resetZoom(w.currentMap());
-    } else {
-      lastLevelTap = now;
-    }
+    const tap = levelTapAdvance(lastLevelTap, performance.now());
+    lastLevelTap = tap.last;
+    if (tap.reset) resetZoom(w.currentMap());
   });
   level.id = "zoomLevel";
 
@@ -99,8 +127,9 @@ export const attachZoomControl = (w: {
   // Percentage readout + clamp feedback, driven by every viewport
   // redraw (pan included — cheap, three property writes).
   wireViewportDisplay(() => {
-    level.textContent = `${Math.round(viewport.s * 100)}%`;
-    outBtn.disabled = viewport.s <= MIN_SCALE + 1e-6;
-    inBtn.disabled = viewport.s >= MAX_SCALE - 1e-6;
+    const d = zoomDisplay(viewport.s);
+    level.textContent = d.text;
+    outBtn.disabled = d.outDisabled;
+    inBtn.disabled = d.inDisabled;
   });
 };
