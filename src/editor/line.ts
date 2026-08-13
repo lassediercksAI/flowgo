@@ -75,9 +75,11 @@ const removePreview = (): void => {
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
+// ── Pure geometry (exported for direct testing) ─────────────────
+
 // Snap (x, y) onto the ray from `start` whose angle is the nearest
 // multiple of 10°, preserving the cursor's distance from the start.
-const snapAngle = (
+export const snapAngle = (
   start: { x: number; y: number },
   x: number,
   y: number,
@@ -93,6 +95,37 @@ const snapAngle = (
     y: round2(start.y + Math.sin(snapped) * dist),
   };
 };
+
+// Where the line's free endpoint lands for a cursor at (rawX, rawY):
+// shift constrains to the nearest 10° ray from `start`, otherwise the
+// cursor position is taken as-is. Single seam shared by the preview,
+// the click-click commit, and the drag-release commit so all three
+// resolve identically.
+export const resolveLineEnd = (
+  start: { x: number; y: number },
+  rawX: number,
+  rawY: number,
+  shiftKey: boolean,
+): { x: number; y: number } =>
+  shiftKey ? snapAngle(start, rawX, rawY) : { x: rawX, y: rawY };
+
+// A would-be line under 2 DATA units is treated as an accidental
+// click and cancels rather than committing a speck.
+export const isNegligibleLine = (
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+): boolean => Math.hypot(end.x - start.x, end.y - start.y) < 2;
+
+// A release less than 4 CLIENT px from the mousedown that set the
+// start point is a click (keep pending, await the second click);
+// anything further is a drag and commits on release. Client px, not
+// data units — the click/drag distinction is about finger/mouse
+// travel, which zooming must not change.
+export const isDragRelease = (
+  down: { x: number; y: number },
+  upClientX: number,
+  upClientY: number,
+): boolean => Math.hypot(upClientX - down.x, upClientY - down.y) >= 4;
 
 export const setLineMode = (on: boolean): void => {
   if (lineMode === on) return;
@@ -135,11 +168,11 @@ export const placeLinePoint = (
     return;
   }
   const start = pending;
-  const end = shiftKey ? snapAngle(start, rawX, rawY) : { x: rawX, y: rawY };
+  const end = resolveLineEnd(start, rawX, rawY, shiftKey);
   pending = null;
   pendingDownClient = null;
   removePreview();
-  if (Math.hypot(end.x - start.x, end.y - start.y) < 2) {
+  if (isNegligibleLine(start, end)) {
     // Treat a near-zero-length click as a cancel rather than a 0px line.
     return;
   }
@@ -156,17 +189,15 @@ export const commitLineOnRelease = (
   shiftKey: boolean = false,
 ): void => {
   if (!pending || !pendingDownClient) return;
-  const dx = clientX - pendingDownClient.x;
-  const dy = clientY - pendingDownClient.y;
-  if (Math.hypot(dx, dy) < 4) return;
+  if (!isDragRelease(pendingDownClient, clientX, clientY)) return;
   const rawX = round2(toDataX(clientX));
   const rawY = round2(toDataY(clientY));
   const start = pending;
-  const end = shiftKey ? snapAngle(start, rawX, rawY) : { x: rawX, y: rawY };
+  const end = resolveLineEnd(start, rawX, rawY, shiftKey);
   pending = null;
   pendingDownClient = null;
   removePreview();
-  if (Math.hypot(end.x - start.x, end.y - start.y) < 2) return;
+  if (isNegligibleLine(start, end)) return;
   createLineSegment(start.x, start.y, end.x, end.y, pendingPalette, pendingStyle);
 };
 
@@ -178,7 +209,7 @@ export const updateLinePreview = (
   if (!pending || !previewEl) return;
   const rawX = round2(toDataX(clientX));
   const rawY = round2(toDataY(clientY));
-  const p = shiftKey ? snapAngle(pending, rawX, rawY) : { x: rawX, y: rawY };
+  const p = resolveLineEnd(pending, rawX, rawY, shiftKey);
   previewEl.setAttribute("x2", String(p.x));
   previewEl.setAttribute("y2", String(p.y));
 };

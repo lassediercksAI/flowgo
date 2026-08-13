@@ -65,7 +65,8 @@ const PENCIL_BODY: Record<number, string> = {
   9: "#fff",
 };
 
-const cursorForPalette = (p: number): string => {
+// Exported for direct testing — pure string builder.
+export const cursorForPalette = (p: number): string => {
   const body = PENCIL_BODY[p] ?? PENCIL_BODY[1]!;
   const svg =
     `<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'>`
@@ -120,8 +121,19 @@ export const setBrushPalette = (p: number): void => {
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
-const previewPoints = (pts: ReadonlyArray<readonly [number, number]>): string =>
+// ── Pure helpers (exported for direct testing) ──────────────────
+
+export const previewPoints = (pts: ReadonlyArray<readonly [number, number]>): string =>
   pts.map((p) => `${p[0]},${p[1]}`).join(" ");
+
+// Min-distance filter for the in-flight stroke: a sample under 2 DATA
+// units from the last kept point is hand jitter and is dropped. Data
+// units, not client px, so zooming in doesn't make strokes denser.
+export const passesMinDistance = (
+  last: readonly [number, number],
+  x: number,
+  y: number,
+): boolean => Math.hypot(x - last[0], y - last[1]) >= 2;
 
 export const startStroke = (clientX: number, clientY: number): void => {
   const x = round2(toDataX(clientX));
@@ -145,7 +157,7 @@ export const extendStroke = (clientX: number, clientY: number): void => {
   const x = round2(toDataX(clientX));
   const y = round2(toDataY(clientY));
   const last = active.points[active.points.length - 1]!;
-  if (Math.hypot(x - last[0], y - last[1]) < 2) return;
+  if (!passesMinDistance(last, x, y)) return;
   active.points.push([x, y]);
   active.polyEl.setAttribute("points", previewPoints(active.points));
 };
