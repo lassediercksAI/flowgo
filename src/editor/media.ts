@@ -70,6 +70,24 @@ const uploadBlob = async (blob: Blob): Promise<string> => {
   return body.src;
 };
 
+// Pure: natural dimensions → insert size. Longest side capped at
+// MAX_INSERT_PX (never upscaled past natural size); non-positive or
+// unreadable dimensions collapse to the FALLBACK_PX square. Exported
+// so the scaling contract is testable without decoding a real image.
+export const scaledInsertSize = (
+  nw: number,
+  nh: number,
+): { width: number; height: number } => {
+  if (nw <= 0 || nh <= 0) {
+    return { width: FALLBACK_PX, height: FALLBACK_PX };
+  }
+  const scale = Math.min(1, MAX_INSERT_PX / Math.max(nw, nh));
+  return {
+    width: Math.round(nw * scale),
+    height: Math.round(nh * scale),
+  };
+};
+
 // Read natural dimensions from the blob, scaled so the longest side is
 // at most MAX_INSERT_PX. Falls back to a square when the browser can't
 // decode a size.
@@ -79,17 +97,7 @@ const measure = (blob: Blob): Promise<{ width: number; height: number }> =>
     const im = new Image();
     im.onload = () => {
       URL.revokeObjectURL(url);
-      const nw = im.naturalWidth || 0;
-      const nh = im.naturalHeight || 0;
-      if (nw <= 0 || nh <= 0) {
-        resolve({ width: FALLBACK_PX, height: FALLBACK_PX });
-        return;
-      }
-      const scale = Math.min(1, MAX_INSERT_PX / Math.max(nw, nh));
-      resolve({
-        width: Math.round(nw * scale),
-        height: Math.round(nh * scale),
-      });
+      resolve(scaledInsertSize(im.naturalWidth || 0, im.naturalHeight || 0));
     };
     im.onerror = () => {
       URL.revokeObjectURL(url);
@@ -149,7 +157,8 @@ const insertImage = async (
 // throws and silently kills the paste handler. Always index by
 // .length / [i] instead.
 
-const imageBlobsFromItems = (
+// Exported for tests: pure over an array-like of clipboard items.
+export const imageBlobsFromItems = (
   items: DataTransferItemList | null | undefined,
 ): Blob[] => {
   const out: Blob[] = [];
@@ -164,7 +173,8 @@ const imageBlobsFromItems = (
   return out;
 };
 
-const imageBlobsFromFiles = (
+// Exported for tests: pure over an array-like of dropped/pasted files.
+export const imageBlobsFromFiles = (
   files: FileList | null | undefined,
 ): Blob[] => {
   const out: Blob[] = [];
