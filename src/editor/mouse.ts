@@ -504,7 +504,8 @@ const onWheel = (e: WheelEvent): void => {
 // coalesced pixel delta back into "how many notches was that".
 const WHEEL_NOTCH_PX = 100;
 
-const wheelNotches = (pxDelta: number): number =>
+// Exported for direct testing (pure).
+export const wheelNotches = (pxDelta: number): number =>
   pxDelta === 0
     ? 0
     : Math.sign(pxDelta) *
@@ -518,7 +519,8 @@ const wheelNotches = (pxDelta: number): number =>
 // deltas on both axes. A very fast single-axis trackpad flick can
 // occasionally cross the threshold and quantise one frame — visually
 // indistinguishable from an intended fast pan, so the trade is fine.
-const isDiscreteWheel = (e: WheelEvent): boolean => {
+// Exported for direct testing (pure — only reads delta fields).
+export const isDiscreteWheel = (e: WheelEvent): boolean => {
   if (e.deltaMode !== 0) return true;
   const onlyY = e.deltaX === 0 && e.deltaY !== 0;
   const onlyX = e.deltaY === 0 && e.deltaX !== 0;
@@ -584,7 +586,8 @@ const onBgMouseDown = (e: MouseEvent): void => {
 // Distance from point P to segment AB (used for line-mode dblclick
 // hit-testing). Returns squared distance + the segment parameter t
 // clamped to [0, 1] so callers can compute the projection.
-const distPointSeg = (
+// Exported for direct testing (pure).
+export const distPointSeg = (
   px: number, py: number,
   ax: number, ay: number,
   bx: number, by: number,
