@@ -367,3 +367,14 @@ describe("levelTapAdvance (pure)", () => {
     expect(levelTapAdvance(1000, 5000)).toEqual({ reset: false, last: 5000 });
   });
 });
+
+// Regression for the -Infinity seed: with a 0 seed, the FIRST tap of a
+// page's life within DOUBLE_MS of time-origin paired with "tap at 0"
+// and instantly reset the view (the help.ts latch-sentinel lesson).
+describe("first-tap-of-page-life", () => {
+  it("a single tap in the first 400ms of the page does not reset", () => {
+    const early = levelTapAdvance(-Infinity, 100);
+    expect(early.reset).toBe(false);
+    expect(early.last).toBe(100);
+  });
+});

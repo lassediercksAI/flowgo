@@ -111,7 +111,11 @@ export const attachZoomControl = (w: {
   const outBtn = make("Zoom out", () => stepZoom(1 / STEP));
   outBtn.appendChild(icon("minus", 16));
 
-  let lastLevelTap = 0;
+  // -Infinity, not 0: with a zero seed, any single tap while
+  // performance.now() < DOUBLE_MS (the page's first 400ms) reads as
+  // the second half of a double-tap and instantly resets the view —
+  // the same latch-sentinel bug help.ts already fixed once.
+  let lastLevelTap = -Infinity;
   const level = make("Zoom level — double-click to reset", () => {
     const tap = levelTapAdvance(lastLevelTap, performance.now());
     lastLevelTap = tap.last;

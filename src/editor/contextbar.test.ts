@@ -483,3 +483,27 @@ describe("clampedStep (pure)", () => {
     expect(clampedStep(1, -1)).toBe(1);
   });
 });
+
+// Regression for the row-control keyboard gap: shape / swatch /
+// stepper / line-style buttons used to bind pointerup only, so
+// Enter/Space (which fire only click) were dead, and a tap's trailing
+// synthetic click bubbled unswallowed. bindActivate now gives every
+// bar control the same pointerup + guarded-click pattern.
+describe("row controls activate from keyboard", () => {
+  it("a bare click (keyboard path) applies a swatch", () => {
+    tap(modeBtn("brush"));
+    const swatch = swatches()[4]!;
+    swatch.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(getBrushPalette()).toBe(5);
+  });
+
+  it("pointerup plus its trailing click applies once", () => {
+    tap(modeBtn("brush"));
+    const before = getBrushPalette();
+    expect(before).not.toBe(7);
+    const swatch = swatches()[6]!;
+    swatch.dispatchEvent(new Event("pointerup", { bubbles: true, cancelable: true }));
+    swatch.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(getBrushPalette()).toBe(7);
+  });
+});

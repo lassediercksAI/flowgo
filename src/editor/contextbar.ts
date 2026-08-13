@@ -135,6 +135,31 @@ const setMode = (m: Mode): void => {
 // Duplicated rather than imported: the app already repeats this table
 // per CSS rule (box / text / line / stroke each restate the nine
 // hexes), so a fourth JS-side copy matches the existing convention.
+// bindActivate gives a bar control the house activation pattern
+// (brain#256): pointerup is the primary trigger — iOS Safari doesn't
+// reliably synthesize a click while the document-level touch handlers
+// hold {passive:false} listeners — and click stays bound as the
+// keyboard path (Enter/Space fire only click). The same-tick latch
+// means a tap's trailing synthetic click is swallowed instead of
+// double-activating; it seeds false and clears on a macrotask.
+const bindActivate = (btn: HTMLButtonElement, fn: () => void) => {
+  btn.addEventListener("mousedown", (e) => e.stopPropagation());
+  btn.addEventListener("touchstart", (e) => e.stopPropagation(), { passive: true });
+  let activated = false;
+  const activate = (e: Event) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (activated) return;
+    activated = true;
+    setTimeout(() => {
+      activated = false;
+    }, 0);
+    fn();
+  };
+  btn.addEventListener("pointerup", activate);
+  btn.addEventListener("click", activate);
+};
+
 const SWATCH_COLOR: Record<number, string> = {
   1: "#fff",
   2: "#1d4ed8",
@@ -157,11 +182,7 @@ const buildPaletteRow = (set: (p: number) => void, sync: () => void): HTMLElemen
     btn.style.background = SWATCH_COLOR[p]!;
     btn.title = p === 1 ? "Default colour" : `Colour ${p}`;
     btn.setAttribute("aria-label", btn.title);
-    btn.addEventListener("mousedown", (e) => e.stopPropagation());
-    btn.addEventListener("touchstart", (e) => e.stopPropagation(), { passive: true });
-    btn.addEventListener("pointerup", (e) => {
-      e.stopPropagation();
-      e.preventDefault();
+    bindActivate(btn, () => {
       set(p);
       sync();
     });
@@ -193,13 +214,7 @@ const buildStepper = (
     btn.textContent = text;
     btn.title = `${label} ${dir > 0 ? "larger" : "smaller"}`;
     btn.setAttribute("aria-label", btn.title);
-    btn.addEventListener("mousedown", (e) => e.stopPropagation());
-    btn.addEventListener("touchstart", (e) => e.stopPropagation(), { passive: true });
-    btn.addEventListener("pointerup", (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      step(dir);
-    });
+    bindActivate(btn, () => step(dir));
     return btn;
   };
 
@@ -246,11 +261,7 @@ const buildLineStyleRow = (sync: () => void): HTMLElement => {
     btn.title = label;
     btn.setAttribute("aria-label", label);
     btn.appendChild(buildLineStyleIcon(d));
-    btn.addEventListener("mousedown", (e) => e.stopPropagation());
-    btn.addEventListener("touchstart", (e) => e.stopPropagation(), { passive: true });
-    btn.addEventListener("pointerup", (e) => {
-      e.stopPropagation();
-      e.preventDefault();
+    bindActivate(btn, () => {
       setLineStyle(style);
       sync();
     });
@@ -301,11 +312,7 @@ const buildShapeRow = (forSelection: boolean, current: number, sync: () => void)
     btn.setAttribute("aria-label", btn.title);
     btn.classList.toggle("active", shape === current);
     btn.appendChild(buildShapeIcon(d));
-    btn.addEventListener("mousedown", (e) => e.stopPropagation());
-    btn.addEventListener("touchstart", (e) => e.stopPropagation(), { passive: true });
-    btn.addEventListener("pointerup", (e) => {
-      e.stopPropagation();
-      e.preventDefault();
+    bindActivate(btn, () => {
       if (forSelection) ctxBindings!.applyShapeToSelection(shape);
       else setDefaultShape(shape);
       sync();
@@ -337,20 +344,10 @@ export const attachContextBar = (): void => {
     btn.title = label;
     btn.setAttribute("aria-label", label);
     btn.appendChild(iconEl);
-    btn.addEventListener("mousedown", (e) => e.stopPropagation());
-    btn.addEventListener("touchstart", (e) => e.stopPropagation(), { passive: true });
-    let activated = false;
-    const activate = (e: Event) => {
-      e.stopPropagation();
-      e.preventDefault();
-      if (activated) return;
-      activated = true;
-      setTimeout(() => { activated = false; }, 0);
+    bindActivate(btn, () => {
       setMode(mode);
       sync();
-    };
-    btn.addEventListener("pointerup", activate);
-    btn.addEventListener("click", activate);
+    });
     modeRow.appendChild(btn);
     buttons.push({ mode, el: btn });
   };
