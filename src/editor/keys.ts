@@ -130,7 +130,8 @@ export const wireKeys = (b: KeysBindings): void => {
 // (1↔9). Each item moves independently, so a mixed selection keeps
 // its relative differences. Value 1 is stored as the absent property
 // to match the file format's default placeholder.
-const stepValue = (cur: number | undefined, dir: 1 | -1): number => {
+// Exported for direct testing — pure step/wrap helper.
+export const stepValue = (cur: number | undefined, dir: 1 | -1): number => {
   const c = cur && cur >= 1 && cur <= 9 ? cur : 1;
   return ((c - 1 + dir + 9) % 9) + 1;
 };
