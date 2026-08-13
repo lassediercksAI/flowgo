@@ -86,6 +86,33 @@ export const wireClone = (b: CloneBindings): void => {
   bindings = b;
 };
 
+// Pure edge-duplication rule, exported for tests: an edge is copied
+// only when BOTH endpoints were cloned in this pass and both clones
+// are boxes (never texts/lines/images), so dangling references can't
+// appear. Returns the copies; the caller appends them.
+export const cloneEdgesForIdMap = (
+  edges: readonly EdgeLike[],
+  idMap: ReadonlyMap<string, string>,
+  cloneBoxIds: ReadonlySet<string>,
+): EdgeLike[] => {
+  const copies: EdgeLike[] = [];
+  for (const ed of edges) {
+    const newFrom = idMap.get(ed.from);
+    const newTo = idMap.get(ed.to);
+    if (newFrom && newTo && cloneBoxIds.has(newFrom) && cloneBoxIds.has(newTo)) {
+      const edgeCopy: EdgeLike = { from: newFrom, to: newTo };
+      if (ed.fromHandle) edgeCopy.fromHandle = ed.fromHandle;
+      if (ed.toHandle) edgeCopy.toHandle = ed.toHandle;
+      // A cloned connection keeps its colour and its label — the
+      // duplicate is meant to be a duplicate (brain#266).
+      if (ed.palette) edgeCopy.palette = ed.palette;
+      if (ed.label) edgeCopy.label = ed.label;
+      copies.push(edgeCopy);
+    }
+  }
+  return copies;
+};
+
 // Returns the {oldId -> newId} map. The selection Set is replaced by
 // the new ids; the caller renders.
 export const cloneSelection = (): Map<string, string> => {
@@ -153,21 +180,11 @@ export const cloneSelection = (): Map<string, string> => {
     }
   }
 
-  // Duplicate edges between cloned boxes (only). Walk a snapshot of
-  // edges so we don't visit the new edges we're appending.
-  for (const ed of map.edges.slice()) {
-    const newFrom = idMap.get(ed.from);
-    const newTo = idMap.get(ed.to);
-    if (newFrom && newTo && cloneBoxIds.has(newFrom) && cloneBoxIds.has(newTo)) {
-      const edgeCopy: EdgeLike = { from: newFrom, to: newTo };
-      if (ed.fromHandle) edgeCopy.fromHandle = ed.fromHandle;
-      if (ed.toHandle) edgeCopy.toHandle = ed.toHandle;
-      // A cloned connection keeps its colour and its label — the
-      // duplicate is meant to be a duplicate (brain#266).
-      if (ed.palette) edgeCopy.palette = ed.palette;
-      if (ed.label) edgeCopy.label = ed.label;
-      map.edges.push(edgeCopy);
-    }
+  // Duplicate edges between cloned boxes (only). The rule computes
+  // from the pre-clone edge list, so the copies we append are never
+  // themselves walked.
+  for (const edgeCopy of cloneEdgesForIdMap(map.edges, idMap, cloneBoxIds)) {
+    map.edges.push(edgeCopy);
   }
 
   selected.clear();

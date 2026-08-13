@@ -96,7 +96,7 @@ export const applyViewport = (): void => {
 //
 // The indicator is flashed even when the requested scale was clamped
 // (target === viewport.s) so the user can see *why* further zoom
-// didn't take effect — the toast shows "10% (min)" or "800% (max)"
+// didn't take effect — the toast shows "50% (min)" or "800% (max)"
 // with a red outline.
 export const zoomAt = (
   clientX: number,
@@ -153,18 +153,9 @@ export const flashZoomIndicator = (): void => {
   }, INDICATOR_TTL_MS);
 };
 
-// Centre the camera. Priority order:
-//   1. The map's anchor box (the one with `anchor: true`).
-//   2. A box with id "b1" — the conventional first box (back-compat
-//      so older maps without an explicit anchor still centre nicely).
-//   3. The first box on the map — gives Cmd+0 a predictable landing
-//      spot on maps that never had an anchor designated.
-//   4. The bounding box of every concrete piece on the map.
-// Side effects: mutates `viewport` and replays applyViewport.
-//
-// Recenter does NOT change viewport.s — zoom is sticky across
-// navigation. Only the translate is recomputed.
-export const recenter = (currentMap: {
+// The map shape recenter() reads. Exported so the pure helpers below
+// can share it with recenter's signature.
+export interface RecenterMap {
   readonly boxes?: ReadonlyArray<{
     readonly id?: string;
     readonly x: number;
@@ -177,13 +168,58 @@ export const recenter = (currentMap: {
     readonly x2: number; readonly y2: number;
     readonly mids?: ReadonlyArray<readonly [number, number]>;
   }>;
-}): void => {
+}
+
+// Pure target selection for recenter(). Priority order:
+//   1. The map's anchor box (the one with `anchor: true`).
+//   2. A box with id "b1" — the conventional first box (back-compat
+//      so older maps without an explicit anchor still centre nicely).
+//   3. The first box on the map — gives Cmd+0 a predictable landing
+//      spot on maps that never had an anchor designated.
+export const recenterTarget = (
+  boxes: NonNullable<RecenterMap["boxes"]>,
+): NonNullable<RecenterMap["boxes"]>[number] | undefined =>
+  boxes.find((b) => b.anchor) ??
+  boxes.find((b) => b.id === "b1") ??
+  boxes[0];
+
+// Pure bounding-box centre of every concrete piece on the map — box
+// top-lefts, text anchors, line endpoints and midpoints. Null when the
+// map holds nothing to centre on.
+export const contentCenter = (
+  currentMap: RecenterMap,
+): readonly [number, number] | null => {
+  const points: Array<readonly [number, number]> = [];
+  for (const b of currentMap.boxes ?? []) points.push([b.x, b.y]);
+  for (const t of currentMap.texts ?? []) points.push([t.x, t.y]);
+  for (const l of currentMap.lines ?? []) {
+    points.push([l.x1, l.y1]);
+    points.push([l.x2, l.y2]);
+    for (const [mx, my] of l.mids ?? []) points.push([mx, my]);
+  }
+  if (points.length === 0) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const [x, y] of points) {
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+  }
+  return [(minX + maxX) / 2, (minY + maxY) / 2];
+};
+
+// Centre the camera on recenterTarget(), falling back to
+// contentCenter() when no targetable box exists.
+// Side effects: mutates `viewport` and replays applyViewport.
+//
+// Recenter does NOT change viewport.s — zoom is sticky across
+// navigation. Only the translate is recomputed.
+export const recenter = (currentMap: RecenterMap): void => {
   const s = viewport.s;
-  const boxes = currentMap.boxes ?? [];
-  const target =
-    boxes.find((b) => b.anchor) ??
-    boxes.find((b) => b.id === "b1") ??
-    boxes[0];
+  const target = recenterTarget(currentMap.boxes ?? []);
   if (target && target.id) {
     // Prefer the rendered element's true centre; fall back to the
     // stored top-left (matches existing bbox math for single-point
@@ -199,32 +235,13 @@ export const recenter = (currentMap: {
     return;
   }
 
-  const points: Array<readonly [number, number]> = [];
-  for (const b of currentMap.boxes ?? []) points.push([b.x, b.y]);
-  for (const t of currentMap.texts ?? []) points.push([t.x, t.y]);
-  for (const l of currentMap.lines ?? []) {
-    points.push([l.x1, l.y1]);
-    points.push([l.x2, l.y2]);
-    for (const [mx, my] of l.mids ?? []) points.push([mx, my]);
-  }
-  if (points.length === 0) {
+  const centre = contentCenter(currentMap);
+  if (centre === null) {
     viewport.x = 0;
     viewport.y = 0;
   } else {
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    for (const [x, y] of points) {
-      if (x < minX) minX = x;
-      if (y < minY) minY = y;
-      if (x > maxX) maxX = x;
-      if (y > maxY) maxY = y;
-    }
-    const cx = (minX + maxX) / 2;
-    const cy = (minY + maxY) / 2;
-    viewport.x = window.innerWidth / 2 - cx * s;
-    viewport.y = window.innerHeight / 2 - cy * s;
+    viewport.x = window.innerWidth / 2 - centre[0] * s;
+    viewport.y = window.innerHeight / 2 - centre[1] * s;
   }
   applyViewport();
 };
