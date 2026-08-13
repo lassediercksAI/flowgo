@@ -34,7 +34,10 @@ export interface ElSize {
   readonly offsetHeight: number;
 }
 
-const boxFor = (el: ElSize, b: BoxLike): Box2D => ({
+// Pure bridge: a stored box position + a measured element size make
+// the Box2D the src/graph/ anchor math consumes. Exported for tests —
+// the width/height-from-element vs x/y-from-box split IS the contract.
+export const boxFor = (el: ElSize, b: BoxLike): Box2D => ({
   x: b.x,
   y: b.y,
   width: el.offsetWidth,
@@ -66,13 +69,16 @@ export const nearestHandle = (
 // earlier version fell back to the handle nearest the *source*
 // anchor, which systematically picked the source-facing corner —
 // usually tl — no matter where on the target the user pointed.)
-export const pickTargetHandle = (
-  targetEl: HTMLElement,
-  targetBox: BoxLike,
-  clientX: number,
-  clientY: number,
-): HandleCode => {
-  const stack = document.elementsFromPoint(clientX, clientY);
+// Pure half of the priority rule: scan an elementsFromPoint stack for
+// a handle dot that belongs to THIS target box (parentElement check —
+// a neighbouring box's dot under the cursor must not hijack the drop)
+// and has a code to give. Null means "no direct hit, fall back to
+// geometry". Extracted so the selection rules are testable without
+// stubbing document.elementsFromPoint.
+export const handleCodeFromStack = (
+  stack: ReadonlyArray<Element>,
+  targetEl: Element,
+): HandleCode | null => {
   for (const el of stack) {
     const h = el as HTMLElement;
     if (h.classList?.contains("handle") && h.parentElement === targetEl) {
@@ -80,6 +86,20 @@ export const pickTargetHandle = (
       if (code) return code as HandleCode;
     }
   }
+  return null;
+};
+
+export const pickTargetHandle = (
+  targetEl: HTMLElement,
+  targetBox: BoxLike,
+  clientX: number,
+  clientY: number,
+): HandleCode => {
+  const direct = handleCodeFromStack(
+    document.elementsFromPoint(clientX, clientY),
+    targetEl,
+  );
+  if (direct) return direct;
   return nearestHandle(targetBox, targetEl, toDataX(clientX), toDataY(clientY));
 };
 

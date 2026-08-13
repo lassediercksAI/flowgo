@@ -100,8 +100,11 @@ export const ensureMap = (path: string): MapLike => {
 // the view (pan + zoom). The view params are all optional; "#/" still
 // works as a bare path. Parsing returns just the path here; view
 // params are handled by readViewFromURL().
-const splitHash = (): { path: string; query: string } => {
-  let h = location.hash || "";
+// Pure half of the hash parser: everything after this line is string
+// math with no `location` access, so it can be pinned in node-env
+// tests without a jsdom URL dance.
+export const splitHashString = (hash: string): { path: string; query: string } => {
+  let h = hash || "";
   if (h.startsWith("#")) h = h.slice(1);
   const q = h.indexOf("?");
   const path = q === -1 ? h : h.slice(0, q);
@@ -109,12 +112,18 @@ const splitHash = (): { path: string; query: string } => {
   return { path, query };
 };
 
-export const readPathFromURL = (): string => {
-  const { path } = splitHash();
+const splitHash = (): { path: string; query: string } =>
+  splitHashString(location.hash);
+
+// Path-shape normalisation: an empty fragment is the root, and a bare
+// "a/b" (hand-typed bookmark) grows its leading slash.
+export const normalizePath = (path: string): string => {
   if (!path) return "/";
   if (!path.startsWith("/")) return "/" + path;
   return path;
 };
+
+export const readPathFromURL = (): string => normalizePath(splitHash().path);
 
 // Parses ?z=&x=&y= out of the hash. Any combination is allowed —
 // callers should treat `null` fields as "leave at recenter default".
@@ -126,8 +135,12 @@ export const readPathFromURL = (): string => {
 // realistic map ten times over.
 const MAX_TRANSLATE = 1_000_000;
 
-export const readViewFromURL = (): { s?: number; x?: number; y?: number } | null => {
-  const { query } = splitHash();
+// Pure query-string → view-params parser. Kept separate from
+// readViewFromURL so the clamping / empty-value rules are testable
+// without touching location.hash.
+export const parseViewQuery = (
+  query: string,
+): { s?: number; x?: number; y?: number } | null => {
   if (!query) return null;
   const params = new URLSearchParams(query);
   const out: { s?: number; x?: number; y?: number } = {};
@@ -155,18 +168,27 @@ export const readViewFromURL = (): { s?: number; x?: number; y?: number } | null
   return out;
 };
 
+export const readViewFromURL = (): { s?: number; x?: number; y?: number } | null =>
+  parseViewQuery(splitHash().query);
+
 // Serialise current viewport to the query portion. Values that match
 // defaults (s=1, x=0, y=0) are omitted to keep clean URLs clean. Only
 // integers for x/y — sub-pixel precision doesn't survive a bookmark
 // and just makes the URL ugly. Three decimal places for s covers the
 // useful precision without trailing noise.
-const buildViewQuery = (): string => {
+export const buildViewQueryFrom = (v: {
+  readonly x: number;
+  readonly y: number;
+  readonly s: number;
+}): string => {
   const parts: string[] = [];
-  if (viewport.s !== 1) parts.push(`z=${viewport.s.toFixed(3)}`);
-  if (viewport.x !== 0) parts.push(`x=${Math.round(viewport.x)}`);
-  if (viewport.y !== 0) parts.push(`y=${Math.round(viewport.y)}`);
+  if (v.s !== 1) parts.push(`z=${v.s.toFixed(3)}`);
+  if (v.x !== 0) parts.push(`x=${Math.round(v.x)}`);
+  if (v.y !== 0) parts.push(`y=${Math.round(v.y)}`);
   return parts.length === 0 ? "" : "?" + parts.join("&");
 };
+
+const buildViewQuery = (): string => buildViewQueryFrom(viewport);
 
 // Debounced URL writer. Pan + zoom can fire 60 times a second during a
 // drag; replaceState'ing on every tick is fine on modern browsers but
@@ -230,23 +252,56 @@ export const navigateTo = (p: string, opts?: SetPathOptions): void => {
   }
 };
 
+// Pure path arithmetic for the two hierarchy moves. childPath appends
+// a segment (no double slash at root); parentPath drops the last
+// segment and lands on "/" from any depth — including degenerate
+// inputs like trailing slashes or "" (both normalise via
+// filter(Boolean)).
+export const childPath = (parent: string, boxId: string): string =>
+  parent === "/" ? "/" + boxId : parent + "/" + boxId;
+
+export const parentPath = (path: string): string => {
+  const parts = path.split("/").filter(Boolean);
+  parts.pop();
+  return parts.length ? "/" + parts.join("/") : "/";
+};
+
 export const enterSubmap = (boxId: string): void => {
-  const cur = must().getCurrentPath();
-  navigateTo(cur === "/" ? "/" + boxId : cur + "/" + boxId);
+  navigateTo(childPath(must().getCurrentPath(), boxId));
 };
 
 export const goUp = (): void => {
   const cur = must().getCurrentPath();
   if (cur === "/") return;
-  const parts = cur.split("/").filter(Boolean);
-  parts.pop();
-  navigateTo(parts.length ? "/" + parts.join("/") : "/");
+  navigateTo(parentPath(cur));
 };
 
 interface BoxWithLabel {
   readonly id: string;
   readonly label?: string;
 }
+
+// Breadcrumb derivation, pure over the graph snapshot: each segment id
+// resolves to the label of the matching box one level UP (that is
+// where a submap's display name lives), trimmed; raw id for orphans /
+// blank labels. The root path yields [].
+export const resolveBreadcrumbs = (
+  maps: ReadonlyArray<{ readonly path: string; readonly boxes?: unknown[] }>,
+  currentPath: string,
+): Array<{ id: string; label: string }> => {
+  const segs = currentPath === "/" ? [] : currentPath.split("/").filter(Boolean);
+  let acc = "";
+  let parent = "/";
+  return segs.map((s) => {
+    acc += "/" + s;
+    const parentMap = maps.find((m) => m.path === parent);
+    const parentBoxes = (parentMap?.boxes ?? []) as BoxWithLabel[];
+    const parentBox = parentBoxes.find((bx) => bx.id === s);
+    const label = (parentBox?.label && parentBox.label.trim()) || s;
+    parent = acc;
+    return { id: s, label };
+  });
+};
 
 export const renderPath = (): void => {
   const b = must();
@@ -269,17 +324,7 @@ export const renderPath = (): void => {
   }
   // Resolve every segment id to its label by walking the parent maps
   // (labels come from the box in the level above; raw id for orphans).
-  let acc = "";
-  let parentPath = "/";
-  const resolved = segs.map((s) => {
-    acc += "/" + s;
-    const parentMap = (graph.maps || []).find((m) => m.path === parentPath);
-    const parentBoxes = (parentMap?.boxes ?? []) as BoxWithLabel[];
-    const parentBox = parentBoxes.find((bx) => bx.id === s);
-    const label = (parentBox?.label && parentBox.label.trim()) || s;
-    parentPath = acc;
-    return { id: s, label };
-  });
+  const resolved = resolveBreadcrumbs(graph.maps || [], currentPath);
 
   // Compressed trail: root and the current level only. Intermediate
   // levels collapse into a non-interactive "…" — deep paths would
