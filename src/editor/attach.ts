@@ -63,12 +63,66 @@ interface ImageLike {
   width: number;
   height: number;
 }
-interface EdgeLike {
+export interface EdgeLike {
   from: string;
   to: string;
   fromHandle?: string;
   toHandle?: string;
 }
+
+// Pure geometry: index of the polyline segment
+// points[i] -> points[i+1] whose closest approach to (cx, cy) is
+// smallest. Ties keep the earliest segment (strict <). The line-body
+// dblclick uses this to insert a new control point in visual order
+// rather than always appending. Extracted for direct testing — no
+// DOM, no bindings.
+export const closestSegmentIndex = (
+  points: ReadonlyArray<readonly [number, number]>,
+  cx: number,
+  cy: number,
+): number => {
+  let bestSeg = 0;
+  let bestDist = Infinity;
+  for (let i = 0; i < points.length - 1; i++) {
+    const [ax, ay] = points[i]!;
+    const [bx, by] = points[i + 1]!;
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((cx - ax) * dx + (cy - ay) * dy) / len2));
+    const px = ax + t * dx;
+    const py = ay + t * dy;
+    const d2 = (cx - px) ** 2 + (cy - py) ** 2;
+    if (d2 < bestDist) {
+      bestDist = d2;
+      bestSeg = i;
+    }
+  }
+  return bestSeg;
+};
+
+// Pure classification: is an edge anchored to this exact box+handle?
+// Scans from the END so the topmost of coincident edges wins (same
+// order the reverse for-loop it replaced used). Returns the picked
+// edge plus the OTHER end's id/handle — the end a re-route keeps
+// fixed. The handle comparison is exact (`===`), so an edge without a
+// stored handle on this box never matches a concrete handle code.
+export const findAnchoredEdge = (
+  edges: readonly EdgeLike[],
+  boxId: string,
+  code: string,
+): { edge: EdgeLike; anchoredId: string; anchoredHandle: string } | null => {
+  for (let i = edges.length - 1; i >= 0; i--) {
+    const ed = edges[i]!;
+    if (ed.from === boxId && ed.fromHandle === code) {
+      return { edge: ed, anchoredId: ed.to, anchoredHandle: ed.toHandle ?? "" };
+    }
+    if (ed.to === boxId && ed.toHandle === code) {
+      return { edge: ed, anchoredId: ed.from, anchoredHandle: ed.fromHandle ?? "" };
+    }
+  }
+  return null;
+};
 
 interface CurrentMap {
   boxes: BoxLike[];
@@ -376,23 +430,7 @@ export const attachLineHandlers = (
       ...l.mids,
       [l.x2, l.y2],
     ];
-    let bestSeg = 0;
-    let bestDist = Infinity;
-    for (let i = 0; i < points.length - 1; i++) {
-      const [ax, ay] = points[i]!;
-      const [bx, by] = points[i + 1]!;
-      const dx = bx - ax;
-      const dy = by - ay;
-      const len2 = dx * dx + dy * dy;
-      const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((cx - ax) * dx + (cy - ay) * dy) / len2));
-      const px = ax + t * dx;
-      const py = ay + t * dy;
-      const d2 = (cx - px) ** 2 + (cy - py) ** 2;
-      if (d2 < bestDist) {
-        bestDist = d2;
-        bestSeg = i;
-      }
-    }
+    const bestSeg = closestSegmentIndex(points, cx, cy);
     l.mids.splice(bestSeg, 0, [cx, cy]);
     w.selected.clear();
     w.selected.add(l.id);
@@ -557,24 +595,10 @@ export const attachBoxHandlers = (
 
       // Is there an existing edge anchored to this exact box+handle? If so,
       // pick it up.
-      let pickedEdge: EdgeLike | null = null;
-      let anchoredId: string | null = null;
-      let anchoredHandle = "";
-      for (let i = map.edges.length - 1; i >= 0; i--) {
-        const ed = map.edges[i]!;
-        if (ed.from === b.id && ed.fromHandle === code) {
-          pickedEdge = ed;
-          anchoredId = ed.to;
-          anchoredHandle = ed.toHandle ?? "";
-          break;
-        }
-        if (ed.to === b.id && ed.toHandle === code) {
-          pickedEdge = ed;
-          anchoredId = ed.from;
-          anchoredHandle = ed.fromHandle ?? "";
-          break;
-        }
-      }
+      const picked = findAnchoredEdge(map.edges, b.id, code);
+      const pickedEdge = picked?.edge ?? null;
+      const anchoredId = picked?.anchoredId ?? null;
+      const anchoredHandle = picked?.anchoredHandle ?? "";
 
       if (pickedEdge && anchoredId) {
         const idx = map.edges.indexOf(pickedEdge);
