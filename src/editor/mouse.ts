@@ -288,9 +288,15 @@ const onMouseUp = (e: MouseEvent): void => {
       // No-op while culling is unwired.
       updateCulling();
     } else {
-      // Single-click without movement: collapse selection to just this item.
-      w.selected.clear();
-      if (primaryId) w.selected.add(primaryId);
+      // Single-click without movement: collapse selection to just this
+      // item — unless shift is held. Shift is the additive gesture:
+      // attach.ts already added this box at mousedown, and collapsing
+      // here made click-only multi-select impossible (dragging was the
+      // only way to keep the set).
+      if (!e.shiftKey) {
+        w.selected.clear();
+        if (primaryId) w.selected.add(primaryId);
+      }
       if (w.selectedEdge()) {
         w.setSelectedEdge(null);
         renderEdges();
@@ -407,6 +413,11 @@ const onMouseUp = (e: MouseEvent): void => {
       map.edges = addOrReplaceEdgePure(map.edges, newEdge);
       mutatedEdge();
       renderEdges();
+    } else if (target) {
+      // Released back over the source box itself: cancel. The touch
+      // path refuses self-connections outright; before this guard the
+      // release fell through to the empty-drop branch and spawned an
+      // overlapping box connected to its own source.
     } else {
       // Dropped in empty space: spawn a new box of the file's
       // default shape at the cursor (hexagons lattice-snap) and

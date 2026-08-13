@@ -707,13 +707,21 @@ describe("link drag from a handle", () => {
     editable()?.blur(); // empty drop spawns + edits; unwind for the next test
   });
 
-  it("the source box is never its own target", () => {
+  it("the source box is never its own target, and releasing over it cancels outright", () => {
+    const boxesBefore = map.boxes.length;
+    const edgesBefore = map.edges.length;
     armLink("a", "r", 117, 20);
     mouse("mousemove", document.body, 60, 20); // over a itself
     expect(state.dropId).toBeNull();
     expect(state.nearId).toBeNull();
-    mouse("mouseup", document.body, 60, 20); // and the drop is a no-op edge-wise
-    expect(map.edges.filter((e) => e.from === "a" && e.to === "a").length).toBe(0);
+    // Releasing over the source must cancel the whole gesture. It used
+    // to fall through to the empty-drop branch and spawn an overlapping
+    // box connected to its own source (the touch path always refused
+    // self-connections); the box/edge counts pin the fix.
+    mouse("mouseup", document.body, 60, 20);
+    expect(map.boxes.length).toBe(boxesBefore);
+    expect(map.edges.length).toBe(edgesBefore);
+    expect(state.link).toBeNull();
   });
 
   it("dropping on a box creates the edge with both handle codes and unwinds the gesture", () => {

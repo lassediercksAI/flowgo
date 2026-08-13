@@ -20,11 +20,10 @@
 //     through applyClasses on select and are removed on deselect.
 //   • attach.ts:~485 — strokes have no ⌥-clone mapping; alt-drag on a
 //     stroke simply moves it.
-//   • mouse.ts's mouseup collapses a motionless click to primaryId,
-//     which also collapses a motionless SHIFT-click (additive at
-//     mousedown, collapsed at mouseup). Pinned below exactly as it
-//     behaves today; flagged in the sweep report as a possible product
-//     bug, not changed here.
+//   • mouse.ts's mouseup collapses a motionless click to primaryId —
+//     but a motionless SHIFT-click keeps the additive selection from
+//     mousedown (the collapse used to ignore shift, which made
+//     click-only multi-select impossible; fixed in the sweep).
 //
 // jsdom has no layout: offsetWidth/offsetHeight and
 // document.elementsFromPoint are stubbed from the fixture's own
@@ -547,16 +546,18 @@ describe("box selection via mouse click", () => {
     expect(boxEl("b").querySelectorAll(".handle").length).toBe(8);
   });
 
-  it("shift-mousedown adds to the selection at mousedown; the mouseup of a motionless shift-click then collapses it", () => {
+  it("a motionless shift-click keeps the additive selection", () => {
     clickOn(boxEl("a"), boxCentre("a"));
     mouse("mousedown", boxEl("b"), boxCentre("b"), { shiftKey: true });
     // Additive semantics live in attach.ts's mousedown:
     expect(selected.has("a")).toBe(true);
     expect(selected.has("b")).toBe(true);
-    // …and mouse.ts's motionless-click collapse then reduces to the
-    // clicked box, shift or not. Pinned as shipped (see sweep report).
+    // …and mouse.ts's motionless-click collapse must respect shift —
+    // it is the additive gesture; collapsing here would make
+    // click-only multi-select impossible.
     mouse("mouseup", document, boxCentre("b"), { shiftKey: true });
-    expect([...selected]).toEqual(["b"]);
+    expect(selected.has("a")).toBe(true);
+    expect(selected.has("b")).toBe(true);
   });
 
   it("a plain click on one member of a multi-selection collapses to just it", () => {
