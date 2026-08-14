@@ -91,6 +91,7 @@ import { attachMediaListeners, wireMedia } from "./media.ts";
 import { attachAlignToolbar, wireAlign } from "./align.ts";
 import { attachContextBar, wireContextBar } from "./contextbar.ts";
 import { attachZoomControl } from "./zoomctl.ts";
+import { attachEmbedBridge } from "./embed.ts";
 
 // ---------------------------------------------------------------
 // Module-level state. Every feature module reaches these through its
@@ -515,6 +516,10 @@ applyTouchClass();
 // unconditionally is safe — fine-pointer devices never see it.
 wireContextBar({ selected, currentMap: () => state, applyShapeToSelection });
 attachContextBar();
+// Embed scroll bridge (no-op outside ?embed=1 iframes): binds window
+// capture-phase handlers, so order relative to the other attach calls
+// does not matter — capture on window always runs first.
+attachEmbedBridge();
 
 // Bottom-left zoom cluster (− / % / +); double-click on the
 // percentage resets the view like Cmd/Ctrl+0.

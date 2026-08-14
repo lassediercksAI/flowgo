@@ -1251,6 +1251,14 @@
   #contextBar .ctx-swatch.active {
     box-shadow: 0 0 0 2px #07f;
   }
+
+/* Embed mode (?embed=1, src/editor/embed.ts): the editor inside a
+   short host-page iframe. Help, version and feedback are host-page
+   concerns there; everything else — toolbar, context bar, zoom —
+   stays, because the band IS the product demo. */
+body.embed-mode #helpBtn,
+body.embed-mode #version,
+body.embed-mode #feedbackBtn { display: none; }
 </style>
 </head>
 <body>
