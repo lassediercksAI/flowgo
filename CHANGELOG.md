@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.24](https://github.com/lassediercks/flowgo/compare/v0.3.23...v0.3.24) (2026-08-14)
+
+
+### Features
+
+* **cli:** delta save protocol v1 on /save (brain[#25](https://github.com/lassediercks/flowgo/issues/25)c) ([7b48af4](https://github.com/lassediercks/flowgo/commit/7b48af4b4ba94477fc8ce73c28d8248765b5b709))
+
 ## [0.3.23](https://github.com/lassediercks/flowgo/compare/v0.3.22...v0.3.23) (2026-08-14)
 
 
