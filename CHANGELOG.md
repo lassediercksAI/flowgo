@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.23](https://github.com/lassediercks/flowgo/compare/v0.3.22...v0.3.23) (2026-08-14)
+
+
+### Bug Fixes
+
+* **editor:** stop claiming saved on failed saves; gzip save bodies ([3997367](https://github.com/lassediercks/flowgo/commit/39973677fecc9d55a3c3b95fc8ce65a928818674))
+
 ## [0.3.22](https://github.com/lassediercks/flowgo/compare/v0.3.21...v0.3.22) (2026-08-14)
 
 
