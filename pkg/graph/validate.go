@@ -17,6 +17,17 @@ import (
 func Validate(g Graph) []error {
 	errs := ValidateWritable(g)
 
+	// The parser tolerates out-of-range shape ids in existing files
+	// (`defaultshape 7` degrades to a rectangle) so a file written by a
+	// future format version still opens here. Nothing at THIS version
+	// may mint one, though: it would persist an id every renderer
+	// silently falls back from. Validate gates the caller-supplied
+	// write boundaries (set_state, create_map), so unknown ids get a
+	// proper error there instead of reaching disk.
+	if !validShape(g.DefaultShape) {
+		errs = append(errs, fmt.Errorf("defaultShape %d is not a known shape (allowed: 0 rectangle, 1 hexagon, 2 circle, 3 triangle)", g.DefaultShape))
+	}
+
 	if len(g.Maps) == 0 {
 		errs = append(errs, fmt.Errorf("graph has no maps"))
 		return errs
@@ -211,6 +222,9 @@ func validateMap(m NamedMap) []error {
 		if !validFont(b.Font) {
 			errs = append(errs, fmt.Errorf("map %q: box %q has invalid font %d (allowed: 0, 2..9)", m.Path, b.ID, b.Font))
 		}
+		if !validShape(b.Shape) {
+			errs = append(errs, fmt.Errorf("map %q: box %q has invalid shape %d (allowed: 0 rectangle, 1 hexagon, 2 circle, 3 triangle)", m.Path, b.ID, b.Shape))
+		}
 		if len(b.Label) > MaxLabelLen {
 			errs = append(errs, fmt.Errorf("map %q: box %q label is %d chars (cap is %d)", m.Path, b.ID, len(b.Label), MaxLabelLen))
 		}
@@ -334,6 +348,12 @@ func isValidMapPath(p string) bool {
 
 func validPalette(n int) bool { return n == 0 || (n >= 2 && n <= 9) }
 func validFont(n int) bool    { return n == 0 || (n >= 2 && n <= 9) }
+
+// validShape mirrors shapeProp at the MCP layer: 0 rectangle,
+// 1 hexagon, 2 circle, 3 triangle. 4-9 are reserved in the file format
+// and readable (parse tolerance), but not writable through Validate'd
+// boundaries.
+func validShape(n int) bool { return n >= 0 && n <= 3 }
 
 func validHandle(h string) bool {
 	switch h {
