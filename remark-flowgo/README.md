@@ -59,10 +59,14 @@ any other node.
 
 ## Install
 
-This package is not published to the npm registry (same situation as
-the root `@flowgo/editor` package — see the main repo's README). Install
-it from the git repo, e.g. with pnpm/npm's git-dependency syntax
-pointing at this subdirectory, or vendor it into your project directly:
+```
+npm install remark-flowgo
+# or: pnpm add remark-flowgo
+```
+
+Alternatively, install straight from the git repo with pnpm/npm's
+git-dependency syntax pointing at this subdirectory, or vendor it into
+your project directly:
 
 ```jsonc
 // package.json

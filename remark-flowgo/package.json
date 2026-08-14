@@ -3,11 +3,29 @@
   "version": "0.1.0",
   "description": "remark plugin: render ```flowgo fenced code blocks inline in any remark/rehype pipeline (Next.js MDX, Astro, Docusaurus, Gatsby, 11ty) via a build-time placeholder + client-side hydration script.",
   "type": "module",
-  "license": "AGPL-3.0",
+  "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
-    "url": "https://github.com/lassediercks/flowgo.git",
+    "url": "git+https://github.com/lassediercks/flowgo.git",
     "directory": "remark-flowgo"
+  },
+  "homepage": "https://github.com/lassediercks/flowgo/tree/main/remark-flowgo#readme",
+  "bugs": {
+    "url": "https://github.com/lassediercks/flowgo/issues"
+  },
+  "keywords": [
+    "remark",
+    "remark-plugin",
+    "unified",
+    "mdast",
+    "markdown",
+    "mdx",
+    "flowgo",
+    "mind-map",
+    "diagram"
+  ],
+  "engines": {
+    "node": ">=18"
   },
   "files": [
     "dist",
@@ -34,7 +52,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "sanity": "node scripts/sanity-check.mjs"
+    "sanity": "node scripts/sanity-check.mjs",
+    "prepublishOnly": "npm test"
   },
   "dependencies": {
     "unist-util-visit": "^5.0.0"
