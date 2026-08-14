@@ -79,7 +79,7 @@ jobs:
           cache: 'pnpm'
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.26'
       - name: Frontend build (produces dist/index.html for go:embed)
         run: |
           pnpm install --frozen-lockfile

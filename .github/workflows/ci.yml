@@ -51,7 +51,7 @@ jobs:
           cache: 'pnpm'
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.26'
       - name: pnpm install
         run: pnpm install --frozen-lockfile
       - name: vite build (Go embeds dist/index.html)
