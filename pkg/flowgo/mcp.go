@@ -402,6 +402,21 @@ func ensureMapAt(g *Graph, path string) *NamedMap {
 	return &g.Maps[len(g.Maps)-1]
 }
 
+// findMapAt is the lookup-only counterpart of ensureMapAt: nil when no
+// map exists at path. update_*/delete_* actions resolve their map with
+// this — a failed lookup must not materialise an empty NamedMap for a
+// path that was merely mistyped. Only the add_* actions keep
+// ensureMapAt, because implicit submap creation on first write is part
+// of their contract (see the tool schemas and flowgo://about).
+func findMapAt(g *Graph, path string) *NamedMap {
+	for i := range g.Maps {
+		if g.Maps[i].Path == path {
+			return &g.Maps[i]
+		}
+	}
+	return nil
+}
+
 func nextID(m *NamedMap, prefix string) string {
 	used := map[string]bool{}
 	for _, b := range m.Boxes {
@@ -695,7 +710,10 @@ func actUpdateBox(g *Graph, args map[string]any) (any, error) {
 	_, hasFont := args["font"]
 	anchorArg, hasAnchor := args["anchor"]
 	shapeArg, hasShape := args["shape"]
-	m := ensureMapAt(g, path)
+	m := findMapAt(g, path)
+	if m == nil {
+		return nil, fmt.Errorf("node %s not found in map %s", id, path)
+	}
 	for i := range m.Boxes {
 		if m.Boxes[i].ID != id {
 			continue
@@ -784,7 +802,10 @@ func actDeleteBox(g *Graph, args map[string]any) (any, error) {
 	if id == "" {
 		return nil, fmt.Errorf("id is required")
 	}
-	m := ensureMapAt(g, path)
+	m := findMapAt(g, path)
+	if m == nil {
+		return nil, fmt.Errorf("node %s not found in map %s", id, path)
+	}
 	before := len(m.Boxes)
 	m.Boxes = filterBoxes(m.Boxes, func(b Box) bool { return b.ID != id })
 	if len(m.Boxes) == before {
@@ -842,7 +863,10 @@ func actUpdateEdge(g *Graph, args map[string]any) (any, error) {
 	_, hasToHandle := args["toHandle"]
 	_, hasPalette := args["palette"]
 	_, hasLabel := args["label"]
-	m := ensureMapAt(g, path)
+	m := findMapAt(g, path)
+	if m == nil {
+		return nil, fmt.Errorf("no edge between %s and %s in map %s", from, to, path)
+	}
 	for i := range m.Edges {
 		e := &m.Edges[i]
 		match := (e.From == from && e.To == to)
@@ -890,7 +914,10 @@ func actDeleteEdge(g *Graph, args map[string]any) (any, error) {
 	if from == "" || to == "" {
 		return nil, fmt.Errorf("'from' and 'to' are required")
 	}
-	m := ensureMapAt(g, path)
+	m := findMapAt(g, path)
+	if m == nil {
+		return nil, fmt.Errorf("no edge between %s and %s in map %s", from, to, path)
+	}
 	before := len(m.Edges)
 	m.Edges = filterEdges(m.Edges, func(e Edge) bool {
 		return !((e.From == from && e.To == to) || (e.From == to && e.To == from))
@@ -941,7 +968,10 @@ func actUpdateText(g *Graph, args map[string]any) (any, error) {
 	_, hasY := args["y"]
 	_, hasPalette := args["palette"]
 	_, hasFont := args["font"]
-	m := ensureMapAt(g, path)
+	m := findMapAt(g, path)
+	if m == nil {
+		return nil, fmt.Errorf("text %s not found in map %s", id, path)
+	}
 	for i := range m.Texts {
 		if m.Texts[i].ID != id {
 			continue
@@ -984,7 +1014,10 @@ func actDeleteText(g *Graph, args map[string]any) (any, error) {
 	if id == "" {
 		return nil, fmt.Errorf("id is required")
 	}
-	m := ensureMapAt(g, path)
+	m := findMapAt(g, path)
+	if m == nil {
+		return nil, fmt.Errorf("text %s not found in map %s", id, path)
+	}
 	before := len(m.Texts)
 	out := m.Texts[:0]
 	for _, t := range m.Texts {
@@ -1046,7 +1079,10 @@ func actUpdateLine(g *Graph, args map[string]any) (any, error) {
 	_, hasPalette := args["palette"]
 	_, hasStyle := args["style"]
 	_, hasMids := args["mids"]
-	m := ensureMapAt(g, path)
+	m := findMapAt(g, path)
+	if m == nil {
+		return nil, fmt.Errorf("line %s not found in map %s", id, path)
+	}
 	for i := range m.Lines {
 		if m.Lines[i].ID != id {
 			continue
@@ -1101,7 +1137,10 @@ func actDeleteLine(g *Graph, args map[string]any) (any, error) {
 	if id == "" {
 		return nil, fmt.Errorf("id is required")
 	}
-	m := ensureMapAt(g, path)
+	m := findMapAt(g, path)
+	if m == nil {
+		return nil, fmt.Errorf("line %s not found in map %s", id, path)
+	}
 	before := len(m.Lines)
 	out := m.Lines[:0]
 	for _, ln := range m.Lines {
@@ -1151,7 +1190,10 @@ func actUpdateStroke(g *Graph, args map[string]any) (any, error) {
 	}
 	_, hasPalette := args["palette"]
 	_, hasPoints := args["points"]
-	m := ensureMapAt(g, path)
+	m := findMapAt(g, path)
+	if m == nil {
+		return nil, fmt.Errorf("stroke %s not found in map %s", id, path)
+	}
 	for i := range m.Strokes {
 		if m.Strokes[i].ID != id {
 			continue
@@ -1184,7 +1226,10 @@ func actDeleteStroke(g *Graph, args map[string]any) (any, error) {
 	if id == "" {
 		return nil, fmt.Errorf("id is required")
 	}
-	m := ensureMapAt(g, path)
+	m := findMapAt(g, path)
+	if m == nil {
+		return nil, fmt.Errorf("stroke %s not found in map %s", id, path)
+	}
 	before := len(m.Strokes)
 	out := m.Strokes[:0]
 	for _, s := range m.Strokes {
