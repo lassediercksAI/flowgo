@@ -145,13 +145,8 @@ func ApplyLocalDeltaFrom(d Delta, origin string) (uint64, error) {
 	// the cached graph — and therefore disk — untouched, so a 400 is
 	// always safe to answer with "nothing happened".
 	work := cloneGraph(*g)
-	for i := range d.Ops {
-		if err := applyDeltaOp(&work, d.Ops[i]); err != nil {
-			return 0, fmt.Errorf("%w: ops[%d]: %v", ErrDeltaInvalid, i, err)
-		}
-	}
-	if d.Doc != nil && d.Doc.DefaultShape != nil {
-		work.DefaultShape = *d.Doc.DefaultShape
+	if err := ApplyDeltaOps(&work, d); err != nil {
+		return 0, err
 	}
 	// From here down this is the full-save path, step for step:
 	// ValidateWritable gate (same reasons as SaveLocalGraphFrom — the
@@ -191,6 +186,25 @@ func deltaKindKnown(kind string) bool {
 		return true
 	}
 	return false
+}
+
+// ApplyDeltaOps applies a delta's ops and doc-level fields to g in
+// place, with no revision guard and no persistence — the pure half of
+// ApplyLocalDeltaFrom, exported for hosts with their own storage (the
+// website applies deltas against Postgres-stored graphs and must
+// share these exact op semantics, not re-implement them). The caller
+// owns atomicity: hand in a copy if a failed op must leave the
+// original untouched.
+func ApplyDeltaOps(g *Graph, d Delta) error {
+	for i := range d.Ops {
+		if err := applyDeltaOp(g, d.Ops[i]); err != nil {
+			return fmt.Errorf("%w: ops[%d]: %v", ErrDeltaInvalid, i, err)
+		}
+	}
+	if d.Doc != nil && d.Doc.DefaultShape != nil {
+		g.DefaultShape = *d.Doc.DefaultShape
+	}
+	return nil
 }
 
 func applyDeltaOp(g *Graph, op DeltaOp) error {
