@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.21](https://github.com/lassediercks/flowgo/compare/v0.3.20...v0.3.21) (2026-08-14)
+
+
+### Bug Fixes
+
+* **editor:** hide the snapshot actions in embed mode ([4238867](https://github.com/lassediercks/flowgo/commit/42388678ba91ecf44806732a18321d080d37857a))
+
 ## [0.3.20](https://github.com/lassediercks/flowgo/compare/v0.3.19...v0.3.20) (2026-08-14)
 
 
