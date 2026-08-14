@@ -123,13 +123,14 @@ describe("optional bindings", () => {
     expect(events.map((e) => e.mapPath)).toEqual(["/b1", "/b1/c2"]);
   });
 
-  it("does not consult getMapPath when no one is listening", () => {
-    // getMapPath may walk editor state; without an onMutate consumer
-    // there is no event to scope, so it must not run.
+  it("consults getMapPath even with no onMutate listener", () => {
+    // Delta dirty tracking (brain#25c) scopes every mutation to the
+    // map it fired on, so the path is resolved for every mutation —
+    // there is always at least that one consumer now, onMutate or not.
     const getMapPath = vi.fn(() => "/");
     wire({ getMapPath });
     m.mutatedBox();
-    expect(getMapPath).not.toHaveBeenCalled();
+    expect(getMapPath).toHaveBeenCalledTimes(1);
   });
 });
 

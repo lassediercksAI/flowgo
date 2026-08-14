@@ -36,6 +36,15 @@
 import { SESSION_ID } from "./live.ts";
 import type { RefreshOutcome } from "./live.ts";
 import { settleHexBoxIds } from "./hex.ts";
+import {
+  buildDelta,
+  clearDirty,
+  peekDirty,
+  restoreDirty,
+  takeDirty,
+  type DeltaGraph,
+  type DirtySet,
+} from "./delta.ts";
 
 interface MapLike {
   path: string;
@@ -363,6 +372,11 @@ export const load = async (): Promise<void> => {
   settleGraphHexes(g);
   b.setGraph(g);
   setSaved(serializeDoc(g));
+  // A fresh load never arms delta mode: our serialization of the
+  // fetched document is not a body the server acknowledged (hex
+  // settling above may already have diverged from the file), so the
+  // first save after load is always a full one — which then arms.
+  disarmDelta();
   undoStack = [];
   redoStack = [];
   // If the URL hash carries a view (?z=&x=&y=), apply it before
@@ -405,10 +419,81 @@ const toBody = (body: string): Blob | string =>
 // (brain#25c): compression is only used against servers that
 // advertise it — the shared bundle also serves against older CLIs.
 let serverAcceptsGzip = false;
+// serverAcceptsDelta: same advertisement pattern, same reasoning. The
+// editor only ever sends an `X-Flowgo-Save: delta1` body to a server
+// that announced the capability on /state; against anything else the
+// save path below is byte-identical to what it always was.
+let serverAcceptsDelta = false;
+const SAVE_MODE_HEADER = "X-Flowgo-Save";
+const SAVE_MODE_DELTA1 = "delta1";
+const BASE_REVISION_HEADER = "X-Flowgo-Base-Revision";
 export const noteCapabilities = (r: Response): void => {
   if ((r.headers.get("X-Flowgo-Accept-Encoding") ?? "").includes("gzip")) {
     serverAcceptsGzip = true;
   }
+  const modes = (r.headers.get(SAVE_MODE_HEADER) ?? "").split(",");
+  if (modes.some((m) => m.trim() === SAVE_MODE_DELTA1)) {
+    serverAcceptsDelta = true;
+  }
+};
+
+// ---------------------------------------------------------------
+// Delta saves (brain#25c), the client half. A delta is only ever
+// emitted when the server advertised the capability AND a successful
+// save has established a base: deltaBaseBody is the EXACT body the
+// server acknowledged, deltaBase the revision it answered with. The
+// diff runs against that body, so every delta carries everything that
+// changed since the last acknowledged state — a mutation that lands
+// while a save is in flight still differs from the base at the next
+// save and cannot be lost. load() deliberately does NOT arm this
+// (first save after load is always full), and ANY save failure
+// disarms it: the existing retry path then sends a full save, whose
+// success re-arms.
+// ---------------------------------------------------------------
+let deltaBase: number | null = null;
+let deltaBaseBody: string | null = null;
+// Stamp per posted save; only the LATEST save's acknowledgement may
+// advance the base — an out-of-order ack for a superseded body would
+// otherwise pin the base to a document the server no longer holds.
+let saveSeq = 0;
+
+const disarmDelta = (): void => {
+  deltaBase = null;
+  deltaBaseBody = null;
+  clearDirty();
+};
+
+interface DeltaSave {
+  readonly json: string;
+  readonly base: number;
+  readonly snapshot: DirtySet;
+}
+
+// Decide full vs delta for this save, and build the delta body if a
+// delta is emittable. Every `return null` means "full save, exactly
+// as today". Consumes the dirty set (takeDirty) only on success —
+// the returned snapshot travels with the request so a failed or
+// superseded save can put it back.
+const buildDeltaSave = (g: GraphLike, body: string): DeltaSave | null => {
+  if (!serverAcceptsDelta || SNAPSHOT_MODE) return null;
+  if (deltaBase === null || deltaBaseBody === null) return null;
+  // A save is already in flight; its dirty snapshot is not ours to
+  // diff over, so this one goes full (rare: debounce vs local RTT).
+  if (savesInFlight > 0) return null;
+  if (peekDirty().overflow) return null;
+  let base: DeltaGraph;
+  try {
+    passes.parse++;
+    base = JSON.parse(deltaBaseBody) as DeltaGraph;
+  } catch {
+    return null;
+  }
+  const json = buildDelta(base, g as unknown as DeltaGraph, peekDirty(), deltaBase);
+  if (json === null) return null;
+  // Safety valve: a delta bigger than the document it describes has
+  // lost its reason to exist.
+  if (json.length >= body.length) return null;
+  return { json, base: deltaBase, snapshot: takeDirty() };
 };
 
 // gzipBody compresses a save body when it is worth it and possible.
@@ -436,20 +521,37 @@ const gzipBody = async (body: string): Promise<Blob | null> => {
 let saveRetryTimer: ReturnType<typeof setTimeout> | null = null;
 const SAVE_RETRY_MS = 5000;
 
-const saveBody = async (body: string): Promise<void> => {
+const saveBody = async (body: string, delta: DeltaSave | null = null): Promise<void> => {
   if (SNAPSHOT_MODE) {
     must().setStatus("local edits only — use Download or Save as new share");
     return;
   }
+  const seq = ++saveSeq;
+  // A full save covers every change wholesale, so it owns the whole
+  // dirty set the way a delta owns its snapshot: taken at emit time,
+  // restored if the request dies. Entries added DURING the flight go
+  // into the fresh set takeDirty leaves behind and survive untouched.
+  const taken = delta ? delta.snapshot : takeDirty();
   savesInFlight++;
   let failure: string | null = null;
+  let acked: Response | null = null;
   try {
-    const zipped = await gzipBody(body);
+    const wire = delta ? delta.json : body;
+    const zipped = await gzipBody(wire);
     const r = await fetch(dataURL("/save"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         ...(zipped ? { "Content-Encoding": "gzip" } : {}),
+        // Delta bodies are declared in the save-mode header; the base
+        // revision rides both in the body (`base`, what the server
+        // checks) and in a header for anything logging the request.
+        ...(delta
+          ? {
+              [SAVE_MODE_HEADER]: SAVE_MODE_DELTA1,
+              [BASE_REVISION_HEADER]: String(delta.base),
+            }
+          : {}),
         // Stamps this page's identity on the write so the live-events
         // stream can skip echoing the change back to us. Without it
         // every save would return as a full rebuild of our own work.
@@ -465,7 +567,7 @@ const saveBody = async (body: string): Promise<void> => {
       // upload reads from there, which takes the copy off the frame:
       // same request, same Content-Type, same bytes on the wire, worst
       // frame 18.6 ms — i.e. none.
-      body: zipped ?? toBody(body),
+      body: zipped ?? toBody(wire),
     });
     // The response code was never checked here (brain#25c's measurement
     // found it): the hosted server rejects >1 MiB bodies with 400, and
@@ -475,11 +577,39 @@ const saveBody = async (body: string): Promise<void> => {
       failure = `save failed (${r.status})`;
     } else {
       noteRevision(r);
+      acked = r;
     }
   } catch {
     failure = "save failed (network)";
   } finally {
     savesInFlight--;
+  }
+  if (failure) {
+    // Any failure — a delta's 409/400 or a full save's — drops back
+    // to full-save mode. The retry below re-runs save(), which finds
+    // the delta state disarmed and sends the full document; its
+    // success re-arms delta mode from a base that cannot conflict.
+    disarmDelta();
+  } else if (seq === saveSeq) {
+    // The server acknowledged the LATEST body we posted, so `body` is
+    // exactly what it now holds and the echoed revision names it:
+    // that pair is the base the next delta diffs against. The taken
+    // dirty entries described changes now inside the base — gone for
+    // good; entries added mid-flight are still in the live set.
+    const rev = Number(acked!.headers.get(REVISION_HEADER));
+    if (Number.isFinite(rev) && rev > 0) {
+      deltaBase = rev;
+      deltaBaseBody = body;
+    } else {
+      // No usable revision (an older or hosted server): deltas have
+      // no base to build on, so stay in full-save mode.
+      disarmDelta();
+    }
+  } else {
+    // Superseded: a newer save was posted while this one was in
+    // flight. Its acknowledgement (not ours) decides the base; put
+    // our scope back so the dirty set stays a superset of reality.
+    restoreDirty(taken);
   }
   if (failure) {
     must().setStatus(`${failure} — recent changes are NOT saved; retrying`);
@@ -503,14 +633,18 @@ const saveBody = async (body: string): Promise<void> => {
 // reference copy on a string that already existed, and the !== is a
 // memcmp. Nothing here parses, and nothing here fingerprints.
 const save = async (): Promise<void> => {
-  const body = serializeDoc(must().getGraph());
+  const g = must().getGraph();
+  const body = serializeDoc(g);
   if (savedSnapshot !== null && body !== savedSnapshot) {
     undoStack.push(savedSnapshot);
     redoStack = [];
     trimHistory();
   }
   setSaved(body);
-  await saveBody(body);
+  // Delta or full is decided per save (brain#25c); everything else —
+  // history, status, retry — is identical either way, and `body` is
+  // still what the base advances to on acknowledgement.
+  await saveBody(body, buildDeltaSave(g, body));
 };
 
 const applyGraphSnapshot = (body: string): void => {
@@ -585,6 +719,10 @@ const applyRemoteGraph = (g: GraphLike, body: string, fp?: string): void => {
   // The caller already fingerprinted this exact document to decide the
   // change was real; handing it over saves re-deriving it from a parse.
   setSaved(body, fp);
+  // Someone else moved the document; our acknowledged base no longer
+  // describes what the server holds. Same answer as a 409: back to
+  // full saves until one succeeds.
+  disarmDelta();
   // Undo policy: BOTH stacks are dropped.
   //
   // Every entry is a whole-document snapshot from before this change,
