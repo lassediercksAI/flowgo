@@ -26,6 +26,7 @@ type (
 	Text     = graph.Text
 	Line     = graph.Line
 	Stroke   = graph.Stroke
+	Image    = graph.Image
 	NamedMap = graph.NamedMap
 	Graph    = graph.Graph
 )
