@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.25](https://github.com/lassediercks/flowgo/compare/v0.3.24...v0.3.25) (2026-08-14)
+
+
+### Refactoring
+
+* **delta:** export the pure op-apply seam for hosting servers ([bf365fe](https://github.com/lassediercks/flowgo/commit/bf365fe5a7f96e6ffd5486eda57a32ea801d0285))
+
 ## [0.3.24](https://github.com/lassediercks/flowgo/compare/v0.3.23...v0.3.24) (2026-08-14)
 
 
