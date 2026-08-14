@@ -4,7 +4,7 @@
   "private": true,
   "description": "Obsidian plugin: render ```flowgo fenced code blocks in reading view using flowgo's shared, read-only inline renderer (../src/render/inline.ts).",
   "type": "module",
-  "license": "AGPL-3.0",
+  "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
     "url": "https://github.com/lassediercks/flowgo.git",
