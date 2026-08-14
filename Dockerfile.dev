@@ -6,7 +6,7 @@
 # embeds the frontend into the Go binary; see `just build`. Don't ship
 # this image to production.
 
-FROM golang:1.24-bookworm
+FROM golang:1.26-bookworm
 
 ARG TARGETARCH
 
