@@ -26,10 +26,11 @@
 // pickup (attach.ts / attach.test.ts), dblclick label edit on an
 // existing box (attach.ts), coarse-pointer paths (touch*.test.ts).
 //
-// Known-and-triaged, pinned as-is (NOT fixed here): onBgMouseDown
-// routes to startStroke gated on isBrushMode() alone, not
-// !isPainting() — a second mousedown mid-stroke orphans the first
-// preview group (see "latent leak" test).
+// Formerly known-and-triaged leak, FIXED in the sweep-triage pass:
+// onBgMouseDown still routes to startStroke gated on isBrushMode()
+// alone, but startStroke now abandons an in-flight stroke (preview
+// <g> and all) before starting a new one — see the mid-stroke
+// mousedown test in "brush mode routing".
 //
 // jsdom has no layout: offsetWidth/offsetHeight and
 // document.elementsFromPoint are stubbed from fixture geometry so
@@ -341,7 +342,7 @@ beforeEach(() => {
   map.lines = [];
   map.strokes = [];
   document.body.className = "";
-  // A test that pinned the brush leak / an aborted band leaves stray
+  // An aborted band (or any test ending mid-gesture) leaves stray
   // elements behind; sweep them so the next test starts clean.
   document.querySelectorAll(".selection-band").forEach((el) => el.remove());
   strokeLayer.querySelectorAll(".stroke-group").forEach((el) => el.remove());
@@ -980,20 +981,24 @@ describe("brush mode routing", () => {
     expect(map.strokes.length).toBe(1);
   });
 
-  it("KNOWN LEAK (triaged, pinned as-is): a second mousedown mid-stroke starts a new stroke and orphans the first preview", () => {
+  it("a second mousedown mid-stroke abandons the first stroke, preview DOM included (leak fixed)", () => {
+    // Flipped pin: this used to document the triaged leak (the down
+    // handler checks isBrushMode() but not isPainting(), so the first
+    // preview <g> was orphaned in the layer). startStroke now abandons
+    // the in-flight stroke before starting anew.
     setBrushMode(true);
     mouse("mousedown", bgEl, 0, 0);
     mouse("mousemove", document.body, 50, 0);
-    // The down handler checks isBrushMode() but not isPainting():
     mouse("mousedown", bgEl, 200, 200);
-    expect(strokeLayer.querySelectorAll(".stroke-group").length).toBe(2);
+    // Exactly ONE preview group — the first stroke's is gone with it.
+    expect(strokeLayer.querySelectorAll(".stroke-group").length).toBe(1);
     mouse("mousemove", document.body, 260, 200);
     mouse("mouseup", document.body, 260, 200);
-    // Only the second stroke commits; the first is silently dropped
-    // and its preview group is left in the layer.
+    // Only the second stroke commits (the abandoned one stays dropped —
+    // that half is unchanged), and no orphan remains in the layer.
     expect(map.strokes.length).toBe(1);
     expect(map.strokes[0]!.points[0]).toEqual([200, 200]);
-    expect(strokeLayer.querySelectorAll(".stroke-group").length).toBe(1);
+    expect(strokeLayer.querySelectorAll(".stroke-group").length).toBe(0);
   });
 
   it("bg dblclick in brush mode spawns nothing", () => {

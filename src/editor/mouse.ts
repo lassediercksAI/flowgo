@@ -539,7 +539,10 @@ export const isDiscreteWheel = (e: WheelEvent): boolean => {
   return main !== 0 && Number.isInteger(main) && Math.abs(main) >= 50;
 };
 
-const onMiddleClickPan = (e: MouseEvent): void => {
+// Right-button drag pans the canvas. (Middle-click — button 1 — is
+// NOT pan: it enters a box's submap, see attach.ts; the name of this
+// handler used to say "middle-click" and lie about both.)
+const onRightButtonPan = (e: MouseEvent): void => {
   if (e.button !== 2) return;
   e.preventDefault();
   must().setPan({
@@ -687,12 +690,16 @@ const onBgDblClick = (e: MouseEvent): void => {
 export const attachMouseListeners = (): void => {
   document.addEventListener("mousemove", onMouseMove);
   document.addEventListener("mouseup", onMouseUp);
-  document.addEventListener("mousedown", onMiddleClickPan);
+  document.addEventListener("mousedown", onRightButtonPan);
   // passive: false — we call preventDefault() to suppress the browser
   // default page scroll / overscroll-bounce while the user pans.
   document.addEventListener("wheel", onWheel, { passive: false });
   window.addEventListener("contextmenu", (e) => e.preventDefault());
-  // Suppress middle-click autoscroll/paste so we can use it for navigation.
+  // Middle-click (button 1) is claimed for enter-submap navigation
+  // (attach.ts), so suppress its auxclick default (autoscroll /
+  // Linux paste). Button-2 auxclick is deliberately left alone: the
+  // right button's menu default is already killed at contextmenu
+  // above, and mouse.test.ts pins that asymmetry as intended.
   window.addEventListener("auxclick", (e) => {
     if (e.button === 1) e.preventDefault();
   });

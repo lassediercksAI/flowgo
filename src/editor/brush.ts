@@ -136,6 +136,12 @@ export const passesMinDistance = (
 ): boolean => Math.hypot(x - last[0], y - last[1]) >= 2;
 
 export const startStroke = (clientX: number, clientY: number): void => {
+  // A mousedown can arrive while a stroke is still in flight (the
+  // matching mouseup was lost — released off-window, or the caller
+  // gates on isBrushMode() alone). Overwriting `active` here would
+  // orphan the old preview <g> in the layer forever; abandon the
+  // stale stroke first so its DOM leaves with it.
+  if (active) abandonStroke();
   const x = round2(toDataX(clientX));
   const y = round2(toDataY(clientY));
   const id = must().mintId();

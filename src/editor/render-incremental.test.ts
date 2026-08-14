@@ -20,6 +20,7 @@ import {
 } from "./render.ts";
 import { clearBoxResize } from "./resize.ts";
 import { wireCulling, type CullRect } from "./culling.ts";
+import { linePathD } from "./movers.ts";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -242,6 +243,13 @@ describe("renderItems", () => {
     renderItems(["l0"]);
     const l0 = h.lineLayer.querySelector('[data-id="l0"]')!;
     expect(l0.querySelectorAll(".line-handle-mid").length).toBe(1);
+    // The rendered path comes from THE ONE linePathD (movers.ts) —
+    // render.ts's byte-identical private copy was deleted in the
+    // sweep-triage pass, and this pins that the renderer really
+    // consumes the shared implementation (visible + hit path alike).
+    const d = linePathD(h.map.lines[0]!);
+    expect(l0.querySelector(".line-line")!.getAttribute("d")).toBe(d);
+    expect(l0.querySelector(".line-hit")!.getAttribute("d")).toBe(d);
     // Layer order preserved; sibling untouched.
     expect(h.lineLayer.children[0]).toBe(l0);
     expect(h.lineLayer.querySelector('[data-id="l1"]')).toBe(lineBefore);

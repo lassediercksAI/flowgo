@@ -31,6 +31,7 @@ import {
   attachNavigationListeners,
   buildViewQueryFrom,
   childPath,
+  decodeHashPath,
   emptyMap,
   ensureMap,
   enterSubmap,
@@ -274,6 +275,78 @@ describe("readPathFromURL / readViewFromURL", () => {
   it("normalises a hand-typed '#a/b' to '/a/b'", () => {
     history.replaceState(null, "", "#a/b");
     expect(readPathFromURL()).toBe("/a/b");
+  });
+});
+
+// ── percent-encoded ids in the hash ────────────────────────────────
+//
+// location.hash percent-encodes on READ what navigateTo wrote raw, so
+// every path read must decode or round-trips break (duplicate history
+// entries, phantom submaps at the encoded path). Regression tests for
+// the sweep-triage fix — the older tests above only used URL-safe ids
+// and pinned this path indirectly.
+
+describe("decodeHashPath", () => {
+  it("decodes percent sequences and leaves safe strings alone", () => {
+    expect(decodeHashPath("/caf%C3%A9")).toBe("/café");
+    expect(decodeHashPath("/a%20b")).toBe("/a b");
+    expect(decodeHashPath("/plain")).toBe("/plain");
+  });
+
+  it("falls back to the raw string for malformed % sequences instead of throwing", () => {
+    expect(decodeHashPath("/50%")).toBe("/50%");
+    expect(decodeHashPath("/50%off")).toBe("/50%off");
+  });
+});
+
+describe("URL-encodable ids survive the hash round-trip", () => {
+  it("readPathFromURL decodes what location.hash re-encoded", () => {
+    // jsdom (like real browsers) percent-encodes the fragment on read.
+    history.replaceState(null, "", "#/café bar");
+    expect(location.hash).toBe("#/caf%C3%A9%20bar"); // the trap
+    expect(readPathFromURL()).toBe("/café bar");
+  });
+
+  it("a malformed hand-typed hash reads as its raw self, not a throw", () => {
+    history.replaceState(null, "", "#/50%");
+    expect(readPathFromURL()).toBe("/50%");
+  });
+
+  it("re-navigating to an encodable path touches history not at all (no duplicate entries)", () => {
+    navigateTo("/café bar");
+    expect(currentPath).toBe("/café bar");
+    const push = vi.spyOn(history, "pushState");
+    const replace = vi.spyOn(history, "replaceState");
+    // Before the decode fix this read the encoded hash, called it a
+    // path CHANGE, and pushed a second history entry per navigateTo.
+    navigateTo("/café bar");
+    expect(push).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("hashchange (back/forward) delivers the ENCODED form and lands on the SAME map — no phantom submap", () => {
+    navigateTo("/mötley");
+    navigateTo("/");
+    // Browser "back" re-delivers the hash percent-encoded.
+    arriveAtHash("#/m%C3%B6tley");
+    expect(currentPath).toBe("/mötley");
+    // Before the fix a second, empty map appeared at "/m%C3%B6tley".
+    expect(graph.maps.filter((m) => m.path.includes("tley"))).toHaveLength(1);
+    expect(graph.maps.map((m) => m.path)).toContain("/mötley");
+  });
+
+  it("the debounced view sync skips the write when only the encoding differs", () => {
+    navigateTo("/a b");
+    viewport.s = 2;
+    applyViewport();
+    vi.advanceTimersByTime(200);
+    expect(readPathFromURL()).toBe("/a b");
+    const replace = vi.spyOn(history, "replaceState");
+    applyViewport(); // no viewport change since the last sync
+    vi.advanceTimersByTime(200);
+    // A byte comparison of raw-vs-encoded hash would replaceState on
+    // every tick here.
+    expect(replace).not.toHaveBeenCalled();
   });
 });
 

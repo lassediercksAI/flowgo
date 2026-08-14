@@ -437,6 +437,29 @@ describe("resizeImageDims (pure) / makeImageResizeMover", () => {
     expect(img.width).toBe(120);
     expect(img.height).toBe(60);
   });
+
+  it("a zero-width image falls back to a square aspect instead of Infinity", () => {
+    // Regression (sweep triage): `startH / startW || 1` let 0-width
+    // with positive height through as Infinity (`||` only catches the
+    // 0/0 NaN), so the first tick wrote a garbage height.
+    const img = { x: 0, y: 0, width: 0, height: 50 };
+    const m = makeImageResizeMover(img, div());
+    m.apply(100, 0, null);
+    expect(img.width).toBe(100);
+    expect(img.height).toBe(100); // square, finite — not Infinity
+    expect(Number.isFinite(img.height)).toBe(true);
+  });
+
+  it("0×0 and zero-height frames keep their square-aspect fallback", () => {
+    const zero = { x: 0, y: 0, width: 0, height: 0 };
+    makeImageResizeMover(zero, div()).apply(60, 0, null);
+    expect(zero).toMatchObject({ width: 60, height: 60 });
+    // Zero HEIGHT already fell back to 1 before the fix (0 is falsy);
+    // pinned so the explicit guard keeps that behaviour.
+    const flat = { x: 0, y: 0, width: 100, height: 0 };
+    makeImageResizeMover(flat, div()).apply(60, 0, null);
+    expect(flat).toMatchObject({ width: 160, height: 160 });
+  });
 });
 
 // ─── texts ──────────────────────────────────────────────────────────
