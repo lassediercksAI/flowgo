@@ -1259,6 +1259,11 @@
 body.embed-mode #helpBtn,
 body.embed-mode #version,
 body.embed-mode #feedbackBtn { display: none; }
+/* The snapshot-mode actions are host-page concerns too — and
+   persistence.ts reveals them by writing element.style directly, so
+   the embed trim needs !important to win over the inline style. */
+body.embed-mode #downloadBtn,
+body.embed-mode #reshareBtn { display: none !important; }
 </style>
   <script type="module" crossorigin>(function(){let e=document.createElement(`link`).relList;if(e&&e.supports&&e.supports(`modulepreload`))return;for(let e of document.querySelectorAll(`link[rel="modulepreload"]`))n(e);new MutationObserver(e=>{for(let t of e)if(t.type===`childList`)for(let e of t.addedNodes)e.tagName===`LINK`&&e.rel===`modulepreload`&&n(e)}).observe(document,{childList:!0,subtree:!0});function t(e){let t={};return e.integrity&&(t.integrity=e.integrity),e.referrerPolicy&&(t.referrerPolicy=e.referrerPolicy),e.crossOrigin===`use-credentials`?t.credentials=`include`:e.crossOrigin===`anonymous`?t.credentials=`omit`:t.credentials=`same-origin`,t}function n(e){if(e.ep)return;e.ep=!0;let n=t(e);fetch(e.href,n)}})();var e=e=>typeof e==`number`&&Number.isInteger(e)&&e>=2&&e<=9?e:1,t=t=>e(t),n=/[^\S\n]+/g,r=(e,t={})=>{let r=t.maxLength??500,i=(e??``).replace(/\r\n?/g,`
 `).split(`
