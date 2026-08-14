@@ -3,6 +3,13 @@
   "name": "flowgo renderer",
   "version": "0.1.0",
   "description": "Renders ```flowgo fenced code blocks inline, in place, on any page — including chatgpt.com and claude.ai. Read-only: view/pan/zoom the map, no editing.",
+  "homepage_url": "https://github.com/lassediercks/flowgo",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "flowgo-renderer@flowgo-map.com",
+      "strict_min_version": "109.0"
+    }
+  },
   "permissions": ["storage"],
   "content_scripts": [
     {
