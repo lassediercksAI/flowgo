@@ -1264,6 +1264,12 @@ body.embed-mode #feedbackBtn { display: none; }
    the embed trim needs !important to win over the inline style. */
 body.embed-mode #downloadBtn,
 body.embed-mode #reshareBtn { display: none !important; }
+/* With those hidden the toolbar is usually empty at the root map —
+   drop its pill chrome so nothing floats over the band. The container
+   itself stays: the breadcrumb + Up button appear inside it when the
+   visitor drills into a submap, and hiding the container would trap
+   them there. */
+body.embed-mode #toolbar { background: transparent; border: none; box-shadow: none; }
 </style>
 </head>
 <body>
