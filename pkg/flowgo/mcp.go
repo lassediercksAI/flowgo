@@ -1291,7 +1291,25 @@ func dispatchToolSession(ctx context.Context, sessionID string, name string, raw
 		var result any
 		var inner error
 		err := cfg.Workspaces.With(wsID, func(ws *Workspace) error {
+			// Atomicity: an action may half-apply before erroring (e.g.
+			// actUpdateBox writes label/x/y before rejecting a bad
+			// palette). Local mode gets rollback for free — updateFile
+			// drops its cache and disk keeps the old bytes — but here
+			// the workspace graph IS the store, so snapshot it and
+			// restore on any inner error. A deep copy per mutating call
+			// is cheap (graphs are small; sharing caps them at 1 MiB of
+			// JSON) and, unlike teaching each act* to validate before
+			// applying, covers every current and future action at one
+			// site.
+			var before Graph
+			mutating := !isReadOnlyTool(name)
+			if mutating {
+				before = cloneGraph(ws.Graph)
+			}
 			r, e := fn(&ws.Graph, args)
+			if e != nil && mutating {
+				ws.Graph = before
+			}
 			result = r
 			inner = e
 			return nil
