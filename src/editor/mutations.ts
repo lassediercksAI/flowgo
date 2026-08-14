@@ -14,6 +14,7 @@
 //                   kind of change without a 30-site audit.
 
 import { invalidateCullIndex, type CullKind } from "./cull-index.ts";
+import { markMutation } from "./delta.ts";
 import { invalidateProximityIndex } from "./proximity-index.ts";
 import { invalidateUidCache } from "./uid.ts";
 
@@ -82,9 +83,14 @@ const fire = (kind: MutationKind): void => {
   // memoized mint cursor can have become free again — the id cache
   // must not outlive a mutation (#24f).
   invalidateUidCache();
+  const mapPath = bindings.getMapPath ? bindings.getMapPath() : "/";
+  // Dirty tracking for delta saves (brain#25c): the persistence layer
+  // scopes its incremental /save diff to the (map, kind) pairs marked
+  // here. Unconditional — it is O(1), and behavior only changes when
+  // the server advertises the delta capability.
+  markMutation(kind, mapPath);
   bindings.scheduleSave();
   if (bindings.onMutate) {
-    const mapPath = bindings.getMapPath ? bindings.getMapPath() : "/";
     bindings.onMutate({ kind, mapPath });
   }
 };
