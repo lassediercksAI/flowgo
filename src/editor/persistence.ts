@@ -449,8 +449,16 @@ export const noteCapabilities = (r: Response): void => {
 // (first save after load is always full), and ANY save failure
 // disarms it: the existing retry path then sends a full save, whose
 // success re-arms.
+//
+// The base revision is an OPAQUE token (the exact X-Flowgo-Revision
+// value the acknowledgement carried): the CLI serves a numeric
+// counter, the hosted server a content hash. It always rides back on
+// the X-Flowgo-Base-Revision request header — the canonical contract,
+// the only thing the hosted server reads — and additionally as the
+// body's numeric `base` field when it parses as a number, for CLIs
+// built against v0.3.24 which read only the body.
 // ---------------------------------------------------------------
-let deltaBase: number | null = null;
+let deltaBase: string | null = null;
 let deltaBaseBody: string | null = null;
 // Stamp per posted save; only the LATEST save's acknowledgement may
 // advance the base — an out-of-order ack for a superseded body would
@@ -465,7 +473,7 @@ const disarmDelta = (): void => {
 
 interface DeltaSave {
   readonly json: string;
-  readonly base: number;
+  readonly base: string;
   readonly snapshot: DirtySet;
 }
 
@@ -549,7 +557,7 @@ const saveBody = async (body: string, delta: DeltaSave | null = null): Promise<v
         ...(delta
           ? {
               [SAVE_MODE_HEADER]: SAVE_MODE_DELTA1,
-              [BASE_REVISION_HEADER]: String(delta.base),
+              [BASE_REVISION_HEADER]: delta.base,
             }
           : {}),
         // Stamps this page's identity on the write so the live-events
@@ -592,17 +600,19 @@ const saveBody = async (body: string, delta: DeltaSave | null = null): Promise<v
     disarmDelta();
   } else if (seq === saveSeq) {
     // The server acknowledged the LATEST body we posted, so `body` is
-    // exactly what it now holds and the echoed revision names it:
-    // that pair is the base the next delta diffs against. The taken
-    // dirty entries described changes now inside the base — gone for
-    // good; entries added mid-flight are still in the live set.
-    const rev = Number(acked!.headers.get(REVISION_HEADER));
-    if (Number.isFinite(rev) && rev > 0) {
+    // exactly what it now holds and the echoed revision token names
+    // it: that pair is the base the next delta diffs against. The
+    // taken dirty entries described changes now inside the base —
+    // gone for good; entries added mid-flight are still in the live
+    // set. The token stays opaque here (numeric on the CLI, a content
+    // hash on the hosted server).
+    const rev = acked!.headers.get(REVISION_HEADER);
+    if (rev !== null && rev !== "") {
       deltaBase = rev;
       deltaBaseBody = body;
     } else {
-      // No usable revision (an older or hosted server): deltas have
-      // no base to build on, so stay in full-save mode.
+      // No revision served: deltas have no base to name, so stay in
+      // full-save mode.
       disarmDelta();
     }
   } else {

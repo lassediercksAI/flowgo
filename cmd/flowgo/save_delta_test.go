@@ -597,3 +597,78 @@ func TestUnknownSaveModeFailsClosed(t *testing.T) {
 		t.Errorf("unknown save mode modified the file:\n%s", got)
 	}
 }
+
+// postDeltaWithHeader is postDelta plus the canonical base-revision
+// request header (brain#25c cross-server contract): the header is
+// what the hosted server reads, so the emitter sends it everywhere,
+// and this CLI must honor it over the body's `base`.
+func postDeltaWithHeader(header string, bodyBase uint64, ops []map[string]any) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/save", bytes.NewReader(deltaBody(bodyBase, ops, nil)))
+	req.Header.Set(flowgo.SaveModeHeader, flowgo.SaveModeDelta1)
+	req.Header.Set(flowgo.BaseRevisionHeader, header)
+	rec := httptest.NewRecorder()
+	handleSave(rec, req)
+	return rec
+}
+
+// TestDeltaBaseRevisionHeaderRoundTrip: a delta carrying the base in
+// the X-Flowgo-Base-Revision header (with a WRONG body base, proving
+// the header wins) round-trips through the real /save handler and
+// writes the same bytes a full save of the end state writes.
+func TestDeltaBaseRevisionHeaderRoundTrip(t *testing.T) {
+	path := serveTempMap(t, deltaSeed())
+	base := stateRevision(t)
+	rec := postDeltaWithHeader(strconv.FormatUint(base, 10), base+999, []map[string]any{{
+		"op": "upsert", "kind": "box", "map": "/",
+		"item": map[string]any{"id": "b", "label": "beta", "x": 200, "y": 75},
+	}})
+	if rec.Code != 204 {
+		t.Fatalf("header-based delta: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	got := mustReadFile(t, path)
+
+	// Fixture B: full save of the hand-derived end state.
+	want := deltaBaseGraph()
+	want.Maps[0].Boxes[1] = graph.Box{ID: "b", Label: "beta", X: 200, Y: 75}
+	fullPath := serveTempMap(t, deltaSeed())
+	if rec := postFullSave(want); rec.Code != 204 {
+		t.Fatalf("full save: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if fullBytes := mustReadFile(t, fullPath); got != fullBytes {
+		t.Errorf("header-based delta bytes != full-save bytes:\n--- delta ---\n%s\n--- full ---\n%s", got, fullBytes)
+	}
+}
+
+// A stale header is a base conflict even when the body's base is
+// current — the header is canonical, so it must not be rescued by
+// the compatibility field.
+func TestDeltaStaleHeaderBeatsFreshBodyBase(t *testing.T) {
+	path := serveTempMap(t, deltaSeed())
+	base := stateRevision(t)
+	rec := postDeltaWithHeader(strconv.FormatUint(base+7, 10), base, []map[string]any{{
+		"op": "drop-map", "map": "/a",
+	}})
+	if rec.Code != 409 {
+		t.Fatalf("stale header: status = %d (want 409), body = %s", rec.Code, rec.Body.String())
+	}
+	if got := mustReadFile(t, path); got != deltaSeed() {
+		t.Errorf("stale header modified the file:\n%s", got)
+	}
+}
+
+// An opaque (non-numeric) token — the hosted server's content-hash
+// regime — can never match this process's numeric counter: 409, the
+// same steer-to-full-save every conflict gets, never a 400 the
+// client would give up on.
+func TestDeltaOpaqueHeaderTokenGets409(t *testing.T) {
+	path := serveTempMap(t, deltaSeed())
+	rec := postDeltaWithHeader("a1b2c3d4e5f60718", stateRevision(t), []map[string]any{{
+		"op": "drop-map", "map": "/a",
+	}})
+	if rec.Code != 409 {
+		t.Fatalf("opaque token: status = %d (want 409), body = %s", rec.Code, rec.Body.String())
+	}
+	if got := mustReadFile(t, path); got != deltaSeed() {
+		t.Errorf("opaque token modified the file:\n%s", got)
+	}
+}
