@@ -57,15 +57,15 @@ const tapWithNoSyntheticClick = (el: Element): void => {
   send(el, "pointerup");
 };
 
-let goUp: ReturnType<typeof vi.fn>;
-let downloadFlowgo: ReturnType<typeof vi.fn>;
-let reshare: ReturnType<typeof vi.fn>;
+let goUp: ReturnType<typeof vi.fn<() => void>>;
+let downloadFlowgo: ReturnType<typeof vi.fn<() => void>>;
+let reshare: ReturnType<typeof vi.fn<() => void>>;
 
 beforeEach(() => {
   document.body.innerHTML = TOOLBAR;
-  goUp = vi.fn();
-  downloadFlowgo = vi.fn();
-  reshare = vi.fn();
+  goUp = vi.fn<() => void>();
+  downloadFlowgo = vi.fn<() => void>();
+  reshare = vi.fn<() => void>();
   attachToolbarButtons({ goUp, downloadFlowgo, reshare });
 });
 

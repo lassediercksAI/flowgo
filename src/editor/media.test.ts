@@ -92,8 +92,8 @@ const okUpload = (src = "flowgo-media/abc123.png") => () =>
 let map: { images?: ImageItem[] };
 let status: string[];
 let selected: Set<string>;
-let clearSelectedEdge: ReturnType<typeof vi.fn>;
-let renderAll: ReturnType<typeof vi.fn>;
+let clearSelectedEdge: ReturnType<typeof vi.fn<() => void>>;
+let renderAll: ReturnType<typeof vi.fn<() => void>>;
 let createdUrls: number;
 let revokedUrls: string[];
 
@@ -205,8 +205,8 @@ beforeEach(() => {
   map = {};
   status = [];
   selected = new Set(["previous-selection"]);
-  clearSelectedEdge = vi.fn();
-  renderAll = vi.fn();
+  clearSelectedEdge = vi.fn<() => void>();
+  renderAll = vi.fn<() => void>();
   let n = 0;
   wireMedia({
     canvas: document.createElement("div"),

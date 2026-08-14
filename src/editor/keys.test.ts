@@ -135,11 +135,11 @@ let edgeSel: Edge | null;
 let linkState: { handleEl: HTMLElement } | null;
 let statuses: string[];
 let graph: { defaultShape?: number };
-let saveSpy: ReturnType<typeof vi.fn>;
-let clearLinkSpy: ReturnType<typeof vi.fn>;
-let dropIdSpy: ReturnType<typeof vi.fn>;
-let dropHandleSpy: ReturnType<typeof vi.fn>;
-let proximitySpy: ReturnType<typeof vi.fn>;
+let saveSpy: ReturnType<typeof vi.fn<() => void>>;
+let clearLinkSpy: ReturnType<typeof vi.fn<() => void>>;
+let dropIdSpy: ReturnType<typeof vi.fn<(id: string | null) => void>>;
+let dropHandleSpy: ReturnType<typeof vi.fn<(h: string | null) => void>>;
+let proximitySpy: ReturnType<typeof vi.fn<() => void>>;
 
 let canvas: HTMLElement;
 let ghost: SVGLineElement;
@@ -239,11 +239,11 @@ beforeEach(() => {
   linkState = null;
   statuses = [];
   graph = {};
-  saveSpy = vi.fn();
-  clearLinkSpy = vi.fn();
-  dropIdSpy = vi.fn();
-  dropHandleSpy = vi.fn();
-  proximitySpy = vi.fn();
+  saveSpy = vi.fn<() => void>();
+  clearLinkSpy = vi.fn<() => void>();
+  dropIdSpy = vi.fn<(id: string | null) => void>();
+  dropHandleSpy = vi.fn<(h: string | null) => void>();
+  proximitySpy = vi.fn<() => void>();
 
   wireKeys({
     canvas,
