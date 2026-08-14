@@ -8,5 +8,8 @@ vitest.config.ts
 tsconfig.json
 tsconfig.tsbuildinfo
 node_modules/**
-*.map
+package-lock.json
+**/*.map
+out/previewEntry.js
+out/previewHydrate.js
 .eslintrc*
