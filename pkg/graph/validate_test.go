@@ -76,6 +76,22 @@ func TestValidate_CatchesEachViolation(t *testing.T) {
 			want: "invalid font",
 		},
 		{
+			// The parser tolerates reserved shape ids in existing files
+			// (forward compat), but Validate gates the write boundaries:
+			// a caller-supplied graph must not mint `nodeshape b1 7`.
+			name: "invalid box shape",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Boxes: []Box{{ID: "b1", Shape: 7}}}}},
+			want: "invalid shape",
+		},
+		{
+			// Same boundary rule for the document-level default: without
+			// it, set_state persisted `defaultshape 7` while every
+			// renderer silently fell back to a rectangle.
+			name: "invalid document defaultShape",
+			g:    Graph{DefaultShape: 7, Maps: []NamedMap{{Path: "/", Boxes: []Box{{ID: "b1"}}}}},
+			want: "defaultShape 7 is not a known shape",
+		},
+		{
 			name: "box label too long",
 			g:    Graph{Maps: []NamedMap{{Path: "/", Boxes: []Box{{ID: "b1", Label: strings.Repeat("x", MaxLabelLen+1)}}}}},
 			want: "cap is",
@@ -237,6 +253,19 @@ func TestValidate_CatchesEachViolation(t *testing.T) {
 // the orphaned-submap cases above: a properly chained "/A/B" submap,
 // where box A lives on "/" and box B lives on "/A", must validate
 // clean.
+// TestValidate_KnownShapeIDsAccepted keeps the shape gate honest in the
+// other direction: every id the GUI can actually render (0 rectangle,
+// 1 hexagon, 2 circle, 3 triangle) must pass, as box field and as the
+// document default alike.
+func TestValidate_KnownShapeIDsAccepted(t *testing.T) {
+	for n := 0; n <= 3; n++ {
+		g := Graph{DefaultShape: n, Maps: []NamedMap{{Path: "/", Boxes: []Box{{ID: "b1", Shape: n}}}}}
+		if errs := Validate(g); len(errs) != 0 {
+			t.Errorf("shape %d rejected: %v", n, errs)
+		}
+	}
+}
+
 func TestValidate_ValidNestedSubmapChain(t *testing.T) {
 	g := Graph{Maps: []NamedMap{
 		{Path: "/", Boxes: []Box{{ID: "A"}}},

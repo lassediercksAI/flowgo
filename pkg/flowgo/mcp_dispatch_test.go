@@ -377,6 +377,37 @@ func TestDispatchToolSession_LocalMode_InnerToolErrorLeavesFileUntouched(t *test
 	}
 }
 
+// set_state was the one route that could still persist an unknown shape
+// id — actSetDefaultShape and the granular shape args already reject
+// them via shapeProp, but a raw graph with defaultShape/box shape 7
+// sailed through and wrote `defaultshape 7` / `nodeshape n1 7` to the
+// file (which every renderer then silently displays as a rectangle).
+// validateGraph now gates both fields, so the tool errors and the file
+// keeps its old bytes.
+func TestDispatchToolSession_LocalMode_SetStateRejectsUnknownShapeIDs(t *testing.T) {
+	path := withLocalFile(t, dispatchSeed)
+	_, err := dispatchTool("set_state", mustJSON(t, map[string]any{"graph": map[string]any{
+		"defaultShape": 7,
+		"maps": []map[string]any{{
+			"path":  "/",
+			"boxes": []map[string]any{{"id": "n1", "label": "x", "x": 0, "y": 0, "shape": 7}},
+		}},
+	}}))
+	if err == nil || !strings.Contains(err.Error(), "graph rejected") {
+		t.Fatalf("err = %v, want a 'graph rejected' validation error", err)
+	}
+	if !strings.Contains(err.Error(), "defaultShape 7") || !strings.Contains(err.Error(), "invalid shape 7") {
+		t.Fatalf("err = %v, want both the defaultShape and the box shape named", err)
+	}
+	onDisk, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatalf("read file: %v", readErr)
+	}
+	if string(onDisk) != dispatchSeed {
+		t.Fatalf("unknown shape id reached disk despite rejection:\n%s", onDisk)
+	}
+}
+
 // When the backing file is missing, both dispatch paths (read-only via
 // readFile, mutating via updateFile) must fail before any tool code
 // runs — this is the outer-error path where inner stays nil.
