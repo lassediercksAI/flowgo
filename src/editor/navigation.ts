@@ -123,7 +123,33 @@ export const normalizePath = (path: string): string => {
   return path;
 };
 
-export const readPathFromURL = (): string => normalizePath(splitHash().path);
+// location.hash percent-encodes on READ what navigateTo wrote raw: a
+// box id like "café" goes into the hash verbatim but reads back as
+// "caf%C3%A9". Every path read must decode, or round-trips break —
+// navigateTo would see a "different" current path and push a duplicate
+// history entry per call, and a reload would ensureMap() a phantom
+// empty submap at the encoded path. Malformed sequences (a literal
+// "%" in a hand-typed hash, e.g. "#/50%") must not throw: fall back
+// to the raw string and let path matching fail soft.
+export const decodeHashPath = (path: string): string => {
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return path;
+  }
+};
+
+export const readPathFromURL = (): string =>
+  normalizePath(decodeHashPath(splitHash().path));
+
+// The current hash with its path half decoded, for comparing against
+// hashes we are about to write (which are always in raw/decoded form).
+// The query half is never decoded: buildViewQuery only ever emits
+// URL-safe characters, and URLSearchParams decodes on parse anyway.
+const currentHashDecoded = (): string => {
+  const { path, query } = splitHash();
+  return "#" + decodeHashPath(path) + (query ? "?" + query : "");
+};
 
 // Parses ?z=&x=&y= out of the hash. Any combination is allowed —
 // callers should treat `null` fields as "leave at recenter default".
@@ -203,7 +229,10 @@ const syncViewToURL = (): void => {
     viewSyncTimer = null;
     const path = bindings?.getCurrentPath() ?? "/";
     const next = "#" + path + buildViewQuery();
-    if (location.hash !== next) {
+    // Compare in decoded form — location.hash re-encodes the path
+    // half, so a byte comparison against our raw `next` would see a
+    // perpetual mismatch for encodable ids and replaceState per tick.
+    if (currentHashDecoded() !== next) {
       history.replaceState(history.state, "", next);
     }
   }, VIEW_SYNC_DELAY_MS);
@@ -244,10 +273,14 @@ export const navigateTo = (p: string, opts?: SetPathOptions): void => {
   // changed — view-only changes go through replaceState in
   // syncViewToURL so we don't pollute history with every wheel tick.
   const newHash = "#" + p + buildViewQuery();
-  const currentPath = splitHash().path || "/";
+  // Decode before comparing: the hash read back from location is
+  // percent-encoded while `p` is raw, so a byte comparison would call
+  // every navigateTo to an encodable path a path CHANGE and stack a
+  // duplicate history entry per call.
+  const currentPath = decodeHashPath(splitHash().path) || "/";
   if (currentPath !== p) {
     history.pushState(null, "", newHash);
-  } else if (location.hash !== newHash) {
+  } else if (currentHashDecoded() !== newHash) {
     history.replaceState(history.state, "", newHash);
   }
 };

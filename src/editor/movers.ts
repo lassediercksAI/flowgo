@@ -73,8 +73,17 @@ export interface LineLike {
   style?: number;
 }
 
-// Mirrors render.ts linePathD — kept here so the movers can rewrite
-// the live SVG path without round-tripping through the renderer.
+// Path d for a line — THE single implementation: render.ts imports it
+// for full renders, and the movers use it to rewrite the live SVG
+// path mid-drag without round-tripping through the renderer. (The two
+// modules used to hold byte-identical copies; one place now, so the
+// styles can't drift.) The line runs through endpoints + every mid;
+// `style` decides how each pair of consecutive points is drawn:
+//   style 1 (default): straight segments — sharp polyline.
+//   style 2:           smooth quadratic-bezier chain (controls = mids).
+//   style 3:           right-angle elbows, H-first or V-first per
+//                      segment based on which leg is longer (longer
+//                      axis first reads as less of a stub).
 // Exported for tests (pure geometry).
 export const linePathD = (l: LineLike): string => {
   const mids = l.mids ?? [];
@@ -86,6 +95,9 @@ export const linePathD = (l: LineLike): string => {
   const style = l.style ?? 1;
 
   if (style === 2 && mids.length > 0) {
+    // Chained quadratic bezier where each consecutive pair of control
+    // points (Ci, Ci+1) joins at their midpoint, so every mid pulls
+    // the curve toward it.
     let d = `M ${l.x1} ${l.y1}`;
     for (let i = 0; i < mids.length - 1; i++) {
       const [cx, cy] = mids[i]!;
@@ -102,6 +114,8 @@ export const linePathD = (l: LineLike): string => {
     for (let i = 0; i < points.length - 1; i++) {
       const [ax, ay] = points[i]!;
       const [bx, by] = points[i + 1]!;
+      // Auto-pick: emit the longer leg first so the corner sits in
+      // the "natural" position relative to the segment's aspect.
       if (Math.abs(bx - ax) >= Math.abs(by - ay)) {
         d += ` L ${bx} ${ay} L ${bx} ${by}`;
       } else {
@@ -111,6 +125,7 @@ export const linePathD = (l: LineLike): string => {
     return d;
   }
 
+  // style 1 (or anything unrecognised): straight polyline.
   let d = `M ${points[0]![0]} ${points[0]![1]}`;
   for (let i = 1; i < points.length; i++) {
     d += ` L ${points[i]![0]} ${points[i]![1]}`;
@@ -392,7 +407,12 @@ export const makeImageResizeMover = (
 ): Mover => {
   const startW = img.width;
   const startH = img.height;
-  const aspect = startH / startW || 1;
+  // Degenerate frames need an explicit guard: startW === 0 with a
+  // positive height yields Infinity (`|| 1` only catches the 0/0 NaN
+  // case), which resizeImageDims would round into a broken height on
+  // the first tick. Fall back to square; startH === 0 keeps its old
+  // `|| 1` fallback so zero-height images resize the same as before.
+  const aspect = startW > 0 ? startH / startW || 1 : 1;
   return {
     el,
     apply(dx, _dy, ev) {

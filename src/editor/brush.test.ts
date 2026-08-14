@@ -145,6 +145,28 @@ describe("startStroke", () => {
     expect(groups()[0]!.getAttribute("class")).toBe("stroke-group palette-3");
     abandonStroke();
   });
+
+  it("mid-flight startStroke abandons the previous stroke — no orphaned preview <g>", () => {
+    // Regression for the sweep-triage leak: overwriting `active` used
+    // to leave the first stroke's preview group in the layer forever
+    // (a lost mouseup meant a mousedown could arrive while painting).
+    startStroke(0, 0);
+    extendStroke(50, 0);
+    startStroke(200, 200);
+    const g = groups();
+    expect(g).toHaveLength(1); // the old preview left with its stroke
+    expect(g[0]!.dataset["id"]).toBe("s2");
+    finishStroke();
+    // Only the second stroke exists; the first was abandoned, not
+    // committed (same contract as an explicit abandonStroke()).
+    expect(map.strokes).toHaveLength(0); // single point → too short to keep
+    startStroke(0, 0);
+    extendStroke(60, 0);
+    startStroke(100, 100);
+    extendStroke(160, 100);
+    finishStroke();
+    expect(map.strokes).toEqual([{ id: "s4", points: [[100, 100], [160, 100]] }]);
+  });
 });
 
 describe("extendStroke — min-distance filtering", () => {

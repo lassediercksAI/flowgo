@@ -260,19 +260,37 @@ export const startEdit = (
   el: HTMLElement,
   b: BoxLike,
   opts?: BoxEditOptions,
+): void => startEditAttempt(el, b, opts, false);
+
+// `isRetry` bounds the missing-label recovery to ONE renderAll: if
+// the REBUILT element still lacks its .box-label span, the renderer
+// itself is emitting broken boxes and retrying again would recurse on
+// the same broken output forever. Log loudly and give up instead —
+// `editing` stays unclaimed, so keyboard shortcuts keep working.
+const startEditAttempt = (
+  el: HTMLElement,
+  b: BoxLike,
+  opts: BoxEditOptions | undefined,
+  isRetry: boolean,
 ): void => {
   if (editing) return;
   const cancelDeletes = opts?.cancelDeletes ?? false;
   const labelEl = el.querySelector<HTMLElement>(".box-label");
   if (!labelEl) {
+    if (isRetry) {
+      console.error(
+        `edit: box "${b.id}" still has no .box-label after renderAll — giving up on the edit`,
+      );
+      return;
+    }
     // Defensive: if the label span is missing for any reason, rebuild
-    // the box from state and retry. Beats wedging `editing` to a
+    // the box from state and retry once. Beats wedging `editing` to a
     // stale element and locking out every keyboard shortcut.
     must().renderAll();
     const fresh = must().canvas.querySelector<HTMLElement>(
       `.box[data-id="${b.id}"]`,
     );
-    if (fresh) startEdit(fresh, b, opts);
+    if (fresh) startEditAttempt(fresh, b, opts, true);
     return;
   }
   beginInlineEdit({

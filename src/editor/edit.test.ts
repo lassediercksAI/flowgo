@@ -15,7 +15,7 @@
 // normalizeLabel itself is covered in src/graph/label.test — these
 // tests only pin that edit.ts routes reads through it.
 
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   commitEdgeLabelEdit,
   editingEdge,
@@ -634,10 +634,6 @@ describe("startEdit (box)", () => {
     });
 
     it("gives up cleanly when the rebuild yields no element — no wedged flag", () => {
-      // NOTE deliberately not covered: renderAll leaving ANOTHER
-      // label-less .box[data-id] in the canvas makes startEdit recurse
-      // without bound (no retry guard). Unreachable while renderItems
-      // always emits the span; reported as a product bug, not pinned.
       const b: BoxLike = { id: "b1", label: "old", x: 0, y: 0 };
       const broken = document.createElement("div");
       broken.className = "box";
@@ -650,6 +646,40 @@ describe("startEdit (box)", () => {
       expect(renderAllCalls).toBe(1);
       expect(isEditing()).toBe(false);
       expect(broken.hasAttribute("contenteditable")).toBe(false);
+    });
+
+    it("retries exactly ONCE when the rebuilt box still lacks its span — loud error, no recursion", () => {
+      // The retry is bounded: renderAll leaving ANOTHER label-less
+      // .box[data-id] in the canvas used to make startEdit recurse
+      // without end (sweep-triage fix). Now the second miss logs a
+      // console.error and gives up with `editing` unclaimed.
+      const b: BoxLike = { id: "b1", label: "old", x: 0, y: 0 };
+      map.boxes.push(b);
+      const broken = document.createElement("div");
+      broken.className = "box";
+      broken.dataset["id"] = "b1";
+      canvas.appendChild(broken);
+      renderAllImpl = () => {
+        // Rebuild WITHOUT the .box-label span — a renderer that keeps
+        // emitting broken boxes. Clears the canvas each time (like the
+        // real renderAll) so a regression here overflows the stack
+        // fast instead of wedging the runner on a growing DOM.
+        canvas.querySelectorAll(".box").forEach((el) => el.remove());
+        const stillBroken = document.createElement("div");
+        stillBroken.className = "box";
+        stillBroken.dataset["id"] = "b1";
+        canvas.appendChild(stillBroken);
+      };
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        startEdit(broken, b);
+        expect(renderAllCalls).toBe(1); // one rebuild, not an unbounded loop
+        expect(err).toHaveBeenCalledTimes(1);
+        expect(String(err.mock.calls[0]![0])).toMatch(/box-label/);
+        expect(isEditing()).toBe(false); // flag not wedged
+      } finally {
+        err.mockRestore();
+      }
     });
   });
 });

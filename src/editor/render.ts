@@ -30,6 +30,11 @@ import {
 import { hasSubmapContent } from "../graph/submap.ts";
 import { resolveFont, resolvePalette } from "../graph/palette.ts";
 import { endpointAnchor, type ElSize } from "./anchors.ts";
+// The one linePathD: movers.ts owns it (it needs the same geometry to
+// rewrite live paths mid-drag, and its import closure — graph/* +
+// label-clamp — can never cycle back into render.ts). This module
+// used to carry a byte-identical private copy that risked drifting.
+import { linePathD } from "./movers.ts";
 import { commitEdgeLabelEdit, editingEdge } from "./edit.ts";
 import { updateSelectionToolbar } from "./align.ts";
 import { refreshContextBar } from "./contextbar.ts";
@@ -102,61 +107,6 @@ interface LineData {
   mids?: Array<[number, number]>;
   style?: number;
 }
-
-// Path d for a line. The line runs through endpoints + every mid;
-// `style` decides how each pair of consecutive points is drawn.
-//   style 1 (default): straight segments — sharp polyline.
-//   style 2:           smooth quadratic-bezier chain (controls = mids).
-//   style 3:           right-angle elbows, H-first or V-first per
-//                      segment based on which leg is longer (longer
-//                      axis first reads as less of a stub).
-const linePathD = (l: LineData): string => {
-  const mids = l.mids ?? [];
-  const points: Array<[number, number]> = [
-    [l.x1, l.y1],
-    ...mids,
-    [l.x2, l.y2],
-  ];
-  const style = l.style ?? 1;
-
-  if (style === 2 && mids.length > 0) {
-    // Chained quadratic bezier where each consecutive pair of control
-    // points (Ci, Ci+1) joins at their midpoint, so every mid pulls
-    // the curve toward it.
-    let d = `M ${l.x1} ${l.y1}`;
-    for (let i = 0; i < mids.length - 1; i++) {
-      const [cx, cy] = mids[i]!;
-      const [nx, ny] = mids[i + 1]!;
-      d += ` Q ${cx} ${cy} ${(cx + nx) / 2} ${(cy + ny) / 2}`;
-    }
-    const last = mids[mids.length - 1]!;
-    d += ` Q ${last[0]} ${last[1]} ${l.x2} ${l.y2}`;
-    return d;
-  }
-
-  if (style === 3) {
-    let d = `M ${points[0]![0]} ${points[0]![1]}`;
-    for (let i = 0; i < points.length - 1; i++) {
-      const [ax, ay] = points[i]!;
-      const [bx, by] = points[i + 1]!;
-      // Auto-pick: emit the longer leg first so the corner sits in
-      // the "natural" position relative to the segment's aspect.
-      if (Math.abs(bx - ax) >= Math.abs(by - ay)) {
-        d += ` L ${bx} ${ay} L ${bx} ${by}`;
-      } else {
-        d += ` L ${ax} ${by} L ${bx} ${by}`;
-      }
-    }
-    return d;
-  }
-
-  // style 1 (or anything unrecognised): straight polyline.
-  let d = `M ${points[0]![0]} ${points[0]![1]}`;
-  for (let i = 1; i < points.length; i++) {
-    d += ` L ${points[i]![0]} ${points[i]![1]}`;
-  }
-  return d;
-};
 
 interface EdgeData {
   from: string;
