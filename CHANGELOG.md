@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.22](https://github.com/lassediercks/flowgo/compare/v0.3.21...v0.3.22) (2026-08-14)
+
+
+### Bug Fixes
+
+* **editor:** drop the empty toolbar pill in embed mode ([5c274d4](https://github.com/lassediercks/flowgo/commit/5c274d4588635bc00f93938e2610f661ccad5c83))
+
 ## [0.3.21](https://github.com/lassediercks/flowgo/compare/v0.3.20...v0.3.21) (2026-08-14)
 
 
