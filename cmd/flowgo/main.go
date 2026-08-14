@@ -435,6 +435,12 @@ func handleState(w http.ResponseWriter, r *http.Request) {
 	// servers that predate gzip support, and a blind gzip POST to one
 	// of those is a 400 (see feedback-shared-bundle-blast-radius).
 	w.Header().Set("X-Flowgo-Accept-Encoding", "gzip")
+	// Delta capability (brain#25c, same advertisement pattern as gzip
+	// above): the editor only sends `X-Flowgo-Save: delta1` bodies to
+	// a server that announced it here — the shared bundle also talks
+	// to servers that don't speak deltas, and those must keep seeing
+	// plain full-document saves.
+	w.Header().Set(flowgo.SaveModeHeader, flowgo.SaveModeDelta1)
 	json.NewEncoder(w).Encode(g)
 }
 
@@ -490,6 +496,24 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad gzip body: "+err.Error(), 400)
 		return
 	}
+	// Save-mode dispatch (brain#25c). No header = full document, the
+	// path below, byte-for-byte as it always was. `delta1` = delta
+	// body. Any OTHER value is refused rather than treated as a full
+	// save: decoding a delta-shaped body as a Graph silently yields an
+	// EMPTY document (encoding/json ignores unknown fields), and
+	// "saving" that would wipe the map — so an unknown mode fails
+	// closed, and the client's non-2xx fallback resends without the
+	// header.
+	switch mode := r.Header.Get(flowgo.SaveModeHeader); mode {
+	case "":
+		// full-document save, unchanged below
+	case flowgo.SaveModeDelta1:
+		handleDeltaSave(w, r, body)
+		return
+	default:
+		http.Error(w, "unsupported save mode: "+mode, 400)
+		return
+	}
 	var g graph.Graph
 	if err := json.NewDecoder(body).Decode(&g); err != nil {
 		http.Error(w, err.Error(), 400)
@@ -512,6 +536,41 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set(revisionHeader, strconv.FormatUint(flowgo.Revision(), 10))
+	w.WriteHeader(204)
+}
+
+// handleDeltaSave applies an `X-Flowgo-Save: delta1` body (brain#25c).
+// body is already gzip-transparent and byte-capped by saveBodyReader.
+//
+// Status contract (the client treats any non-2xx as fall-back-to-
+// full-save): 409 = revision conflict or no document to apply against
+// — resend as a full save, which cannot conflict; 400 = malformed
+// delta or a result that cannot be written to a .flowgo file; 204 =
+// applied, with the new revision echoed exactly like a full save so
+// the client can base its next delta on it without another /state
+// round trip.
+func handleDeltaSave(w http.ResponseWriter, r *http.Request, body io.Reader) {
+	var d flowgo.Delta
+	if err := json.NewDecoder(body).Decode(&d); err != nil {
+		http.Error(w, "bad delta body: "+err.Error(), 400)
+		return
+	}
+	rev, err := flowgo.ApplyLocalDeltaFrom(d, r.Header.Get(sessionHeader))
+	switch {
+	case err == nil:
+	case errors.Is(err, flowgo.ErrDeltaConflict):
+		// Deliberately bodyless: the one reaction to 409 is a full
+		// save, and the client needs no prose to decide that.
+		w.WriteHeader(409)
+		return
+	case errors.Is(err, flowgo.ErrDeltaInvalid), errors.Is(err, flowgo.ErrInvalidGraph):
+		http.Error(w, err.Error(), 400)
+		return
+	default:
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	w.Header().Set(revisionHeader, strconv.FormatUint(rev, 10))
 	w.WriteHeader(204)
 }
 
