@@ -1,6 +1,7 @@
 package flowgo
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -528,6 +529,44 @@ func TestDispatchToolSession_ServeMode_InnerToolErrorSurfaces(t *testing.T) {
 	}))
 	if err == nil || !strings.Contains(err.Error(), "label is required") {
 		t.Fatalf("err = %v, want the tool's inner error, not a swallowed nil", err)
+	}
+}
+
+// A serve-mode workspace is the store itself — there is no file cache
+// to drop — so a tool that half-applies before erroring must be rolled
+// back at the dispatch site. update_box with a valid label and an
+// invalid palette is the canonical half-apply: the action writes the
+// label before rejecting the palette. The workspace graph must come out
+// byte-identical.
+func TestDispatchToolSession_ServeMode_InnerToolErrorRollsBackWorkspace(t *testing.T) {
+	withServeMode(t)
+	wsID := cfg.Workspaces.Start()
+	if _, err := dispatchTool("add_box", mustJSON(t, map[string]any{
+		"workspace_id": wsID, "label": "before", "x": 10, "y": 20,
+	})); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	snapshot := func() []byte {
+		var b []byte
+		if err := cfg.Workspaces.With(wsID, func(ws *Workspace) error {
+			var err error
+			b, err = json.Marshal(ws.Graph)
+			return err
+		}); err != nil {
+			t.Fatalf("snapshot workspace: %v", err)
+		}
+		return b
+	}
+	want := snapshot()
+
+	_, err := dispatchTool("update_box", mustJSON(t, map[string]any{
+		"workspace_id": wsID, "id": "b1", "label": "renamed", "palette": 42,
+	}))
+	if err == nil || !strings.Contains(err.Error(), "palette") {
+		t.Fatalf("err = %v, want the palette validation error", err)
+	}
+	if got := snapshot(); !bytes.Equal(got, want) {
+		t.Fatalf("workspace mutated despite tool error:\n got %s\nwant %s", got, want)
 	}
 }
 
