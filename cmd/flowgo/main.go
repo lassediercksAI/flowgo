@@ -555,6 +555,21 @@ func handleDeltaSave(w http.ResponseWriter, r *http.Request, body io.Reader) {
 		http.Error(w, "bad delta body: "+err.Error(), 400)
 		return
 	}
+	// The base-revision request header is the canonical contract (the
+	// hosted server reads ONLY it, as an opaque token) and wins over
+	// the body's `base` when present. Here the token space is this
+	// process's numeric revision counter; a token that doesn't parse
+	// is from some other server's regime and can never match — that
+	// is a base conflict, and 409 steers the client to the full save
+	// that fixes it, exactly like any stale base.
+	if h := r.Header.Get(flowgo.BaseRevisionHeader); h != "" {
+		n, err := strconv.ParseUint(h, 10, 64)
+		if err != nil {
+			w.WriteHeader(409)
+			return
+		}
+		d.Base = n
+	}
 	rev, err := flowgo.ApplyLocalDeltaFrom(d, r.Header.Get(sessionHeader))
 	switch {
 	case err == nil:

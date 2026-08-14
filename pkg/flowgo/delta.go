@@ -54,6 +54,15 @@ const (
 	SaveModeDelta1 = "delta1"
 )
 
+// BaseRevisionHeader carries the delta's base revision on the request
+// as an OPAQUE token — the canonical cross-server contract. The
+// hosted website mints content-hash tokens and reads ONLY this
+// header; this CLI's revisions are numeric, and it accepts the header
+// (winning over the body's `base` field) so one emitter speaks to
+// both. The body field stays for compatibility with clients built
+// against v0.3.24.
+const BaseRevisionHeader = "X-Flowgo-Base-Revision"
+
 // ErrDeltaConflict maps to HTTP 409: the delta's base revision is not
 // the document's current revision, or there is no parsed document to
 // apply against. Both mean the same thing to the client — fall back

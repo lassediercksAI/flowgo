@@ -228,7 +228,7 @@ export const buildDelta = (
   base: DeltaGraph,
   cur: DeltaGraph,
   scope: DirtySet,
-  baseRevision: number,
+  baseRevision: string,
 ): string | null => {
   if (scope.overflow) return null;
   const baseBy = new Map(base.maps.map((m) => [m.path, m]));
@@ -294,8 +294,13 @@ export const buildDelta = (
       ops.push(...kindOps);
     }
   }
-  const delta: { base: number; ops: DeltaOp[]; doc?: { defaultShape: number } } =
-    { base: baseRevision, ops };
+  // The base token is canonical on the X-Flowgo-Base-Revision request
+  // header (persistence.ts sends it on every delta). The body's
+  // numeric `base` is the v0.3.24-CLI compatibility path and only
+  // exists when the token IS a number; the hosted server's opaque
+  // hash tokens ride the header alone.
+  const delta: { base?: number; ops: DeltaOp[]; doc?: { defaultShape: number } } =
+    /^[0-9]+$/.test(baseRevision) ? { base: Number(baseRevision), ops } : { ops };
   if (doc) delta.doc = doc;
   return JSON.stringify(delta);
 };

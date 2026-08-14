@@ -43,6 +43,12 @@ let stateHeaders: Record<string, string>;
 let saveResponses: Array<{ ok: boolean; status: number }>;
 let saves: FakeReq[] = [];
 let revision: number;
+// When set, revisions are served from this list instead of the
+// numeric counter — the hosted server's opaque content-hash regime.
+let revTokens: string[] | null = null;
+let revIdx = 0;
+const currentRev = (): string =>
+  revTokens ? revTokens[Math.min(revIdx, revTokens.length - 1)]! : String(revision);
 const statuses: string[] = [];
 
 const bodyText = async (r: FakeReq): Promise<string> =>
@@ -82,7 +88,7 @@ const setup = async (opts?: { graph?: TestGraph }) => {
         status: 200,
         headers: headerBag({
           ...stateHeaders,
-          "X-Flowgo-Revision": String(revision),
+          "X-Flowgo-Revision": currentRev(),
         }),
         json: async () => graph,
         text: async () => "",
@@ -94,11 +100,14 @@ const setup = async (opts?: { graph?: TestGraph }) => {
       body: init?.body,
     });
     const r = saveResponses.length > 1 ? saveResponses.shift()! : saveResponses[0]!;
-    if (r.ok) revision++;
+    if (r.ok) {
+      revision++;
+      revIdx++;
+    }
     return {
       ok: r.ok,
       status: r.status,
-      headers: headerBag(r.ok ? { "X-Flowgo-Revision": String(revision) } : {}),
+      headers: headerBag(r.ok ? { "X-Flowgo-Revision": currentRev() } : {}),
       json: async () => ({}),
       text: async () => "",
     };
@@ -143,6 +152,8 @@ describe("delta1 save emission", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     stateHeaders = { "X-Flowgo-Save": "delta1" };
+    revTokens = null;
+    revIdx = 0;
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -284,6 +295,46 @@ describe("delta1 save emission", () => {
       item: { id: "b2", x: 9, y: 9 },
     });
     expect(p).toBeTruthy();
+  });
+
+  it("opaque revision tokens ride the header only; 409 still recovers", async () => {
+    // The hosted server mints content-hash tokens and reads the base
+    // ONLY from the X-Flowgo-Base-Revision request header; the body's
+    // numeric `base` is CLI compatibility and must be absent here.
+    revTokens = ["ffeeddccbbaa0099", "a1b2c3d4e5f60718", "0badc0ffee15dead"];
+    const { m } = await armed();
+    graph.maps[0]!.boxes[0]!.label = "hashed";
+    m.mutatedBox();
+    await vi.runOnlyPendingTimersAsync();
+    expect(saves).toHaveLength(2);
+    const s = saves[1]!;
+    expect(s.headers["X-Flowgo-Save"]).toBe("delta1");
+    // The token the full save was acknowledged with, byte for byte.
+    expect(s.headers["X-Flowgo-Base-Revision"]).toBe("a1b2c3d4e5f60718");
+    const delta = JSON.parse(await bodyText(s));
+    expect(delta).not.toHaveProperty("base");
+    expect(delta.ops).toEqual([
+      {
+        op: "upsert",
+        kind: "box",
+        map: "/",
+        item: { id: "b1", x: 1, y: 2, label: "hashed" },
+      },
+    ]);
+    // A bodyless 409 (the hosted server's stale-token answer) falls
+    // back to a full save exactly like the CLI's.
+    saveResponses = [
+      { ok: false, status: 409 },
+      { ok: true, status: 204 },
+    ];
+    graph.maps[0]!.boxes[0]!.label = "stale";
+    m.mutatedBox();
+    await vi.runOnlyPendingTimersAsync();
+    await vi.advanceTimersByTimeAsync(5000);
+    const retry = saves[saves.length - 1]!;
+    expect(retry.headers["X-Flowgo-Save"]).toBeUndefined();
+    expect(await bodyText(retry)).toBe(JSON.stringify(graph));
+    expect(statuses[statuses.length - 1]).toBe("saved");
   });
 
   it("a delta larger than the document falls back to the full body", async () => {
