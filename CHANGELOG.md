@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.26](https://github.com/lassediercks/flowgo/compare/v0.3.25...v0.3.26) (2026-08-14)
+
+
+### Features
+
+* **editor:** base delta saves on the opaque revision token header ([b8e0984](https://github.com/lassediercks/flowgo/commit/b8e09848cfddfafce00a9d28984b7a0f70a7b85c))
+* **editor:** emit delta1 incremental saves (brain[#25](https://github.com/lassediercks/flowgo/issues/25)c) ([6f4af3d](https://github.com/lassediercks/flowgo/commit/6f4af3d86fa6641e44889b642e1652b0fc47f87d))
+
 ## [0.3.25](https://github.com/lassediercks/flowgo/compare/v0.3.24...v0.3.25) (2026-08-14)
 
 
