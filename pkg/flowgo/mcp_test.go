@@ -746,6 +746,72 @@ func TestActDeleteBox_RemovesNestedSubmaps(t *testing.T) {
 	}
 }
 
+// TestActMutations_MissingMapCreatesNoPhantom sweeps every lookup-style
+// mutating action against a path that doesn't exist. Before findMapAt,
+// each of these called ensureMapAt first, so "not found in map /nope"
+// still appended an empty NamedMap{Path: "/nope"} — a phantom that
+// persisted for the life of a serve-mode workspace (and sat in the
+// local-mode graph until the error path dropped the cache). The error
+// must still name the path, and g.Maps must be exactly as before.
+func TestActMutations_MissingMapCreatesNoPhantom(t *testing.T) {
+	cases := []struct {
+		name string
+		fn   toolAction
+		args map[string]any
+	}{
+		{"update_box", actUpdateBox, map[string]any{"id": "b1", "label": "x"}},
+		{"delete_box", actDeleteBox, map[string]any{"id": "b1"}},
+		{"update_edge", actUpdateEdge, map[string]any{"from": "a", "to": "b", "label": "x"}},
+		{"delete_edge", actDeleteEdge, map[string]any{"from": "a", "to": "b"}},
+		{"update_text", actUpdateText, map[string]any{"id": "t1", "label": "x"}},
+		{"delete_text", actDeleteText, map[string]any{"id": "t1"}},
+		{"update_line", actUpdateLine, map[string]any{"id": "l1", "x1": float64(1)}},
+		{"delete_line", actDeleteLine, map[string]any{"id": "l1"}},
+		{"update_stroke", actUpdateStroke, map[string]any{"id": "s1", "palette": float64(4)}},
+		{"delete_stroke", actDeleteStroke, map[string]any{"id": "s1"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := freshGraph()
+			args := map[string]any{"path": "/nope"}
+			for k, v := range tc.args {
+				args[k] = v
+			}
+			_, err := tc.fn(g, args)
+			if err == nil || !strings.Contains(err.Error(), "/nope") {
+				t.Fatalf("err = %v, want a not-found error naming /nope", err)
+			}
+			if len(g.Maps) != 1 || g.Maps[0].Path != "/" {
+				t.Fatalf("failed lookup materialised a map: %+v", g.Maps)
+			}
+		})
+	}
+}
+
+// The flip side of the phantom fix: implicit submap creation on first
+// write is part of the add_* contract (the tool schemas and
+// flowgo://about promise it), so add_box to a not-yet-materialised path
+// must still create the map.
+func TestActAddBox_FreshPathStillCreatesSubmap(t *testing.T) {
+	g := freshGraph()
+	g.Maps[0].Boxes = []graph.Box{{ID: "b1", Label: "outer"}}
+	res, err := actAddBox(g, map[string]any{
+		"path": "/b1", "label": "inner", "x": float64(0), "y": float64(0),
+	})
+	if err != nil {
+		t.Fatalf("add_box to fresh path: %v", err)
+	}
+	if got := mcpToolResultText(t, res); got != "b1" {
+		t.Fatalf("minted id = %q, want b1 (fresh submap has its own id space)", got)
+	}
+	if len(g.Maps) != 2 || g.Maps[1].Path != "/b1" {
+		t.Fatalf("submap not created: %+v", g.Maps)
+	}
+	if len(g.Maps[1].Boxes) != 1 || g.Maps[1].Boxes[0].Label != "inner" {
+		t.Fatalf("box not placed in submap: %+v", g.Maps[1].Boxes)
+	}
+}
+
 func TestActDeleteEdge(t *testing.T) {
 	g := freshGraph()
 	if _, err := actAddEdge(g, map[string]any{"from": "a", "to": "b"}); err != nil {
