@@ -353,6 +353,7 @@ export const load = async (): Promise<void> => {
     }
   } else {
     const r = await fetch(dataURL("/state"));
+  noteCapabilities(r);
     noteRevision(r);
     g = (await r.json()) as GraphLike;
   }
@@ -399,17 +400,56 @@ export const scheduleSave = (): void => {
 const toBody = (body: string): Blob | string =>
   typeof Blob === "undefined" ? body : new Blob([body], { type: "application/json" });
 
+
+// serverAcceptsGzip is learned from /state's capability header
+// (brain#25c): compression is only used against servers that
+// advertise it — the shared bundle also serves against older CLIs.
+let serverAcceptsGzip = false;
+export const noteCapabilities = (r: Response): void => {
+  if ((r.headers.get("X-Flowgo-Accept-Encoding") ?? "").includes("gzip")) {
+    serverAcceptsGzip = true;
+  }
+};
+
+// gzipBody compresses a save body when it is worth it and possible.
+// Returns null when the plain path should be used. 64 KiB floor: tiny
+// bodies gain nothing and cost a stream round-trip.
+const GZIP_MIN_BYTES = 64 * 1024;
+const gzipBody = async (body: string): Promise<Blob | null> => {
+  if (!serverAcceptsGzip || body.length < GZIP_MIN_BYTES) return null;
+  if (typeof CompressionStream === "undefined" || typeof Response === "undefined") {
+    return null;
+  }
+  try {
+    const stream = new Blob([body])
+      .stream()
+      .pipeThrough(new CompressionStream("gzip"));
+    return await new Response(stream).blob();
+  } catch {
+    return null; // any hiccup falls back to the plain body
+  }
+};
+
+// saveRetryTimer re-attempts a failed save. One timer, trailing: a
+// burst of failures collapses into one retry, and any successful save
+// cancels it.
+let saveRetryTimer: ReturnType<typeof setTimeout> | null = null;
+const SAVE_RETRY_MS = 5000;
+
 const saveBody = async (body: string): Promise<void> => {
   if (SNAPSHOT_MODE) {
     must().setStatus("local edits only — use Download or Save as new share");
     return;
   }
   savesInFlight++;
+  let failure: string | null = null;
   try {
+    const zipped = await gzipBody(body);
     const r = await fetch(dataURL("/save"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...(zipped ? { "Content-Encoding": "gzip" } : {}),
         // Stamps this page's identity on the write so the live-events
         // stream can skip echoing the change back to us. Without it
         // every save would return as a full rebuild of our own work.
@@ -425,11 +465,34 @@ const saveBody = async (body: string): Promise<void> => {
       // upload reads from there, which takes the copy off the frame:
       // same request, same Content-Type, same bytes on the wire, worst
       // frame 18.6 ms — i.e. none.
-      body: toBody(body),
+      body: zipped ?? toBody(body),
     });
-    noteRevision(r);
+    // The response code was never checked here (brain#25c's measurement
+    // found it): the hosted server rejects >1 MiB bodies with 400, and
+    // this function said "saved" anyway — silent data loss dressed as
+    // success. A failed save now says so, keeps saying so, and retries.
+    if (!r.ok) {
+      failure = `save failed (${r.status})`;
+    } else {
+      noteRevision(r);
+    }
+  } catch {
+    failure = "save failed (network)";
   } finally {
     savesInFlight--;
+  }
+  if (failure) {
+    must().setStatus(`${failure} — recent changes are NOT saved; retrying`);
+    if (saveRetryTimer) clearTimeout(saveRetryTimer);
+    saveRetryTimer = setTimeout(() => {
+      saveRetryTimer = null;
+      void save();
+    }, SAVE_RETRY_MS);
+    return;
+  }
+  if (saveRetryTimer) {
+    clearTimeout(saveRetryTimer);
+    saveRetryTimer = null;
   }
   must().setStatus("saved");
 };
@@ -571,6 +634,7 @@ export const refreshFromServer = async (): Promise<RefreshOutcome> => {
   let g: GraphLike;
   try {
     const r = await fetch(dataURL("/state"));
+  noteCapabilities(r);
     if (!r.ok) throw new Error("HTTP " + r.status);
     noteRevision(r);
     g = (await r.json()) as GraphLike;

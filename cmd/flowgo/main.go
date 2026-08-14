@@ -6,6 +6,7 @@
 package main
 
 import (
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -429,6 +430,11 @@ func handleState(w http.ResponseWriter, r *http.Request) {
 	// the live stream's hello event can tell it whether it slept
 	// through a change (see pkg/flowgo/events.go).
 	w.Header().Set(revisionHeader, strconv.FormatUint(flowgo.Revision(), 10))
+	// Capability advertisement (brain#25c): the editor only compresses
+	// save bodies after seeing this — the shared bundle also talks to
+	// servers that predate gzip support, and a blind gzip POST to one
+	// of those is a 400 (see feedback-shared-bundle-blast-radius).
+	w.Header().Set("X-Flowgo-Accept-Encoding", "gzip")
 	json.NewEncoder(w).Encode(g)
 }
 
@@ -450,6 +456,25 @@ const externalWatchInterval = time.Second
 // stamping and the atomic write (temp+rename — a crash mid-save can
 // never truncate the map) live in flowgo.SaveLocalGraph, which also
 // takes fileMu via Config.LocalFileMu.
+// saveBodyReader returns the request body ready for JSON decoding,
+// transparently gunzipping when the editor sent Content-Encoding:
+// gzip (brain#25c: full-document bodies compress ~8.7x, and the
+// hosted server's byte cap made large maps unsaveable — compression
+// is the stopgap until the delta protocol lands). The byte limit is
+// enforced on the DECOMPRESSED stream: capping the wire bytes would
+// bound the upload, not the memory the decode then holds.
+func saveBodyReader(w http.ResponseWriter, r *http.Request, limit int64) (io.Reader, error) {
+	if r.Header.Get("Content-Encoding") != "gzip" {
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
+		return r.Body, nil
+	}
+	gz, err := gzip.NewReader(r.Body)
+	if err != nil {
+		return nil, err
+	}
+	return io.LimitReader(gz, limit), nil
+}
+
 func handleSave(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", 405)
@@ -460,9 +485,13 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 	// one large POST — the decode holds the whole document, then serialize
 	// + atomic-write hold more copies. maxSaveBytes is generous for real
 	// maps (the largest fixtures are <200 KiB) while keeping RAM bounded.
-	r.Body = http.MaxBytesReader(w, r.Body, maxSaveBytes)
+	body, err := saveBodyReader(w, r, maxSaveBytes)
+	if err != nil {
+		http.Error(w, "bad gzip body: "+err.Error(), 400)
+		return
+	}
 	var g graph.Graph
-	if err := json.NewDecoder(r.Body).Decode(&g); err != nil {
+	if err := json.NewDecoder(body).Decode(&g); err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
