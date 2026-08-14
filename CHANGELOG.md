@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.20](https://github.com/lassediercks/flowgo/compare/v0.3.19...v0.3.20) (2026-08-14)
+
+
+### Features
+
+* **editor:** embed mode with a host-page scroll bridge ([6bbadcc](https://github.com/lassediercks/flowgo/commit/6bbadccd916a63a39a696f88b3a6deac3fb07602))
+
+
+### Bug Fixes
+
+* **editor:** resolve six sweep-triage findings and flip their pinning tests ([169a9a5](https://github.com/lassediercks/flowgo/commit/169a9a5d6d7331d454846983a75da360e6802019))
+* **mcp:** reject unknown shape ids before they reach the file ([6da6664](https://github.com/lassediercks/flowgo/commit/6da666471cfdea9d0e8891d63fb77d3f522b3ce9))
+* **mcp:** roll back the serve-mode workspace when a tool errors ([e7d4019](https://github.com/lassediercks/flowgo/commit/e7d4019d050ec512084c90ff47e1fb0575f738b1))
+* **mcp:** stop failed lookups materialising phantom empty maps ([bfa54f2](https://github.com/lassediercks/flowgo/commit/bfa54f247090c70985cf79dfce7176a6a43e3eaf))
+
 ## [0.3.19](https://github.com/lassediercks/flowgo/compare/v0.3.18...v0.3.19) (2026-08-13)
 
 
