@@ -73,6 +73,9 @@ import { pinchAnchor, pinchViewport, type PinchAnchor } from "./pinch.ts";
 import {
   applyClasses,
   clearProximity,
+  edgeForElement,
+  openEdgeLabelEditor,
+  type EdgeRef,
   renderAll,
   renderEdges,
   renderEdgesFor,
@@ -170,6 +173,11 @@ const DOUBLE_TAP_MS = 300;
 // Sentinel id for tracking taps on the empty canvas (bg). Wrapped in
 // angle brackets so it can never collide with a real id.
 const BG_TAP_ID = "<bg>";
+// Same trick for edges, which have no id of their own — the endpoint
+// pair is their identity (a map holds at most one edge per pair; see
+// addOrReplaceEdge). Angle-bracketed so it can't collide with a real
+// id either.
+const EDGE_TAP_PREFIX = "<edge>";
 // Long-press hold time before a still finger commits to "enter
 // submap". 500ms matches the Android long-press default.
 const LONG_PRESS_MS = 500;
@@ -179,6 +187,11 @@ const STILL_TOLERANCE_PX = 4;
 
 let lastTap: TapRecord | null = null;
 let longPressTimer: number | null = null;
+// The edge the current finger came down on, if any (brain#2e5). Set
+// alongside the pan it starts and consumed by onTouchEnd when the
+// finger turns out not to have moved; a pan that travels drops it on
+// the floor, which is exactly the intent.
+let pendingEdgeTap: EdgeRef | null = null;
 
 const clearLongPressTimer = (): void => {
   if (longPressTimer !== null) {
@@ -267,6 +280,7 @@ type TouchTarget =
     }
   | { kind: "line"; id: string }
   | { kind: "stroke"; id: string }
+  | { kind: "edge"; edge: EdgeRef }
   | { kind: "bg" }
   | null;
 
@@ -350,6 +364,20 @@ const classifyTarget = (
     const id = strokeGroup.dataset["id"];
     if (id) return { kind: "stroke", id };
   }
+  // Edges (brain#2e5). Structurally these are the same shape as lines
+  // and strokes — an `.edge-group` with a transparent `.edge-hit`
+  // child sized for a finger — but until now everything under #edges
+  // fell through to the "bg" case below, so a touch-only user could
+  // CREATE an edge (the link drag is all touch* handlers) and then
+  // never select, label, recolour or delete it again. Edges have no
+  // id, so unlike every other branch here this one carries the data
+  // object itself; render.ts owns the element → edge lookup.
+  //
+  // Returning a typed target does NOT cost the pan: onTouchStart
+  // treats "edge" exactly like "bg" for movement and only claims a
+  // STILL tap, on release. See the note there.
+  const edge = edgeForElement(target);
+  if (edge) return { kind: "edge", edge };
   // Bg-layer, the bg-svg (which wraps strokes + lines), and the edges
   // SVG all behave as "background" for touch — pan ignores them. On
   // mouse those each have their own click-to-select; on touch you'd
@@ -391,6 +419,7 @@ const abortGesture = (opts?: { readonly discardStroke?: boolean }): void => {
     w.setPan(null);
     document.body.classList.remove("panning");
   }
+  pendingEdgeTap = null;
   const drag = w.drag();
   if (drag) {
     for (const m of drag.movers) m.el?.classList?.remove("dragging");
@@ -539,7 +568,19 @@ const onTouchStart = (e: TouchEvent): void => {
   const target = classifyTarget(e.target, w.selected);
   if (!target) return;
 
-  if (target.kind === "bg") {
+  // An edge starts the SAME gesture the background does — a finger
+  // that travels pans, exactly as it did before edges were routable
+  // (brain#2e5). Only a still tap is claimed, and only on release, so
+  // the map never becomes harder to pan around because it has edges
+  // crossing it. That is also what makes widening `.edge-hit` on
+  // coarse pointers free (see index.html): a wider band costs no pan,
+  // it only makes the tap land on a target that is 2px of visible ink.
+  //
+  // Deliberately NOT a drag: an edge has no position of its own, it is
+  // routed from its endpoint boxes. Dragging one would have to mean
+  // something, and it doesn't.
+  pendingEdgeTap = target.kind === "edge" ? target.edge : null;
+  if (target.kind === "bg" || target.kind === "edge") {
     e.preventDefault();
     w.setPan({
       downX: t.clientX,
@@ -924,7 +965,38 @@ const onTouchEnd = (e: TouchEvent): void => {
       movedBeyond(pan.downX, pan.downY, t.clientX, t.clientY, STILL_TOLERANCE_PX);
     w.setPan(null);
     document.body.classList.remove("panning");
+    const edge = pendingEdgeTap;
+    pendingEdgeTap = null;
     if (!moved && t) {
+      // The finger came down on an edge and stayed put: this is a
+      // select, not a pan (brain#2e5). Mirrors the mouse path's
+      // mousedown-selects / dblclick-labels pair on the same element.
+      if (edge) {
+        const tap = classifyTap(
+          lastTap,
+          { id: EDGE_TAP_PREFIX + edge.from + ">" + edge.to, time: performance.now() },
+          DOUBLE_TAP_MS,
+        );
+        lastTap = tap.nextLastTap;
+        w.selected.clear();
+        w.setSelectedEdge(edge);
+        // applyClasses, NOT renderEdges: it moves `.selected` between
+        // the old and new edge element in O(1) and — the load-bearing
+        // half — leaves this element alive between the two taps of a
+        // double-tap. A rebuild would destroy the very element the
+        // second tap has to land on, which is the bug the mouse path
+        // hit with dblclick in brain#266.
+        applyClasses();
+        // No setStatus here: touch.ts has no status binding, and none
+        // of its other selections (box tap, text tap) announce
+        // themselves either. The `.selected` class on the edge is the
+        // feedback, same as for a box.
+        if (tap.kind === "double") {
+          lastTap = null;
+          openEdgeLabelEditor(edge);
+        }
+        return;
+      }
       // Text mode (armed from the mode bar): a SINGLE tap places the
       // text item, mirroring the single-click path in mouse.ts
       // onBgMouseDown. Single-shot — the mode exits before the spawn.

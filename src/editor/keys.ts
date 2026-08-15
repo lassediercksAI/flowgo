@@ -86,6 +86,10 @@ interface StrokeLike {
   palette?: number;
 }
 
+interface ImageLike {
+  id: string;
+}
+
 interface EdgeLike {
   from: string;
   to: string;
@@ -98,6 +102,7 @@ interface CurrentMap {
   texts: TextLike[];
   lines: LineLike[];
   strokes?: StrokeLike[];
+  images?: ImageLike[];
 }
 
 interface KeysBindings {
@@ -365,9 +370,29 @@ export const attachKeyboardListener = (): void => {
       e.preventDefault();
       const map = w.currentMap();
       w.selected.clear();
+      // ALL five selectable kinds (brain#2e5). Strokes and images used
+      // to be omitted, which meant a brush- or image-heavy map could
+      // not be selected from the keyboard at all — and it made
+      // select-all the only bulk operation that didn't cover the whole
+      // document: delete (factories.deleteSelection), copy/cut/paste
+      // (clipboard.ts), clone (clone.ts) and the marquee (mouse.ts)
+      // each handle boxes, texts, lines, strokes and images.
+      //
+      // The marquee's "background ink" priority — lines and strokes
+      // join only when the band caught nothing solid — deliberately
+      // does NOT apply here. That rule disambiguates a sloppy drag; a
+      // select-all has nothing to disambiguate, and it already swept
+      // up lines, which are background ink by the same definition.
+      //
+      // Edges stay out because they cannot be multi-selected: edge
+      // selection is the single-valued selectedEdge() slot, not the
+      // id-keyed `selected` set. Selecting everything therefore clears
+      // it, as before.
       for (const b of map.boxes) w.selected.add(b.id);
       for (const t of map.texts ?? []) w.selected.add(t.id);
       for (const l of map.lines ?? []) w.selected.add(l.id);
+      for (const s of map.strokes ?? []) w.selected.add(s.id);
+      for (const img of map.images ?? []) w.selected.add(img.id);
       if (w.selectedEdge()) {
         w.setSelectedEdge(null);
         renderEdges();

@@ -230,6 +230,36 @@ const strokeEls = new Map<string, SVGGElement>();
 // incident edges in place instead of rebuilding the whole layer.
 const edgeEls = new Map<EdgeData, SVGGElement>();
 
+/** The edge data objects are the only edge identity there is (see
+ *  above), so anything that starts from a DOM hit — the mouse path
+ *  closes over `e` in its own listener, but touch.ts routes every
+ *  target through one central classifier — needs the reverse
+ *  direction. A WeakMap keyed on the element: renderEdges() drops the
+ *  whole layer on every rebuild, and the entries go with the
+ *  elements. */
+const edgeByEl = new WeakMap<Element, EdgeData>();
+
+/** Edge data objects double as edge identity; exported so callers
+ *  that receive one back from edgeForElement can name the type. */
+export type EdgeRef = EdgeData;
+
+/** The edge whose group element (or child hit path) `el` belongs to,
+ *  or null when it isn't part of an edge. Used by touch.ts's
+ *  classifyTarget (brain#2e5). */
+export const edgeForElement = (el: Element | null): EdgeData | null => {
+  const g = el?.closest?.(".edge-group") ?? null;
+  return g ? edgeByEl.get(g) ?? null : null;
+};
+
+/** Open the inline label editor on an edge, creating the label
+ *  element first if the edge is still unlabelled. Shared by the
+ *  mouse's dblclick handler below and touch.ts's double-tap so the
+ *  two gestures cannot drift apart. */
+export const openEdgeLabelEditor = (e: EdgeData): void => {
+  const el = ensureEdgeLabelEl(e);
+  if (el) must().editEdgeLabel(el, e);
+};
+
 // The edge whose element currently carries `.selected`, i.e. the same
 // role appliedState plays for the canvas layers. Edge selection used
 // to be projected exclusively by a full renderEdges() rebuild, which
@@ -1249,11 +1279,11 @@ const materializeEdge = (
   g.addEventListener("dblclick", (ev) => {
     ev.preventDefault();
     ev.stopPropagation();
-    const el = ensureEdgeLabelEl(e);
-    if (el) must().editEdgeLabel(el, e);
+    openEdgeLabelEditor(e);
   });
 
   edgeEls.set(e, g);
+  edgeByEl.set(g, e);
   if (e === sel) appliedSelectedEdge = e;
   w.edgeLayer.appendChild(g);
   syncEdgeLabel(w, e, c);

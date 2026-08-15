@@ -1,5 +1,16 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+//
+// The pure alignment maths below needs no DOM; the activation suite at
+// the bottom (brain#2e5) does, and jsdom is cheap enough that one
+// environment for the file beats splitting it.
+
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { beforeEach, describe, expect, it } from "vitest";
+import { wireMutations } from "./mutations.ts";
 import {
+  attachAlignToolbar,
+  wireAlign,
   alignItems,
   anyOverlapAlongX,
   anyOverlapAlongY,
@@ -143,5 +154,141 @@ describe("alignItems — vertical axis (match X centres)", () => {
     expect(middle.ref.y).toBe(50 + 40 + SPREAD_GAP);
     expect(right.ref.y).toBe(50 + 40 + SPREAD_GAP + 40 + SPREAD_GAP);
     expect(anyOverlapAlongY([left, middle, right])).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------
+// Activation (brain#2e5)
+//
+// WHAT THESE PROVE: the MECHANISM. #alignToolbar's buttons activate on
+// `pointerup`, so they still work when no `click` ever arrives, and a
+// click that DOES arrive right after a pointerup is recognised as that
+// tap's own echo instead of aligning a second time.
+//
+// WHAT THEY DO NOT PROVE: that an iPad now aligns. jsdom does not
+// synthesize clicks from touches, and no headless engine reproduces
+// iOS Safari's click-synthesis rules. The chain of reasoning is the
+// one brain#256/#257/#294 established and verified in a real browser
+// by suppressing the synthetic click (#helpBtn / #zoomCtl survived,
+// #upBtn — the last bare-`click` control — died): under the
+// document-level {passive:false} touch listeners in touch.ts, iOS may
+// not deliver the click, and #alignToolbar had no other path in. The
+// device half is still outstanding.
+
+describe("attachAlignToolbar — activation", () => {
+  // Two boxes, 200px apart vertically, so a horizontal align has a
+  // visible effect and alignItems() returns true (2+ alignable items).
+  interface Box { id: string; x: number; y: number }
+  let boxes: Box[];
+  let rendered: string[][];
+  let canvas: HTMLElement;
+
+  const buttons = (): HTMLButtonElement[] =>
+    Array.from(document.querySelectorAll<HTMLButtonElement>("#alignToolbar button"));
+
+  const dispatch = (el: Element, type: string): Event => {
+    const e = new Event(type, { bubbles: true, cancelable: true });
+    el.dispatchEvent(e);
+    return e;
+  };
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    canvas = document.createElement("div");
+    canvas.id = "canvas";
+    document.body.appendChild(canvas);
+    boxes = [
+      { id: "a", x: 0, y: 0 },
+      { id: "b", x: 0, y: 200 },
+    ];
+    rendered = [];
+    const el = (): HTMLElement => {
+      const d = document.createElement("div");
+      Object.defineProperty(d, "offsetWidth", { value: 100 });
+      Object.defineProperty(d, "offsetHeight", { value: 40 });
+      return d;
+    };
+    wireMutations({ scheduleSave: () => {} });
+    wireAlign({
+      canvas,
+      currentMap: () => ({ boxes, texts: [] }),
+      selected: new Set(["a", "b"]),
+      getBoxEl: () => el(),
+      getTextEl: () => null,
+      renderItems: (ids) => { rendered.push([...ids]); },
+    });
+    attachAlignToolbar();
+  });
+
+  it("builds two buttons inside #canvas", () => {
+    expect(buttons()).toHaveLength(2);
+    expect(document.getElementById("alignToolbar")?.parentElement).toBe(canvas);
+  });
+
+  it("aligns on pointerup alone — no click required (the iOS path)", () => {
+    // This is the whole point: on iOS Safari the synthesized click may
+    // never arrive, and until brain#2e5 `click` was this toolbar's ONLY
+    // listener, so nothing happened at all.
+    dispatch(buttons()[0]!, "pointerup");
+    expect(rendered).toHaveLength(1);
+    expect(rendered[0]!.sort()).toEqual(["a", "b"]);
+    // Horizontal align matches Y centres: both boxes end up at the mean.
+    expect(boxes[0]!.y).toBe(boxes[1]!.y);
+  });
+
+  it("aligns on click alone — the keyboard path (Enter/Space fire no pointerup)", () => {
+    dispatch(buttons()[1]!, "click");
+    expect(rendered).toHaveLength(1);
+    // Vertical align matches X centres; both start at x=0 so the
+    // observable effect is the spread, not the x. Assert the call.
+    expect(rendered[0]!.sort()).toEqual(["a", "b"]);
+  });
+
+  it("a pointerup followed by its synthetic click aligns exactly ONCE", () => {
+    // Desktop and Chromium-on-touch both deliver pointerup AND click
+    // for one press. Without the echo guard that is two aligns and two
+    // undo steps for one tap.
+    const btn = buttons()[0]!;
+    dispatch(btn, "pointerup");
+    dispatch(btn, "click");
+    expect(rendered).toHaveLength(1);
+  });
+
+  it("swallows the echo click even when the very first press is at t≈0", () => {
+    // brain#257's latch bug: a `let last = 0` sentinel makes every
+    // activation in the first half-second of page life look like an
+    // echo — or, mirrored, makes the first echo look fresh. The
+    // sentinel here is -Infinity, and this test runs at whatever
+    // performance.now() vitest is at, first press included.
+    const btn = buttons()[1]!;
+    dispatch(btn, "pointerup");
+    dispatch(btn, "click");
+    expect(rendered).toHaveLength(1);
+  });
+
+  it("both events preventDefault and stopPropagation so the canvas never sees them", () => {
+    // #alignToolbar is parked INSIDE #canvas (the viewport transform
+    // carries it), so an unstopped event reaches the canvas listeners
+    // and clears the very selection the toolbar is acting on.
+    const btn = buttons()[0]!;
+    let leaked = 0;
+    canvas.addEventListener("pointerup", () => { leaked++; });
+    canvas.addEventListener("click", () => { leaked++; });
+    expect(dispatch(btn, "pointerup").defaultPrevented).toBe(true);
+    expect(dispatch(btn, "click").defaultPrevented).toBe(true);
+    expect(leaked).toBe(0);
+  });
+
+  it("#alignToolbar button opts back in to touch-action", () => {
+    // jsdom applies no stylesheet, so this reads index.html as text.
+    // touch-action is not inherited but the EFFECTIVE value is the
+    // intersection with every ancestor's — and #canvas sets `none`, so
+    // without this rule iOS adds its double-tap-zoom delay before the
+    // button will act (brain#294 made the same rule load-bearing for
+    // every other chrome control).
+    const html = readFileSync(join(process.cwd(), "src/editor/index.html"), "utf8");
+    const rule = html.match(/#alignToolbar button \{[^}]*\}/);
+    expect(rule, "#alignToolbar button rule must exist").not.toBeNull();
+    expect(rule![0]).toContain("touch-action: manipulation");
   });
 });

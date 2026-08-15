@@ -247,6 +247,13 @@
     display: inline-flex; align-items: center; justify-content: center;
     background: transparent; border: 0; padding: 0;
     color: #333; cursor: pointer; border-radius: 4px;
+    /* touch-action is not inherited, but the EFFECTIVE value is the
+       intersection with every ancestor's — and #canvas above sets
+       `none`. A chrome button has to opt back in or iOS adds the
+       350ms double-tap-zoom delay before it will act (brain#294 made
+       this load-bearing for every other chrome control; #alignToolbar
+       was missed because it lives inside #canvas, brain#2e5). */
+    touch-action: manipulation;
   }
   /* Override the global `svg { position: absolute; inset: 0; ... }`
      rule below — that's intended for the full-canvas overlay
@@ -927,6 +934,17 @@
        Modern Safari / Chrome / Firefox all let CSS override the SVG
        `r` attribute, so we bump it to ~12px on coarse pointers. */
     .line-handle { r: 12; stroke-width: 3; }
+    /* Edge hit band, doubled for a finger (brain#2e5). The width is
+       in DATA units, so at 0.5 zoom the default 12 is six screen
+       pixels either side of 2px of ink — not a target.
+       WHY THIS IS SAFE HERE AND NOT ON .line-hit / .stroke-hit:
+       a touch on a line or stroke starts a DRAG, so widening those
+       would steal the pan from anyone whose finger landed near one.
+       A touch on an edge starts a PAN and only converts to a select
+       if the finger never moved (touch.ts onTouchEnd), so a wider
+       band costs nothing — it only rescues the taps that were aimed
+       at the edge. Fine pointers keep 12: a mouse can hit 12. */
+    .edge-hit { stroke-width: 24; }
   }
 
   svg { position: absolute; inset: 0; pointer-events: none; width: 100%; height: 100%; z-index: 1; }
@@ -1393,7 +1411,7 @@ body.embed-mode #toolbar { background: transparent; border: none; box-shadow: no
       <tr><td>Click an item</td><td>Select it (replaces the current selection)</td></tr>
       <tr><td>Drag on empty canvas</td><td>Rubber-band select nodes, texts, and images — lines join only when the band caught nothing else (they count only where a segment actually crosses the band)</td></tr>
       <tr><td><kbd>Shift</kbd>-drag on empty canvas</td><td>Add to the existing selection instead of replacing</td></tr>
-      <tr><td><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>A</kbd></td><td>Select every node, text, and line on the current map</td></tr>
+      <tr><td><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>A</kbd></td><td>Select everything on the current map — nodes, text, lines, brush strokes and images</td></tr>
       <tr><td>Click on empty canvas</td><td>Clear the selection</td></tr>
     </table>
 

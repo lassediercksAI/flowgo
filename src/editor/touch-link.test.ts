@@ -93,6 +93,10 @@ const state = {
 };
 let mintCounter = 0;
 let gestureError: unknown = null;
+// Every edge the inline label editor was opened on, in order. Stands
+// in for edit.ts's startEdgeLabelEdit (which main.ts supplies) so the
+// double-tap-to-label assertions below can name the exact edge.
+const labelEdits: Edge[] = [];
 let canvas: HTMLElement;
 let ghost: SVGLineElement;
 
@@ -181,7 +185,7 @@ beforeAll(() => {
     strokeLayer: strokeLayer as SVGGElement,
     edgeLayer: edgeLayer as SVGGElement,
     edgeLabelLayer,
-    editEdgeLabel: noop,
+    editEdgeLabel: (_el, e) => { labelEdits.push(e as unknown as Edge); },
     currentMap: () => map as never,
     graph: () => graph as never,
     currentPath: () => "/",
@@ -323,6 +327,7 @@ beforeEach(() => {
   delete graph.defaultShape;
   map.boxes = FIXTURE.map((b) => ({ ...b }));
   map.edges = [];
+  labelEdits.length = 0;
   setBrushMode(false);
   setLineMode(false);
   document.body.className = "";
@@ -642,5 +647,169 @@ describe("touch link-drag entitlement and mode interaction", () => {
     expect(ghost.style.display).toBe("none");
     fire("touchend", h, []);
     fire("touchcancel", h, []);
+  });
+});
+
+// ---------------------------------------------------------------
+// Reaching an edge with a finger (brain#2e5)
+//
+// The gesture above CREATES edges on touch and always could. What no
+// finger could do was touch one again: classifyTarget routed
+// everything under #edges to "bg" → pan, so an edge could only be
+// removed by deleting one of its endpoint boxes. Selecting, labelling,
+// recolouring — all keyboard/mouse only.
+//
+// The trade these tests pin is the one that matters: an edge crosses
+// open canvas, so claiming touches near one must NOT make the map
+// harder to pan. The rule is movement-based — a finger that travels
+// pans exactly as before, only a finger that stays put selects — and
+// it is asserted in both directions below.
+
+describe("touch: reaching an edge", () => {
+  /** Build one a→b edge and return its live group element. */
+  const edge = (): { data: Edge; el: SVGGElement } => {
+    const data: Edge = { from: "a", to: "b" };
+    map.edges = [data];
+    renderAll();
+    const el = document.querySelector<SVGGElement>("#edge-layer .edge-group")!;
+    expect(el, "the fixture edge must materialise").toBeTruthy();
+    return { data, el };
+  };
+
+  /** The transparent 12px band that is the actual finger target. */
+  const hitOf = (g: SVGGElement): SVGElement =>
+    g.querySelector<SVGElement>(".edge-hit")!;
+
+  // Somewhere on the a→b run, in client px. The exact point doesn't
+  // matter: jsdom does no hit testing, the ELEMENT the event is
+  // dispatched on is what classifyTarget reads.
+  const ON_EDGE: Pt = [260, 20];
+
+  const tapEdge = (g: SVGGElement, at: Pt = ON_EDGE): void => {
+    fire("touchstart", hitOf(g), [at]);
+    fire("touchend", hitOf(g), [], [at]);
+  };
+
+  it("a still tap on an edge selects it", () => {
+    const { data, el } = edge();
+    expect(state.selectedEdge).toBeNull();
+    tapEdge(el);
+    // Identity, not equality: edges have no id, the data object IS the
+    // handle every downstream operation takes.
+    expect(state.selectedEdge).toBe(data);
+    expect(el.classList.contains("selected")).toBe(true);
+  });
+
+  it("selecting an edge drops the item selection, as the mouse path does", () => {
+    const { data, el } = edge();
+    tapBox("a");
+    expect(selected.has("a")).toBe(true);
+    tapEdge(el);
+    expect(state.selectedEdge).toBe(data);
+    expect(selected.size).toBe(0);
+  });
+
+  it("a finger that MOVES still pans — an edge is not a pan-blocker", () => {
+    const { el } = edge();
+    const start: Pt = ON_EDGE;
+    fire("touchstart", hitOf(el), [start]);
+    fire("touchmove", hitOf(el), [[start[0] + 120, start[1] + 80]]);
+    fire("touchend", hitOf(el), [], [[start[0] + 120, start[1] + 80]]);
+    expect(viewport.x).toBe(120);
+    expect(viewport.y).toBe(80);
+    // …and it did NOT sneak a selection in on the way past.
+    expect(state.selectedEdge).toBeNull();
+  });
+
+  it("the touchstart on an edge is claimed (preventDefault), like any pan", () => {
+    const { el } = edge();
+    const e = fire("touchstart", hitOf(el), [ON_EDGE]);
+    expect(e.defaultPrevented).toBe(true);
+    fire("touchend", hitOf(el), [], [ON_EDGE]);
+  });
+
+  it("a double-tap on an edge opens its label editor", () => {
+    const { data, el } = edge();
+    tapEdge(el);
+    tapEdge(el);
+    expect(labelEdits).toEqual([data]);
+    // The edge is still the selected one after labelling starts.
+    expect(state.selectedEdge).toBe(data);
+  });
+
+  it("the second tap of a double-tap lands on the SAME element (brain#266)", () => {
+    // Selecting an edge must go through applyClasses, not renderEdges:
+    // a rebuild between the taps destroys the element the second tap
+    // needs, which is exactly how the mouse path lost dblclick once.
+    const { el } = edge();
+    tapEdge(el);
+    expect(document.querySelector("#edge-layer .edge-group")).toBe(el);
+    expect(el.isConnected).toBe(true);
+  });
+
+  it("two taps on an edge never spawn a box (the bg double-tap path)", () => {
+    const { el } = edge();
+    const before = map.boxes.length;
+    tapEdge(el);
+    tapEdge(el);
+    expect(map.boxes.length).toBe(before);
+  });
+
+  it("a tap on bare #edges — not on an edge — still clears and still pans", () => {
+    // The bg fallback under #edges has to survive: the SVG is a
+    // full-viewport sheet, and almost all of it is empty space.
+    const { el } = edge();
+    tapEdge(el);
+    expect(state.selectedEdge).not.toBeNull();
+    const bare = byId("edges");
+    fire("touchstart", bare, [[600, 600]]);
+    fire("touchend", bare, [], [[600, 600]]);
+    expect(state.selectedEdge).toBeNull();
+
+    fire("touchstart", bare, [[600, 600]]);
+    fire("touchmove", bare, [[650, 640]]);
+    fire("touchend", bare, [], [[650, 640]]);
+    expect(viewport.x).toBe(50);
+    expect(viewport.y).toBe(40);
+  });
+
+  it("tapping a box after an edge clears the edge selection", () => {
+    const { el } = edge();
+    tapEdge(el);
+    expect(state.selectedEdge).not.toBeNull();
+    tapBox("a");
+    expect(state.selectedEdge).toBeNull();
+    expect(selected.has("a")).toBe(true);
+  });
+
+  it("brush mode does not turn an edge tap into a selection", () => {
+    // CSS drops pointer-events on .edge-hit in brush/line/text mode, so
+    // the event would land on #bg-layer in a real browser — but jsdom
+    // applies no CSS, so this asserts the JS guard order holds too:
+    // the brush branch claims the touch before classifyTarget runs.
+    const { el } = edge();
+    setBrushMode(true);
+    fire("touchstart", hitOf(el), [ON_EDGE]);
+    expect(isPainting()).toBe(true);
+    expect(state.selectedEdge).toBeNull();
+    fire("touchend", hitOf(el), [], [ON_EDGE]);
+    setBrushMode(false);
+  });
+
+  it("the coarse-pointer stylesheet widens the edge hit band", () => {
+    // jsdom applies no CSS and matches no media query, so the
+    // behavioural tests above pass at any width. This reads
+    // index.html as text and pins that the widening is inside the
+    // coarse block — outside it, desktop hit targets would change too
+    // (same technique as the brain#278 proximity-reveal test).
+    const html = readFileSync(join(process.cwd(), "src/editor/index.html"), "utf8");
+    const coarse = [...html.matchAll(/@media \(pointer: coarse\) \{[\s\S]*?\n  \}/g)]
+      .map((m) => m[0]);
+    const withEdgeHit = coarse.filter((b) => /\.edge-hit\s*\{[^}]*stroke-width/.test(b));
+    expect(withEdgeHit, ".edge-hit widening must live in a coarse block").toHaveLength(1);
+    // …and nowhere else: a bare `.edge-hit { stroke-width }` rule would
+    // hit fine pointers as well.
+    const outside = html.replace(withEdgeHit[0]!, "");
+    expect(/\.edge-hit\s*\{[^}]*stroke-width/.test(outside)).toBe(false);
   });
 });
