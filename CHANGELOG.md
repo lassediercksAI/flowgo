@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.27](https://github.com/lassediercks/flowgo/compare/v0.3.26...v0.3.27) (2026-08-15)
+
+
+### Bug Fixes
+
+* **ci:** point the website instant-bump at its new home ([1556740](https://github.com/lassediercks/flowgo/commit/1556740becd94d31e6e7a9f141f688bb1dd08109))
+
 ## [0.3.26](https://github.com/lassediercks/flowgo/compare/v0.3.25...v0.3.26) (2026-08-14)
 
 
