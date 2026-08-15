@@ -672,6 +672,168 @@ const main = async () => {
       check(before !== after, "control: #zoomCtl was already pointer-first and still works", `${before} -> ${after}`);
     });
 
+    // ---------------------------------------------------------
+    section("10. the align toolbar survives a tap with no synthesized click (brain#2e5)");
+    // ---------------------------------------------------------
+    // Same failure mode as section 9, one control later. #alignToolbar
+    // was the LAST place in the editor still activating on a bare
+    // `click`, and it is doubly exposed: it is parked inside #canvas
+    // (the viewport transform carries it), so touch.ts has to list it
+    // in CANVAS_CHROME to keep its document-level preventDefault away
+    // — which leaves the unreliable click as its ONLY way in.
+    //
+    // Reaching it needs 2+ selected items, and a touch tap always
+    // collapses the selection to one. The realistic route is an iPad
+    // with a keyboard (or a paste / clone, which both leave the new
+    // ids selected), so the selection is made with a real key press
+    // and the ACTIVATION is a real finger.
+    await scenario("box a A 0 0\nbox b B 300 200\n", async (s) => {
+      const yOf = (id) => {
+        const line = nodesOf(s.file).find((l) => l.split(/\s+/)[1] === id);
+        return line ? Number(line.split(/\s+/)[4]) : null;
+      };
+      const barRect = () => s.rectOf("#alignToolbar");
+
+      check(yOf("a") === 0 && yOf("b") === 200, "fixture: the two boxes start at different Y", `${yOf("a")} / ${yOf("b")}`);
+
+      await s.page.keyboard.press("Control+a");
+      await wait(300);
+      const shown = await s.page.evaluate(() => {
+        const el = document.getElementById("alignToolbar");
+        return el ? getComputedStyle(el).display : null;
+      });
+      check(shown === "flex", "a 2-item selection reveals #alignToolbar", `display=${shown}`);
+      check(
+        (await s.page.evaluate(() => getComputedStyle(document.querySelector("#alignToolbar button")).touchAction)) === "manipulation",
+        "brain#2e5: its buttons opt back in to tap handling (#canvas is touch-action: none)",
+      );
+
+      const btn = await s.rectOf("#alignToolbar button");
+      check(!!btn && btn.w > 0, "the horizontal-align button is on screen", JSON.stringify(btn));
+      const reach = await s.page.evaluate(([x, y]) => {
+        const el = document.elementFromPoint(x, y);
+        return el ? (el.closest("button") ? "alignButton" : (el.id || el.tagName)) : null;
+      }, [btn.x, btn.y]);
+      check(reach === "alignButton", "…and nothing is painted over it", String(reach));
+
+      // The failure mode: suppress the compatibility mouse events the
+      // way iOS does when it declines to synthesize the click, and
+      // count clicks so a pass cannot be the old path quietly working.
+      await s.page.evaluate(() => {
+        window.__alignClicks = 0;
+        document.querySelector("#alignToolbar button")
+          .addEventListener("click", () => { window.__alignClicks++; }, true);
+        window.addEventListener("touchend", (e) => e.preventDefault(), { capture: true, passive: false });
+      });
+      await s.tap(btn.x, btn.y);
+      await wait(700);
+      const clicks = await s.page.evaluate(() => window.__alignClicks);
+      check(clicks === 0, "the tap really produced no click", `clicks=${clicks}`);
+      check(
+        yOf("a") !== null && yOf("a") === yOf("b"),
+        "GRAPH STATE: brain#2e5 — the boxes aligned anyway",
+        `a.y=${yOf("a")} b.y=${yOf("b")}`,
+      );
+
+      // …exactly once. A pointerup plus a trailing echo click would
+      // push two mutations; here only one activation may land, and the
+      // second tap below proves activation is still repeatable.
+      const bar2 = await barRect();
+      check(!!bar2, "the toolbar is still up after aligning", JSON.stringify(bar2));
+    });
+
+    // ---------------------------------------------------------
+    section("11. an edge is reachable with a finger, and still pans (brain#2e5)");
+    // ---------------------------------------------------------
+    // touch.ts routed everything under #edges to "bg" → pan, so a
+    // touch-only user could create an edge and never touch it again.
+    // The fix claims only a STILL tap, on release, which is what lets
+    // the coarse-pointer stylesheet widen the hit band for free. Both
+    // halves are asserted here, in a real engine with the real media
+    // query live (jsdom matches no media query and does no hit test).
+    await scenario("box a A 0 0\nbox b B 0 400\nedge a b\n", async (s) => {
+      const width = await s.page.evaluate(() =>
+        getComputedStyle(document.querySelector(".edge-hit")).strokeWidth);
+      check(width === "24px", "the coarse-pointer stylesheet widens .edge-hit to 24", `stroke-width=${width}`);
+
+      // A point a finger can actually land on the edge, verified by
+      // hit test — a fixture where the edge runs under the chrome is a
+      // FIXTURE error, not a product one (the brain#106 lesson).
+      const spot = await s.page.evaluate(() => {
+        const g = document.querySelector(".edge-group");
+        if (!g) return null;
+        const r = g.getBoundingClientRect();
+        for (let t = 0.3; t <= 0.7; t += 0.05) {
+          const x = r.left + r.width / 2;
+          const y = r.top + r.height * t;
+          if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) continue;
+          if (document.elementFromPoint(x, y)?.closest(".edge-group")) return { x, y };
+        }
+        return null;
+      });
+      if (!spot) throw new Error("fixture: no reachable point on the edge");
+
+      const selected = () => s.page.evaluate(() => !!document.querySelector(".edge-group.selected"));
+      const tx = () => s.page.evaluate(() => {
+        const m = /translate\(([-0-9.]+)px, ([-0-9.]+)px\)/.exec(document.getElementById("canvas").style.transform || "");
+        return m ? { x: parseFloat(m[1]), y: parseFloat(m[2]) } : { x: 0, y: 0 };
+      });
+
+      check(!(await selected()), "no edge is selected to begin with");
+      await s.tap(spot.x, spot.y);
+      check(await selected(), "a still tap on an edge SELECTS it — the whole gap");
+
+      // Deselect, then prove the pan is untouched: a finger that
+      // travels from the very same point still moves the canvas and
+      // leaves nothing selected.
+      const bg = { x: 30, y: 400 };
+      await s.tap(bg.x, bg.y);
+      check(!(await selected()), "a tap on empty canvas clears it again");
+
+      const before = await tx();
+      await s.touch("touchStart", [[spot.x, spot.y]]);
+      await wait(30);
+      for (const p of s.lerp(spot, { x: spot.x + 90, y: spot.y + 60 }, 8)) {
+        await s.touch("touchMove", [[p.x, p.y]]);
+        await wait(16);
+      }
+      await s.touch("touchEnd", []);
+      await wait(300);
+      const after = await tx();
+      check(
+        Math.abs(after.x - before.x) > 50 && Math.abs(after.y - before.y) > 30,
+        "a finger that MOVES from an edge still pans the canvas",
+        `${JSON.stringify(before)} -> ${JSON.stringify(after)}`,
+      );
+      check(!(await selected()), "…and panning past an edge selects nothing");
+
+      // Double-tap opens the label editor, mirroring the mouse path's
+      // dblclick. This is the assertion that would break if selecting
+      // an edge rebuilt the layer between the two taps (brain#266).
+      const spot2 = await s.page.evaluate(() => {
+        const g = document.querySelector(".edge-group");
+        const r = g.getBoundingClientRect();
+        for (let t = 0.3; t <= 0.7; t += 0.05) {
+          const x = r.left + r.width / 2;
+          const y = r.top + r.height * t;
+          if (document.elementFromPoint(x, y)?.closest(".edge-group")) return { x, y };
+        }
+        return null;
+      });
+      if (!spot2) throw new Error("fixture: the edge moved out of reach after the pan");
+      await s.touch("touchStart", [[spot2.x, spot2.y]]);
+      await wait(20);
+      await s.touch("touchEnd", []);
+      await wait(80);
+      await s.touch("touchStart", [[spot2.x, spot2.y]]);
+      await wait(20);
+      await s.touch("touchEnd", []);
+      await wait(400);
+      const editing = await s.page.evaluate(() =>
+        !!document.querySelector('#edge-label-layer [contenteditable="true"]'));
+      check(editing, "a double-tap opens the edge label editor");
+    });
+
     section("uncaught page errors");
     check(errors.length === 0, "no uncaught errors in any page");
     for (const e of errors) log(`\n${e}`);
