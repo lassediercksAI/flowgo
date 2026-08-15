@@ -236,6 +236,49 @@ const iconVerticalAlign = (): SVGSVGElement => buildIcon(
   ],
 );
 
+// How long after a pointerup a `click` is still assumed to be that
+// tap's own synthesized echo rather than a fresh activation.
+//
+// TOUCH NOTE (brain#2e5, finishing brain#256/#257/#294). These two
+// buttons were the last controls in the editor still activating on a
+// bare `click`. Every other control — toolbar.ts, zoomctl.ts,
+// contextbar.ts, help.ts — moved to `pointerup` with a guarded
+// `click` fallback, because iOS Safari does not reliably synthesize a
+// click from a tap while touch.ts holds document-level {passive:false}
+// touchstart/touchmove listeners. #alignToolbar is additionally listed
+// in touch.ts's CANVAS_CHROME (it is the one chrome element parked
+// inside #canvas), so the unreliable click was the ONLY activation
+// path it had: no click, no align, no other way in.
+//
+// The latch is toolbar.ts's, not contextbar.ts's: contextbar clears
+// its guard on a macrotask (setTimeout 0), which is far shorter than
+// the delay iOS can take over the synthetic click, so a slow echo
+// would activate twice. Aligning twice is idempotent in position but
+// would push a second mutation/undo step, which is exactly the kind of
+// duplication the guard exists to stop. A pointerup always activates;
+// only a click trailing it inside this window is swallowed. Keyboard
+// activation (Enter/Space fire a click and no pointerup) still works.
+const ECHO_WINDOW_MS = 500;
+
+const onActivate = (el: Element, run: () => void): void => {
+  // -Infinity, not 0: performance.now() is small for the first half
+  // second of the page's life, and a 0 sentinel would make the very
+  // first click look like an echo (brain#257's latch hit this).
+  let lastPointerUp = Number.NEGATIVE_INFINITY;
+  el.addEventListener("pointerup", (e) => {
+    lastPointerUp = performance.now();
+    e.preventDefault();
+    e.stopPropagation();
+    run();
+  });
+  el.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (performance.now() - lastPointerUp < ECHO_WINDOW_MS) return;
+    run();
+  });
+};
+
 export const attachAlignToolbar = (): void => {
   const w = must();
   toolbar = document.createElement("div");
@@ -255,10 +298,7 @@ export const attachAlignToolbar = (): void => {
     // Don't let clicks reach the canvas and clear the selection.
     btn.addEventListener("mousedown", (e) => e.stopPropagation());
     btn.addEventListener("touchstart", (e) => e.stopPropagation(), { passive: true });
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      applyAlign(axis);
-    });
+    onActivate(btn, () => applyAlign(axis));
     return btn;
   };
 

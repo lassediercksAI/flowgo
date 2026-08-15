@@ -26,6 +26,8 @@
 // fence in keys.ts — the editor page has no input elements; the
 // contenteditable fence is the only one, see the "fence" describe.
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./persistence.ts", () => ({ undo: vi.fn(), redo: vi.fn() }));
@@ -113,12 +115,16 @@ interface Edge {
   to: string;
   palette?: number;
 }
+interface Image {
+  id: string;
+}
 interface MapState {
   boxes: Box[];
   edges: Edge[];
   texts: Text[];
   lines: Line[];
   strokes: Stroke[];
+  images: Image[];
 }
 
 const makeMap = (): MapState => ({
@@ -127,6 +133,7 @@ const makeMap = (): MapState => ({
   texts: [],
   lines: [],
   strokes: [],
+  images: [],
 });
 
 let map: MapState;
@@ -379,20 +386,85 @@ describe("undo / redo", () => {
 });
 
 describe("select all (Cmd/Ctrl+A)", () => {
-  it("selects every box, text and line, deselects the edge", () => {
+  // Populate one of every selectable kind, so "all" has something to
+  // mean. brain#2e5: strokes and images used to be silently omitted.
+  const fillOneOfEach = (): void => {
     map.boxes = [aBox(), aBox({ id: "b2" })];
     map.texts = [{ id: "t1", label: "t", x: 0, y: 0 }];
     map.lines = [{ id: "l1", x1: 0, y1: 0, x2: 10, y2: 10 }];
+    map.strokes = [{ id: "s1" }];
+    map.images = [{ id: "i1" }];
     map.edges = [{ from: "b1", to: "b2" }];
+  };
+
+  it("selects every box, text, line, stroke and image, deselects the edge", () => {
+    fillOneOfEach();
     edgeSel = map.edges[0]!;
 
     const e = press("a", { ctrlKey: true });
-    expect([...selected].sort()).toEqual(["b1", "b2", "l1", "t1"]);
+    expect([...selected].sort()).toEqual(["b1", "b2", "i1", "l1", "s1", "t1"]);
     expect(edgeSel).toBeNull();
     expect(renderEdges).toHaveBeenCalled();
     expect(applyClasses).toHaveBeenCalled();
     expect(e.defaultPrevented).toBe(true);
-    expect(status()).toBe("selected 4 items");
+    expect(status()).toBe("selected 6 items");
+  });
+
+  it("selects a brush-only map — the case that was unreachable", () => {
+    // No boxes, no texts: before brain#2e5 this selected nothing at
+    // all, so a map drawn entirely with the brush could not be moved,
+    // copied or deleted from the keyboard.
+    map.strokes = [{ id: "s1" }, { id: "s2" }];
+    press("a", { metaKey: true });
+    expect([...selected].sort()).toEqual(["s1", "s2"]);
+    expect(status()).toBe("selected 2 items");
+  });
+
+  it("selects an image-only map", () => {
+    map.images = [{ id: "i1" }, { id: "i2" }];
+    press("a", { metaKey: true });
+    expect([...selected].sort()).toEqual(["i1", "i2"]);
+  });
+
+  it("tolerates a map with no strokes / images arrays at all", () => {
+    // Older documents (and the CLI's minimal maps) omit both keys;
+    // keys.ts reads them through `?? []`.
+    map.boxes = [aBox()];
+    delete (map as Partial<MapState>).strokes;
+    delete (map as Partial<MapState>).images;
+    expect(() => press("a", { metaKey: true })).not.toThrow();
+    expect([...selected]).toEqual(["b1"]);
+  });
+
+  it("covers exactly the kinds every other bulk operation covers", () => {
+    // The bug was an INCONSISTENCY: delete, copy/cut/paste, clone and
+    // the marquee each handle boxes, texts, lines, strokes and images.
+    // Select-all handled three of the five. This test states the
+    // contract in one place so the next kind added to the document has
+    // an obvious place to fail.
+    fillOneOfEach();
+    press("a", { metaKey: true });
+    for (const id of ["b1", "b2", "t1", "l1", "s1", "i1"]) {
+      expect(selected.has(id), `select-all must include ${id}`).toBe(true);
+    }
+    // Edges are the deliberate exception: edge selection is the
+    // single-valued selectedEdge() slot, not the id-keyed set, so
+    // there is no "all edges" state to enter. Select-all clears it.
+    expect(edgeSel).toBeNull();
+  });
+
+  it("the help text promises what select-all actually does", () => {
+    // The old copy said "every node, text, and line" — accurate, and
+    // that is precisely why the gap survived a documentation review.
+    // Pinning the two together means the next change to either has to
+    // touch this test.
+    const html = readFileSync(join(process.cwd(), "src/editor/index.html"), "utf8");
+    const row = html.match(/<kbd>A<\/kbd><\/td><td>([^<]*)<\/td>/);
+    expect(row, "the Cmd/Ctrl+A help row must exist").not.toBeNull();
+    const copy = row![1]!.toLowerCase();
+    for (const word of ["node", "text", "line", "stroke", "image"]) {
+      expect(copy, `help text must mention ${word}s`).toContain(word);
+    }
   });
 
   it("Cmd+Shift+A is not select-all and not claimed", () => {
