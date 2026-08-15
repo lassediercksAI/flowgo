@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.29](https://github.com/lassediercks/flowgo/compare/v0.3.28...v0.3.29) (2026-08-15)
+
+
+### Bug Fixes
+
+* **editor:** close three touch/selection gaps — align toolbar, edges, select-all ([f3a2c26](https://github.com/lassediercks/flowgo/commit/f3a2c2612c12888c6840e5daa68c330be9f71ef8))
+
 ## [0.3.28](https://github.com/lassediercks/flowgo/compare/v0.3.27...v0.3.28) (2026-08-15)
 
 
