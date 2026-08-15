@@ -34,6 +34,7 @@
 // bounded by HISTORY_BYTE_BUDGET rather than by entry count alone.
 
 import { SESSION_ID } from "./live.ts";
+import type { StatusSeverity } from "./status.ts";
 import type { RefreshOutcome } from "./live.ts";
 import { settleHexBoxIds } from "./hex.ts";
 import {
@@ -71,7 +72,12 @@ interface PersistenceBindings {
   readonly readPathFromURL: () => string;
   readonly readViewFromURL: () => { s?: number; x?: number; y?: number } | null;
   readonly applyURLView: (v: { s?: number; x?: number; y?: number }) => void;
-  readonly setStatus: (s: string) => void;
+  // The severity is optional on BOTH sides: this module's failure
+  // paths pass "error" (sticky) / "ok" (resolves a standing error),
+  // and a host that wired a plain (s: string) => void — every existing
+  // caller, and every test in this directory — still satisfies the
+  // type and simply ignores the extra argument. See status.ts.
+  readonly setStatus: (s: string, severity?: StatusSeverity) => void;
   readonly clearSelected: () => void;
   readonly clearSelectedEdge: () => void;
   // The three below exist for the live-events apply path and are
@@ -357,7 +363,10 @@ export const load = async (): Promise<void> => {
       g = (body.graph || body) as GraphLike;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      b.setStatus("snapshot " + SNAPSHOT_ID + " not loaded: " + msg);
+      // Sticky: the map the URL names is not on screen and nothing is
+      // retrying. Fading that away after two seconds would leave the
+      // user staring at an empty canvas with no explanation.
+      b.setStatus("snapshot " + SNAPSHOT_ID + " not loaded: " + msg, "error");
       g = null;
     }
   } else {
@@ -622,7 +631,14 @@ const saveBody = async (body: string, delta: DeltaSave | null = null): Promise<v
     restoreDirty(taken);
   }
   if (failure) {
-    must().setStatus(`${failure} — recent changes are NOT saved; retrying`);
+    // "error": the browser and the server have diverged and will stay
+    // diverged until a retry lands. This one is sticky in the UI and
+    // must survive whatever routine chatter the user's next click
+    // produces — see the tier note in status.ts.
+    must().setStatus(
+      `${failure} — recent changes are NOT saved; retrying`,
+      "error",
+    );
     if (saveRetryTimer) clearTimeout(saveRetryTimer);
     saveRetryTimer = setTimeout(() => {
       saveRetryTimer = null;
@@ -634,7 +650,10 @@ const saveBody = async (body: string, delta: DeltaSave | null = null): Promise<v
     clearTimeout(saveRetryTimer);
     saveRetryTimer = null;
   }
-  must().setStatus("saved");
+  // "ok", not plain info: reaching here means the divergence a prior
+  // failure reported is over, so this is the one message entitled to
+  // dismiss the sticky alarm.
+  must().setStatus("saved", "ok");
 };
 
 // The whole per-edit cost, and the reason a large map is editable at
@@ -878,10 +897,16 @@ export const reshare = async (): Promise<void> => {
     if (navigator.clipboard) {
       navigator.clipboard.writeText(body.url).catch(() => { /* noop */ });
     }
-    b.setStatus("new share: " + body.url + " (copied)");
+    // "ok" so a retry after a failure takes the red pill down with it.
+    b.setStatus("new share: " + body.url + " (copied)", "ok");
     if (body.id) history.pushState(null, "", "/m/" + body.id);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    b.setStatus("re-share failed: " + msg);
+    // Sticky, and for the reason this whole surface exists: with both
+    // ends transient, "new share: <url> (copied)" and "re-share
+    // failed" looked the same — a pill that came and went — so the
+    // user walked away believing a share existed. The failure now
+    // stays until the next successful attempt clears it.
+    b.setStatus("re-share failed: " + msg, "error");
   }
 };

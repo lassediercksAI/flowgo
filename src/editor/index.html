@@ -1054,6 +1054,53 @@
   }
   #live-notice button:hover { background: #fff; }
 
+  /* Status surface (src/editor/status.ts). Bottom RIGHT on purpose:
+     every other corner is spoken for — #zoomCtl and #version bottom
+     left, #helpBtn top right, #toolbar top centre, #contextBar bottom
+     centre on touch — and on flowgo-map.com the host shell's own
+     chrome (hamburger + its outer #status pill) sits top left over
+     this frame. Bottom right is the one place a pill can appear
+     without landing on a control.
+
+     pointer-events: none throughout: this is a readout, never a
+     target. Nothing in here is focusable either, so a message that
+     arrives mid-edit cannot take the caret out of a label. */
+  #status {
+    position: absolute; z-index: 22;
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    right: calc(8px + env(safe-area-inset-right, 0px));
+    display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+    max-width: min(360px, calc(100vw - 32px));
+    pointer-events: none;
+    user-select: none; -webkit-user-select: none;
+  }
+  #status > div {
+    padding: 6px 10px; border-radius: 6px;
+    font: 12px system-ui, sans-serif; line-height: 1.35;
+    box-shadow: 0 1px 3px rgba(0,0,0,.15);
+    overflow-wrap: anywhere;
+  }
+  /* Transient tier: quiet, low-contrast, and invisible unless a
+     message is live. opacity-only transition so the fade never
+     reflows the canvas. status.ts clears the text after the fade
+     finishes rather than at its start, so the pill is never on
+     screen visibly empty. */
+  #status-info {
+    background: rgba(255,255,255,.94); border: 1px solid #ddd; color: #555;
+    opacity: 0;
+    transition: opacity .3s ease-out;
+  }
+  #status-info.visible { opacity: 1; }
+  /* Sticky tier: a different colour, a different weight and its own
+     node, because "recent changes are NOT saved" must not read like
+     "pasted 3 items". No fade — it goes away when the condition
+     does, not when a timer says so. */
+  #status-error {
+    background: #b91c1c; color: #fff; border: 1px solid #7f1d1d;
+    font-weight: 600;
+  }
+  #status-error.hidden { display: none; }
+
   /* Delete drop zone: only meaningful while a touch drag is in
      flight (body.dragging).
 
@@ -1270,6 +1317,15 @@ body.embed-mode #reshareBtn { display: none !important; }
    visitor drills into a submap, and hiding the container would trap
    them there. */
 body.embed-mode #toolbar { background: transparent; border: none; box-shadow: none; }
+/* #status is trimmed in JS, not here (src/editor/status.ts): routine
+   chatter is never written to the DOM in embed mode, while a save
+   failure still renders. That asymmetry is a decision about WHICH
+   messages matter, not about which pixels to hide, so it belongs at
+   the call site — and a CSS rule here would also hide the failure,
+   which is the one thing an embed must not do. The gate there is
+   EMBED_MODE (the URL flag), which is set even when the page is not
+   actually framed; `body.embed-mode` is not, so it is the weaker
+   test. */
 </style>
 </head>
 <body>
@@ -1285,6 +1341,18 @@ body.embed-mode #toolbar { background: transparent; border: none; box-shadow: no
 <div id="live-notice" class="hidden" role="status" aria-live="polite">
   <span id="live-notice-text"></span>
   <button id="live-notice-action" type="button">Reload</button>
+</div>
+<!-- Status readout (src/editor/status.ts). Two live regions, not one:
+     an assistive technology treats "saved" and "recent changes are NOT
+     saved" very differently, and a region's politeness is read off the
+     element, so the two tiers need two elements. Both exist from first
+     paint (an aria-live region has to be in the document BEFORE its
+     text changes for the change to be announced) and neither is
+     focusable — a save failure announces itself without pulling the
+     caret out of whatever label the user is typing into. -->
+<div id="status">
+  <div id="status-info" role="status" aria-live="polite"></div>
+  <div id="status-error" class="hidden" role="alert" aria-live="assertive"></div>
 </div>
 <div id="bg-layer"></div>
 <svg id="bg-svg">

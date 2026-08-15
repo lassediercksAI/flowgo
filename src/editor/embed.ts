@@ -22,9 +22,22 @@
 // The forwarding deliberately targets any parent ("*"): dy is a
 // scroll delta, not data — nothing about the map leaves the frame.
 
+// `?embed=0` used to turn embed mode ON. The check was
+// `URLSearchParams.has("embed")`, which asks whether the KEY is
+// present and ignores the value entirely — so every spelling of "no"
+// read as yes. Now the value decides: absent, empty, `0` and `false`
+// are off, anything else is on (`?embed=1` stays the canonical form).
+// This flag gates more than the scroll bridge — status.ts suppresses
+// routine chatter on it — so getting "off" wrong is not cosmetic.
+const embedFlag = (v: string | null): boolean => {
+  if (v === null) return false;
+  const s = v.trim().toLowerCase();
+  return s !== "" && s !== "0" && s !== "false";
+};
+
 export const EMBED_MODE: boolean =
   typeof location !== "undefined" &&
-  new URLSearchParams(location.search).has("embed");
+  embedFlag(new URLSearchParams(location.search).get("embed"));
 
 // Axis-lock threshold: a one-finger swipe counts as page scroll once
 // it has moved this many client px predominantly vertically. Below

@@ -92,6 +92,7 @@ import { attachAlignToolbar, wireAlign } from "./align.ts";
 import { attachContextBar, wireContextBar } from "./contextbar.ts";
 import { attachZoomControl } from "./zoomctl.ts";
 import { attachEmbedBridge } from "./embed.ts";
+import { setStatus } from "./status.ts";
 
 // ---------------------------------------------------------------
 // Module-level state. Every feature module reaches these through its
@@ -154,9 +155,10 @@ const existsOnCurrentMap = (id) =>
 
 const recenter = () => recenterPure(state);
 
-function setStatus(_s) {
-  // Status hint area was removed; keep callers harmless.
-}
+// setStatus now lands in the DOM (src/editor/status.ts). It used to be
+// a no-op stub here — "status hint area was removed; keep callers
+// harmless" — which also kept persistence.ts's "recent changes are NOT
+// saved" harmless, i.e. invisible.
 
 // cloneSelection wraps the pure clone with the render + save trail
 // the existing call sites expect.

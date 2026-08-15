@@ -137,3 +137,29 @@ describe("embed scroll bridge", () => {
     expect(document.body.classList.contains("embed-mode")).toBe(true);
   });
 });
+
+// EMBED_MODE used to be `URLSearchParams.has("embed")` — a test for
+// the presence of the KEY, ignoring the value, so `?embed=0` turned
+// embed mode ON. The flag gates more than this bridge (status.ts
+// suppresses routine chatter on it), so "off" has to mean off.
+describe("the ?embed flag reads its value", () => {
+  const embedMode = async (search: string): Promise<boolean> => {
+    vi.resetModules();
+    window.history.replaceState(null, "", search);
+    return (await import("./embed.ts")).EMBED_MODE;
+  };
+
+  it.each(["/?embed=1", "/?embed=true", "/?embed=yes", "/?embed=1&map=x"])(
+    "%s is on",
+    async (search) => {
+      expect(await embedMode(search)).toBe(true);
+    },
+  );
+
+  it.each(["/", "/?map=x", "/?embed=0", "/?embed=false", "/?embed=FALSE", "/?embed=", "/?embed"])(
+    "%s is off",
+    async (search) => {
+      expect(await embedMode(search)).toBe(false);
+    },
+  );
+});
