@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.28](https://github.com/lassediercks/flowgo/compare/v0.3.27...v0.3.28) (2026-08-15)
+
+
+### Bug Fixes
+
+* **editor:** make save failures visible instead of silent ([7e4ef71](https://github.com/lassediercks/flowgo/commit/7e4ef7162360b00819401463c1ff2c20367921c1))
+
 ## [0.3.27](https://github.com/lassediercks/flowgo/compare/v0.3.26...v0.3.27) (2026-08-15)
 
 
