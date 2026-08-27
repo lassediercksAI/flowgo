@@ -8,7 +8,7 @@
 // two" latch that keeps a pointerup and its trailing click from
 // cancelling each other out.
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { attachHelpListeners, isHelpOpen, setHelpOpen } from "./help.ts";
 
 const OVERLAY = `
@@ -16,6 +16,7 @@ const OVERLAY = `
   <div id="helpModal">
     <button id="helpClose"><svg id="closeIcon"></svg></button>
     <div class="help-coarse"><p id="helpText">gestures</p></div>
+    <table><tr id="helpImagesRow"><td>paste/drop an image</td></tr></table>
   </div>
 </div>
 <button id="helpBtn"></button>`;
@@ -121,5 +122,35 @@ describe("wiring is defensive", () => {
   it("throws a named error when the overlay itself is missing", () => {
     document.body.innerHTML = "";
     expect(() => attachHelpListeners()).toThrow(/helpOverlay missing/);
+  });
+});
+
+// media.ts's window.FLOWGO_IMAGES_ENABLED gate (opt-out — default on).
+// flowgo-website is the one embedder that sets it to false; every other
+// consumer (CLI, Obsidian, VS Code) leaves it absent and must still see
+// the row.
+describe("image-insert help row", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps the row when the flag is absent", () => {
+    document.body.innerHTML = OVERLAY;
+    attachHelpListeners();
+    expect(document.getElementById("helpImagesRow")).not.toBeNull();
+  });
+
+  it("keeps the row when the flag is explicitly true", () => {
+    vi.stubGlobal("FLOWGO_IMAGES_ENABLED", true);
+    document.body.innerHTML = OVERLAY;
+    attachHelpListeners();
+    expect(document.getElementById("helpImagesRow")).not.toBeNull();
+  });
+
+  it("removes the row when the flag is false", () => {
+    vi.stubGlobal("FLOWGO_IMAGES_ENABLED", false);
+    document.body.innerHTML = OVERLAY;
+    attachHelpListeners();
+    expect(document.getElementById("helpImagesRow")).toBeNull();
   });
 });

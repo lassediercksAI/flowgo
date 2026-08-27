@@ -464,6 +464,51 @@ describe("snapshot (shared-view) mode", () => {
   });
 });
 
+// window.FLOWGO_IMAGES_ENABLED: opt-out, default on. flowgo-website has
+// no /media route (brain#image-insert-flag) and injects the flag as
+// false; every other embedder leaves it absent and must keep working.
+describe("window.FLOWGO_IMAGES_ENABLED gate", () => {
+  it("no-ops on paste when explicitly disabled — no POST, no status, no mutation", async () => {
+    vi.stubGlobal("FLOWGO_IMAGES_ENABLED", false);
+    dispatchPaste({ items: arrayLike(fileItem(png())) });
+    await flush();
+    expect(fetchCalls).toHaveLength(0);
+    expect(status).toEqual([]);
+    expect(map.images).toBeUndefined();
+    expect(mocks.mutatedImage).not.toHaveBeenCalled();
+    expect(renderAll).not.toHaveBeenCalled();
+  });
+
+  it("no-ops on drop when explicitly disabled", async () => {
+    vi.stubGlobal("FLOWGO_IMAGES_ENABLED", false);
+    dispatchDrop({ files: arrayLike(png()) }, 10, 10);
+    await flush();
+    expect(fetchCalls).toHaveLength(0);
+    expect(map.images).toBeUndefined();
+  });
+
+  it("still uploads when the flag is absent (default enabled)", async () => {
+    dispatchPaste({ items: arrayLike(fileItem(png())) });
+    await flush();
+    expect(fetchCalls).toHaveLength(1);
+    expect(map.images).toHaveLength(1);
+  });
+
+  it("still uploads when the flag is explicitly true", async () => {
+    vi.stubGlobal("FLOWGO_IMAGES_ENABLED", true);
+    dispatchPaste({ items: arrayLike(fileItem(png())) });
+    await flush();
+    expect(fetchCalls).toHaveLength(1);
+    expect(map.images).toHaveLength(1);
+  });
+
+  it("a no-image paste still falls back to the internal clipboard buffer when disabled", () => {
+    vi.stubGlobal("FLOWGO_IMAGES_ENABLED", false);
+    dispatchPaste({ items: arrayLike(), files: arrayLike() });
+    expect(mocks.pasteSelection).toHaveBeenCalledTimes(1);
+  });
+});
+
 // ---------------------------------------------------------------
 // Drag & drop.
 // ---------------------------------------------------------------

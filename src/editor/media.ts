@@ -8,11 +8,25 @@
 // Local (CLI) mode only: in shared-snapshot mode (/m/<id>) there's no
 // filesystem to write to, so paste/drop are announced as unavailable
 // and make no network call.
+//
+// window.FLOWGO_IMAGES_ENABLED — opt-out, not opt-in (the inverse
+// polarity of window.FLOWGO_LIVE in live.ts). Every embedder that has
+// a real /media endpoint (this CLI, Obsidian, VS Code) needs image
+// insert to work with zero server-side wiring, so the default is on.
+// flowgo-website registers no /media route — pasting there used to
+// silently 404 — so it is the one embedder that explicitly injects
+// window.FLOWGO_IMAGES_ENABLED=false before this bundle boots.
+// help.ts reads the same flag to drop the "paste an image" row from
+// the help overlay, so the two never disagree about what's on offer.
 
 import { toDataX, toDataY } from "./viewport.ts";
 import { mutatedImage } from "./mutations.ts";
 import { SNAPSHOT_MODE } from "./persistence.ts";
 import { pasteSelection } from "./clipboard.ts";
+
+export const imagesEnabled = (): boolean =>
+  (globalThis as { FLOWGO_IMAGES_ENABLED?: boolean }).FLOWGO_IMAGES_ENABLED !==
+  false;
 
 interface ImageItem {
   id: string;
@@ -113,6 +127,14 @@ const insertImage = async (
   cy: number,
 ): Promise<void> => {
   const w = must();
+  if (!imagesEnabled()) {
+    // No status-bar noise here: when the flag is off, the help overlay
+    // never advertised this in the first place (help.ts), so a paste
+    // that happens to contain image data should just do nothing rather
+    // than surface a message about a feature the host never offered.
+    console.info("flowgo: image insert disabled (window.FLOWGO_IMAGES_ENABLED=false)");
+    return;
+  }
   if (SNAPSHOT_MODE) {
     w.setStatus("image paste unavailable in shared view");
     console.info("flowgo: image paste is unavailable in shared (snapshot) view");

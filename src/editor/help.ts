@@ -13,6 +13,8 @@
 // reason: pointer events are delivered natively for touch and don't
 // depend on the mouse-event synthesis at all.
 
+import { imagesEnabled } from "./media.ts";
+
 const overlay = (): HTMLElement => {
   const el = document.getElementById("helpOverlay");
   if (!el) throw new Error("helpOverlay missing from DOM");
@@ -64,4 +66,12 @@ export const attachHelpListeners = (): void => {
   overlay().addEventListener("pointerdown", (e) => {
     if (e.target === overlay()) setHelpOpen(false);
   });
+  // media.ts's window.FLOWGO_IMAGES_ENABLED gate: don't advertise a
+  // shortcut that's been switched off (flowgo-website's case today).
+  // A one-way removal rather than a hidden-class toggle — the flag is
+  // set once, before this bundle boots, and never flips back on mid
+  // session.
+  if (!imagesEnabled()) {
+    document.getElementById("helpImagesRow")?.remove();
+  }
 };
