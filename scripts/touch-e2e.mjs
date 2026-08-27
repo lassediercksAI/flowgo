@@ -834,6 +834,59 @@ const main = async () => {
       check(editing, "a double-tap opens the edge label editor");
     });
 
+    // ---------------------------------------------------------
+    // Selecting an edge is only half the story — a touch-only user
+    // still had no way to recolour or delete it (both already worked
+    // from a keyboard: keys.ts's 1-9/+/- palette keys and Delete/
+    // Backspace on selectedEdge()). contextbar.ts now grows a palette
+    // row + delete button for exactly that selection. A fresh scenario
+    // (not appended to the one above) so the delete at the end doesn't
+    // strand the rest of that flow without an edge to reach.
+    // ---------------------------------------------------------
+    await scenario("box a A 0 0\nbox b B 0 400\nedge a b\n", async (s) => {
+      const spot = await s.page.evaluate(() => {
+        const g = document.querySelector(".edge-group");
+        if (!g) return null;
+        const r = g.getBoundingClientRect();
+        for (let t = 0.3; t <= 0.7; t += 0.05) {
+          const x = r.left + r.width / 2;
+          const y = r.top + r.height * t;
+          if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) continue;
+          if (document.elementFromPoint(x, y)?.closest(".edge-group")) return { x, y };
+        }
+        return null;
+      });
+      if (!spot) throw new Error("fixture: no reachable point on the edge");
+      await s.tap(spot.x, spot.y);
+
+      // Swatch 5 (1-indexed .ctx-swatch children — swatch 1 is the
+      // "default colour" slot) — mirrors keys.ts's palette-5 key.
+      const swatch = await s.rectOf("#contextBar .ctx-swatch:nth-child(5)");
+      if (!swatch) throw new Error("fixture: edge palette row did not appear in the context bar");
+      await s.tap(swatch.x, swatch.y);
+      await wait(500); // > the 200ms save debounce + the server write
+
+      // On-disk format (pkg/graph/graph.go): `edge a b <palette>`.
+      const recoloured = edgesOf(s.file);
+      check(
+        recoloured.some((l) => /^edge a b 5(\s|$)/.test(l)),
+        "tapping a context-bar swatch recolours the edge on disk",
+        recoloured.join(" | "),
+      );
+
+      const del = await s.rectOf("#contextBar .ctx-edge-actions button");
+      if (!del) throw new Error("fixture: edge delete button did not appear in the context bar");
+      await s.tap(del.x, del.y);
+      await wait(500);
+
+      const afterDelete = edgesOf(s.file);
+      check(
+        afterDelete.length === 0,
+        "tapping the context-bar delete button removes the edge on disk",
+        afterDelete.join(" | "),
+      );
+    });
+
     section("uncaught page errors");
     check(errors.length === 0, "no uncaught errors in any page");
     for (const e of errors) log(`\n${e}`);

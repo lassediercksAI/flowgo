@@ -12,6 +12,15 @@
 //                  the FILE's default shape instead (what a
 //                  double-click/double-tap creates) — mirrors Alt+1..4
 //                  with no selection.
+//   - cursor mode, an edge selected: a palette row for the edge plus
+//                  a delete button, instead of the shape row (an edge
+//                  has no shape) — the touch-reachable equivalent of
+//                  keys.ts's palette keys / Delete acting on
+//                  selectedEdge() (#2e5's edge-by-touch follow-up).
+//                  Takes priority over the box-selection shape row:
+//                  selecting an edge always clears the box `selected`
+//                  set first (touch.ts/mouse.ts), so the two never
+//                  actually compete for the same tap.
 //   - text mode:   + a font-size stepper and palette swatches for the
 //                  NEXT text item placed.
 //   - line mode:   + a line-style picker (straight/bezier/orthogonal)
@@ -59,6 +68,10 @@ interface BoxLike {
   readonly shape?: number;
 }
 
+interface EdgeLike {
+  readonly palette?: number;
+}
+
 interface ContextBarBindings {
   readonly selected: Set<string>;
   readonly currentMap: () => { boxes: BoxLike[] };
@@ -68,6 +81,18 @@ interface ContextBarBindings {
   // here too would close that into a module cycle. main.ts, which
   // already imports both, wires the function through instead.
   readonly applyShapeToSelection: (shape: number) => boolean;
+  // Edge selection lives in its own single-valued slot (main.ts's
+  // `selectedEdge`/`setSelectedEdge`), not the id-keyed `selected` set
+  // above — box multi-select and single edge-select are deliberately
+  // different shapes and must stay that way (selectedEdge() is never
+  // widened into the `selected` set). Read-only here: the mutating
+  // half (setEdgePalette / deleteSelectedEdge) is bound through from
+  // keys.ts for the same module-cycle reason as applyShapeToSelection,
+  // and — for delete — so the touch button and the keyboard's
+  // Delete/Backspace branch share one implementation.
+  readonly selectedEdge: () => EdgeLike | null;
+  readonly setEdgePalette: (palette: number) => boolean;
+  readonly deleteSelectedEdge: () => boolean;
 }
 
 let ctxBindings: ContextBarBindings | null = null;
@@ -322,6 +347,27 @@ const buildShapeRow = (forSelection: boolean, current: number, sync: () => void)
   return row;
 };
 
+// Single delete button for the selected edge (an edge has no shape
+// row to live alongside — this is its own cluster row, mirroring
+// keys.ts's Delete/Backspace-on-selectedEdge()). Reuses the "x" icon
+// (vendored but otherwise unused) rather than adding a trash glyph
+// for a one-off button.
+const buildEdgeDeleteRow = (sync: () => void): HTMLElement => {
+  const row = document.createElement("div");
+  row.className = "ctx-row ctx-edge-actions";
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.title = "Delete edge";
+  btn.setAttribute("aria-label", "Delete edge");
+  btn.appendChild(icon("x"));
+  bindActivate(btn, () => {
+    ctxBindings!.deleteSelectedEdge();
+    sync();
+  });
+  row.appendChild(btn);
+  return row;
+};
+
 const iconCursor = (): SVGSVGElement => icon("mouse-pointer");
 const iconBrush = (): SVGSVGElement => icon("brush");
 const iconText = (): SVGSVGElement => icon("type");
@@ -374,13 +420,29 @@ export const attachContextBar = (): void => {
 
     if (m === "cursor") {
       if (!ctxBindings) return;
+      cluster = document.createElement("div");
+      cluster.className = "ctx-cluster";
+      const edge = ctxBindings.selectedEdge();
+      if (edge) {
+        // An edge has no shape — it takes over the cluster with its
+        // own palette row + delete button instead of the shape row.
+        cluster.appendChild(
+          buildPaletteRow((p) => {
+            ctxBindings!.setEdgePalette(p);
+          }, sync),
+        );
+        cluster.appendChild(buildEdgeDeleteRow(sync));
+        const cur = edge.palette ?? 1;
+        const edgeSwatches = cluster.querySelectorAll<HTMLButtonElement>(".ctx-swatch");
+        edgeSwatches.forEach((el, i) => el.classList.toggle("active", i + 1 === cur));
+        bar.appendChild(cluster);
+        return;
+      }
       const { forSelection, current } = cursorShapeTarget(
         ctxBindings.selected,
         ctxBindings.currentMap().boxes,
         getDefaultShape,
       );
-      cluster = document.createElement("div");
-      cluster.className = "ctx-cluster";
       cluster.appendChild(buildShapeRow(forSelection, current, sync));
       bar.appendChild(cluster);
       return;

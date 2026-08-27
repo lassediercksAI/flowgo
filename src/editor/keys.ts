@@ -255,6 +255,50 @@ const applyPalette = (palette: number): boolean => {
   return changed;
 };
 
+// Recolour JUST the selected edge, self-contained (mutate + persist +
+// rebuild), unlike applyPalette above which only mutates and leaves
+// mutatedCurrentMap()/render to its keydown call site because it may
+// have touched a whole mixed selection in one keypress. contextbar.ts's
+// touch palette row has exactly one target — the single-valued
+// selectedEdge() slot — so it gets its own self-contained setter here
+// (exported and passed through as a bound function, same as
+// applyShapeToSelection, so contextbar.ts never has to import this
+// module directly and close the render.ts <-> contextbar.ts cycle
+// described in contextbar.ts's ContextBarBindings comment).
+export const setEdgePalette = (palette: number): boolean => {
+  const w = must();
+  const edge = w.selectedEdge();
+  if (!edge) return false;
+  if (!setPaletteOn(edge, palette)) return false;
+  mutatedEdge();
+  // A palette change bakes into the edge label's class at element
+  // creation (makeEdgeLabelEl) — only a full renderEdges() picks that
+  // up, applyClasses() is selection-only (see render.ts's applyClasses
+  // vs renderEdges split, and the Delete-key branch below for the same
+  // rule applied to removal).
+  renderEdges();
+  return true;
+};
+
+// Remove the selected edge. Factored out of the Delete/Backspace
+// branch below so it and contextbar.ts's touch delete button
+// (wired through main.ts, same reasoning as setEdgePalette above)
+// share one splice/clear/persist/rebuild/status sequence instead of
+// two copies of it.
+export const deleteSelectedEdge = (): boolean => {
+  const w = must();
+  const edge = w.selectedEdge();
+  if (!edge) return false;
+  const map = w.currentMap();
+  const idx = map.edges.indexOf(edge);
+  if (idx >= 0) map.edges.splice(idx, 1);
+  w.setSelectedEdge(null);
+  mutatedEdge();
+  renderEdges();
+  w.setStatus("edge removed");
+  return true;
+};
+
 const applyFont = (font: number): boolean => {
   const w = must();
   if (w.selected.size === 0) return false;
@@ -704,16 +748,9 @@ export const attachKeyboardListener = (): void => {
 
     // Delete / Backspace
     if (e.key === "Delete" || e.key === "Backspace") {
-      const sel = w.selectedEdge();
-      if (sel) {
+      if (w.selectedEdge()) {
         e.preventDefault();
-        const map = w.currentMap();
-        const idx = map.edges.indexOf(sel);
-        if (idx >= 0) map.edges.splice(idx, 1);
-        w.setSelectedEdge(null);
-        mutatedEdge();
-        renderEdges();
-        w.setStatus("edge removed");
+        deleteSelectedEdge();
         return;
       }
       if (w.selected.size > 0) {

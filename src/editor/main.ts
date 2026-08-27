@@ -76,7 +76,13 @@ import {
   wireRender,
 } from "./render.ts";
 import { deleteSelection, wireFactories } from "./factories.ts";
-import { applyShapeToSelection, attachKeyboardListener, wireKeys } from "./keys.ts";
+import {
+  applyShapeToSelection,
+  attachKeyboardListener,
+  deleteSelectedEdge,
+  setEdgePalette,
+  wireKeys,
+} from "./keys.ts";
 import { attachMouseListeners, wireMouse } from "./mouse.ts";
 import { attachTouchListeners, wireTouch } from "./touch.ts";
 import {
@@ -516,7 +522,14 @@ applyTouchClass();
 
 // The bar itself is CSS-gated on `body.touch-input`, so attaching it
 // unconditionally is safe — fine-pointer devices never see it.
-wireContextBar({ selected, currentMap: () => state, applyShapeToSelection });
+wireContextBar({
+  selected,
+  currentMap: () => state,
+  applyShapeToSelection,
+  selectedEdge: () => selectedEdge,
+  setEdgePalette,
+  deleteSelectedEdge,
+});
 attachContextBar();
 // Embed scroll bridge (no-op outside ?embed=1 iframes): binds window
 // capture-phase handlers, so order relative to the other attach calls

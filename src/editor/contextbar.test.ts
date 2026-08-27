@@ -92,6 +92,20 @@ let boxes: Array<{ id: string; shape?: number }> = [];
 const applyShape = vi.fn((_shape: number) => true);
 const scheduleSave = vi.fn();
 let graph: { defaultShape?: number } = {};
+// Edge slot: a single-valued stand-in for main.ts's `selectedEdge`
+// module variable, not the id-keyed `selected` set above.
+let edge: { palette?: number } | null = null;
+const setEdgePalette = vi.fn((p: number) => {
+  if (!edge) return false;
+  if (p === 1) delete edge.palette;
+  else edge.palette = p;
+  return true;
+});
+const deleteSelectedEdge = vi.fn(() => {
+  if (!edge) return false;
+  edge = null;
+  return true;
+});
 
 beforeAll(() => {
   // Every setMode()/setDefaultShape() path reaches a must()-guarded
@@ -112,6 +126,9 @@ beforeAll(() => {
     selected,
     currentMap: () => ({ boxes }),
     applyShapeToSelection: applyShape,
+    selectedEdge: () => edge,
+    setEdgePalette,
+    deleteSelectedEdge,
   });
   // Attached ONCE, like main.ts does — the module keeps syncFn and a
   // MutationObserver on <body>; rebuilding per test would stack them.
@@ -131,7 +148,10 @@ beforeEach(async () => {
   selected.clear();
   boxes = [];
   graph = {};
+  edge = null;
   applyShape.mockClear();
+  setEdgePalette.mockClear();
+  deleteSelectedEdge.mockClear();
   scheduleSave.mockClear();
   await settle(); // MO fires for the mode-class flips above
   refreshContextBar(); // rebuild the cluster against the reset state
@@ -239,6 +259,62 @@ describe("cursor mode — shape row", () => {
     selected.clear();
     refreshContextBar();
     expect(shapeBtns()[0]!.title).toBe("Default shape: Rectangle");
+  });
+});
+
+describe("cursor mode — edge selected", () => {
+  const deleteBtn = (): HTMLButtonElement =>
+    bar().querySelector<HTMLButtonElement>(".ctx-edge-actions button")!;
+
+  it("an edge takes over the cluster instead of the shape row", () => {
+    boxes = [{ id: "a", shape: 2 }];
+    edge = {};
+    refreshContextBar();
+    expect(shapeBtns().length).toBe(0);
+    expect(swatches().length).toBe(9);
+    expect(deleteBtn()).toBeTruthy();
+  });
+
+  it("highlights the edge's current palette, default swatch when unset", () => {
+    edge = {};
+    refreshContextBar();
+    expect(activeOf(swatches())).toBe(0); // palette 1 / default
+    edge = { palette: 6 };
+    refreshContextBar();
+    expect(activeOf(swatches())).toBe(5);
+  });
+
+  it("tapping a swatch calls setEdgePalette and re-highlights", () => {
+    edge = {};
+    refreshContextBar();
+    send(swatches()[3]!, "pointerup"); // palette 4
+    expect(setEdgePalette).toHaveBeenCalledWith(4);
+    expect(activeOf(swatches())).toBe(3); // sync() rebuilt against the mock's write
+  });
+
+  it("tapping delete calls deleteSelectedEdge and the row disappears", () => {
+    boxes = [{ id: "a", shape: 2 }];
+    edge = {};
+    refreshContextBar();
+    send(deleteBtn(), "pointerup");
+    expect(deleteSelectedEdge).toHaveBeenCalledTimes(1);
+    // The mock clears the edge slot itself, exactly as the real
+    // keys.ts function clears selectedEdge() — sync() then falls back
+    // to the shape row.
+    expect(bar().querySelector(".ctx-edge-actions")).toBeNull();
+    expect(shapeBtns().length).toBe(4);
+  });
+
+  it("an edge selection takes priority even if a box selection is also present", () => {
+    // Not reachable via touch (selecting an edge always clears
+    // `selected` first), but the branch itself should not depend on
+    // that invariant holding upstream.
+    boxes = [{ id: "a", shape: 2 }];
+    selected.add("a");
+    edge = {};
+    refreshContextBar();
+    expect(shapeBtns().length).toBe(0);
+    expect(deleteBtn()).toBeTruthy();
   });
 });
 

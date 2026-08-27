@@ -1316,6 +1316,14 @@
   #contextBar .ctx-swatch.active {
     box-shadow: 0 0 0 2px #07f;
   }
+  /* Edge delete button (cursor mode, edge selected): same chrome as
+     every other bar button, just tinted to read as destructive. */
+  #contextBar .ctx-edge-actions button {
+    color: #b91c1c;
+  }
+  #contextBar .ctx-edge-actions button:hover {
+    background: #fee2e2; color: #991b1b;
+  }
 
 /* Embed mode (?embed=1, src/editor/embed.ts): the editor inside a
    short host-page iframe. Help, version and feedback are host-page

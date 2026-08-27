@@ -60,6 +60,13 @@ import { wireFactories } from "./factories.ts";
 import { wireEdit } from "./edit.ts";
 import { wireDefaultShape } from "./default-shape.ts";
 import { wireMouse } from "./mouse.ts";
+import {
+  applyShapeToSelection,
+  deleteSelectedEdge,
+  setEdgePalette,
+  wireKeys,
+} from "./keys.ts";
+import { attachContextBar, wireContextBar } from "./contextbar.ts";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -74,7 +81,7 @@ const FIXTURE: Box[] = [
   { id: "c", label: "C", x: 0, y: 400 },
 ];
 
-interface Edge { from: string; to: string; fromHandle?: string; toHandle?: string }
+interface Edge { from: string; to: string; fromHandle?: string; toHandle?: string; palette?: number }
 interface Map0 { path: string; boxes: Box[]; edges: Edge[]; texts: never[]; lines: never[]; strokes: never[] }
 
 const map: Map0 = { path: "/", boxes: [], edges: [], texts: [], lines: [], strokes: [] };
@@ -169,8 +176,12 @@ beforeAll(() => {
   edges.appendChild(ghost);
   const edgeLabelLayer = div("edge-label-layer", document.body);
   div("zoom-indicator", document.body);
-  // Chrome, as a sibling of the canvas layers — the guard's other side.
-  div("contextBar", document.body);
+  // Chrome, as a sibling of the canvas layers — the guard's other
+  // side. Built for real (attachContextBar(), below) rather than as a
+  // bare placeholder div, so the "touch: edge context bar" suite can
+  // drive its actual palette/delete buttons — onCanvasRegion only
+  // cares that #contextBar sits outside CANVAS_LAYERS, which holds
+  // either way.
 
   const noop = (): void => {};
   const mintId = (): string => "n" + ++mintCounter;
@@ -307,6 +318,31 @@ beforeAll(() => {
     setSelectedEdge: (e) => { state.selectedEdge = e as Edge | null; },
   });
   attachTouchListeners();
+
+  wireKeys({
+    canvas,
+    ghostLine: ghost,
+    currentMap: () => map as never,
+    findTextById: () => undefined,
+    selected,
+    selectedEdge: () => state.selectedEdge as never,
+    setSelectedEdge: (e) => { state.selectedEdge = e as Edge | null; },
+    link: () => state.link as never,
+    clearLink: () => { state.link = null; },
+    setDropTargetId: (id) => { state.dropId = id; },
+    setDropTargetHandle: (h) => { state.dropHandle = h; },
+    clearProximity: () => clearProximity(),
+    setStatus: noop,
+  });
+  wireContextBar({
+    selected,
+    currentMap: () => map as never,
+    applyShapeToSelection,
+    selectedEdge: () => state.selectedEdge as never,
+    setEdgePalette,
+    deleteSelectedEdge,
+  });
+  attachContextBar();
 });
 
 beforeEach(() => {
@@ -811,5 +847,70 @@ describe("touch: reaching an edge", () => {
     // hit fine pointers as well.
     const outside = html.replace(withEdgeHit[0]!, "");
     expect(/\.edge-hit\s*\{[^}]*stroke-width/.test(outside)).toBe(false);
+  });
+
+  // ---------------------------------------------------------------
+  // The touch context bar's edge cluster (contextbar.ts): the last
+  // gap a still tap left open. Selecting works (above); a touch-only
+  // user still had no way to recolour or delete what they selected —
+  // both already worked from a keyboard (keys.ts's applyPalette /
+  // Delete), this only adds the touch surface for them.
+  //
+  // Button taps are dispatched directly as pointerup+click (not
+  // through `fire`'s touchstart/touchend, which drives the CANVAS
+  // gesture machinery) — contextbar.ts's bindActivate listens for
+  // exactly that pair, same as contextbar.test.ts.
+  // ---------------------------------------------------------------
+
+  const ctxBar = (): HTMLElement => byId("contextBar");
+  const ctxSwatches = (): HTMLButtonElement[] =>
+    Array.from(ctxBar().querySelectorAll<HTMLButtonElement>(".ctx-swatch"));
+  const ctxDeleteBtn = (): HTMLButtonElement | null =>
+    ctxBar().querySelector<HTMLButtonElement>(".ctx-edge-actions button");
+  const tapCtl = (el: Element): void => {
+    el.dispatchEvent(new Event("pointerup", { bubbles: true, cancelable: true }));
+    el.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+  };
+
+  it("selecting an edge swaps the context bar's shape row for a palette + delete row", () => {
+    const { el } = edge();
+    expect(ctxBar().querySelector(".ctx-shapes")).toBeTruthy(); // nothing selected yet
+    tapEdge(el);
+    expect(ctxBar().querySelector(".ctx-shapes")).toBeNull();
+    expect(ctxSwatches().length).toBe(9);
+    expect(ctxDeleteBtn()).toBeTruthy();
+  });
+
+  it("tapping a context-bar swatch recolours the edge and rebuilds the edge layer", () => {
+    const { data, el } = edge();
+    tapEdge(el);
+    // Palette bakes into the edge label element at creation time
+    // (makeEdgeLabelEl) — a correct fix rebuilds the layer, so the
+    // group element itself must NOT be the same object afterwards.
+    // (A `applyClasses()`-only "optimization" here is the exact bug
+    // the palette-write gotcha warns about.)
+    tapCtl(ctxSwatches()[4]!); // palette 5
+    expect(data.palette).toBe(5);
+    const rebuilt = document.querySelector<SVGGElement>("#edge-layer .edge-group");
+    expect(rebuilt).toBeTruthy();
+    expect(rebuilt).not.toBe(el);
+    expect(rebuilt!.classList.contains("selected")).toBe(true);
+    // The bar re-highlights the new palette after the rebuild.
+    const active = ctxSwatches().findIndex((b) => b.classList.contains("active"));
+    expect(active).toBe(4);
+  });
+
+  it("tapping the context-bar delete button removes the edge and clears selection", () => {
+    const { el } = edge();
+    tapEdge(el);
+    expect(map.edges.length).toBe(1);
+    tapCtl(ctxDeleteBtn()!);
+    expect(map.edges.length).toBe(0);
+    expect(state.selectedEdge).toBeNull();
+    expect(document.querySelector("#edge-layer .edge-group")).toBeNull();
+    // The row disappears with the selection — sync() falls back to
+    // the (now-empty-selection) shape row.
+    expect(ctxBar().querySelector(".ctx-edge-actions")).toBeNull();
+    expect(ctxBar().querySelector(".ctx-shapes")).toBeTruthy();
   });
 });
