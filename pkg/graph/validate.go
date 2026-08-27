@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Validate runs semantic checks the .flowgo parser doesn't perform.
@@ -225,8 +226,8 @@ func validateMap(m NamedMap) []error {
 		if !validShape(b.Shape) {
 			errs = append(errs, fmt.Errorf("map %q: box %q has invalid shape %d (allowed: 0 rectangle, 1 hexagon, 2 circle, 3 triangle)", m.Path, b.ID, b.Shape))
 		}
-		if len(b.Label) > MaxLabelLen {
-			errs = append(errs, fmt.Errorf("map %q: box %q label is %d chars (cap is %d)", m.Path, b.ID, len(b.Label), MaxLabelLen))
+		if n := utf8.RuneCountInString(b.Label); n > MaxLabelLen {
+			errs = append(errs, fmt.Errorf("map %q: box %q label is %d chars (cap is %d)", m.Path, b.ID, n, MaxLabelLen))
 		}
 	}
 
@@ -249,8 +250,8 @@ func validateMap(m NamedMap) []error {
 		if !validPalette(e.Palette) {
 			errs = append(errs, fmt.Errorf("map %q: edge[%d] has invalid palette %d", m.Path, i, e.Palette))
 		}
-		if len(e.Label) > MaxLabelLen {
-			errs = append(errs, fmt.Errorf("map %q: edge[%d] label is %d chars (cap is %d)", m.Path, i, len(e.Label), MaxLabelLen))
+		if n := utf8.RuneCountInString(e.Label); n > MaxLabelLen {
+			errs = append(errs, fmt.Errorf("map %q: edge[%d] label is %d chars (cap is %d)", m.Path, i, n, MaxLabelLen))
 		}
 	}
 
@@ -269,8 +270,8 @@ func validateMap(m NamedMap) []error {
 		if !validFont(t.Font) {
 			errs = append(errs, fmt.Errorf("map %q: text %q has invalid font %d", m.Path, t.ID, t.Font))
 		}
-		if len(t.Label) > MaxLabelLen {
-			errs = append(errs, fmt.Errorf("map %q: text %q label is %d chars (cap is %d)", m.Path, t.ID, len(t.Label), MaxLabelLen))
+		if n := utf8.RuneCountInString(t.Label); n > MaxLabelLen {
+			errs = append(errs, fmt.Errorf("map %q: text %q label is %d chars (cap is %d)", m.Path, t.ID, n, MaxLabelLen))
 		}
 	}
 	for _, l := range m.Lines {

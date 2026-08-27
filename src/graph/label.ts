@@ -21,6 +21,30 @@ export interface NormalizeResult {
 // Match any whitespace *except* newline. Equivalent to \s minus \n.
 const NON_NEWLINE_WS = /[^\S\n]+/g;
 
+// Counts and truncates by Unicode codepoint, not UTF-16 code unit.
+// Plain `string.length` / `string.slice` count UTF-16 units, so a
+// label built from astral-plane characters (many emoji, some CJK
+// extension characters) reaches MAX_LABEL_LEN at half as many visible
+// characters as intended, and a naive `.slice(0, cap)` can cut a
+// surrogate pair in half, producing an unpaired surrogate that mangles
+// on the next render or re-encode. Iterating a string with `for...of`
+// (like the spread here) walks whole codepoints, matching
+// pkg/graph.NormalizeLabel's `[]rune` cap in label.go — the two must
+// agree since MAX_LABEL_LEN / MaxLabelLen is one shared cap enforced
+// on both sides of the wire.
+const codePointLength = (s: string): number => Array.from(s).length;
+
+const codePointSlice = (s: string, end: number): string => {
+  let out = "";
+  let n = 0;
+  for (const ch of s) {
+    if (n >= end) break;
+    out += ch;
+    n++;
+  }
+  return out;
+};
+
 export const normalizeLabel = (
   raw: string | null | undefined,
   opts: NormalizeOptions = {},
@@ -37,8 +61,8 @@ export const normalizeLabel = (
   while (start < end && lines[start] === "") start++;
   while (end > start && lines[end - 1] === "") end--;
   const collapsed = lines.slice(start, end).join("\n");
-  if (collapsed.length > cap) {
-    return { label: collapsed.slice(0, cap), truncated: true };
+  if (codePointLength(collapsed) > cap) {
+    return { label: codePointSlice(collapsed, cap), truncated: true };
   }
   return { label: collapsed, truncated: false };
 };

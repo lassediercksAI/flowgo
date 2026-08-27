@@ -92,4 +92,29 @@ describe("normalizeLabel", () => {
       'func main() {\nfmt.Println("hi")\n}',
     );
   });
+
+  // Astral-plane characters (many emoji, e.g. U+1F600 😀) are two
+  // UTF-16 code units but one Unicode codepoint. Capping by
+  // `string.length` (UTF-16 units) hits MAX_LABEL_LEN at half the
+  // intended visible-character count, and `.slice(0, cap)` can split
+  // a surrogate pair in half, leaving an unpaired surrogate in the
+  // output. This must count and truncate by codepoint, matching
+  // pkg/graph.NormalizeLabel's `[]rune` cap — the two share one
+  // MAX_LABEL_LEN and must agree on what it counts.
+  it("caps by Unicode codepoint, not UTF-16 code unit", () => {
+    const emoji = "😀".repeat(MAX_LABEL_LEN + 10); // each is 2 UTF-16 units
+    const result = normalizeLabel(emoji);
+    expect(result.truncated).toBe(true);
+    expect(Array.from(result.label).length).toBe(MAX_LABEL_LEN);
+    // No unpaired surrogate: the string must still be valid UTF-16,
+    // i.e. re-splitting into codepoints and joining reproduces it.
+    expect(Array.from(result.label).join("")).toBe(result.label);
+  });
+
+  it("does not truncate a label with exactly MAX_LABEL_LEN codepoints of emoji", () => {
+    const emoji = "😀".repeat(MAX_LABEL_LEN);
+    const result = normalizeLabel(emoji);
+    expect(result.truncated).toBe(false);
+    expect(Array.from(result.label).length).toBe(MAX_LABEL_LEN);
+  });
 });

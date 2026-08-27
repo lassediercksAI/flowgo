@@ -128,6 +128,56 @@ describe("parseFlowgo", () => {
     expect(() => parseFlowgo("anchor nope\n")).toThrow(/unknown node/);
   });
 
+  // A leading UTF-8 BOM is stripped rather than rejected, matching
+  // pkg/graph.Parse (which used to error on it — see
+  // TestLeadingBOMIsStripped in pkg/graph/parity_test.go). It already
+  // works here because String.prototype.trim() treats U+FEFF as
+  // whitespace, so this pins the existing (correct) behavior against
+  // regression rather than fixing a bug on this side.
+  it("tolerates a leading BOM", () => {
+    const g = parseFlowgo("﻿version 1.2.3\nnode b1 hi 0 0\n");
+    expect(g.version).toBe("1.2.3");
+    expect(g.maps![0]!.boxes!).toHaveLength(1);
+  });
+
+  // Splitting on /\r\n|\r|\n/ already treats a lone `\r` as a line
+  // break here; pins the same behavior pkg/graph.Parse was fixed to
+  // match (TestLoneCarriageReturnSplitsLikeTS).
+  it("treats a lone carriage return as a line ending", () => {
+    const g = parseFlowgo("node b1 hi 0 0\rnode b2 lo 10 10\r");
+    expect(g.maps![0]!.boxes!).toHaveLength(2);
+    expect(g.maps![0]!.boxes!.map((b) => b.id)).toEqual(["b1", "b2"]);
+  });
+
+  // Numeric grammar pkg/graph.Parse now shares (parseFloatStrict /
+  // parseIntStrict in pkg/graph/numparse.go): no Inf/NaN words, no
+  // "1_000" digit separators, no hex, no leading "+", and — the case
+  // that needed fixing here — no surrounding whitespace (JS's
+  // Number() silently trims it, so " 12 " used to parse as 12).
+  it.each(["Inf", "-Inf", "NaN", "1_000", "0x1p4", "0x10", "+5", "Infinity"])(
+    "rejects numeric token %j",
+    (tok) => {
+      expect(() => parseFlowgo(`node b1 hi ${tok} 0\n`)).toThrow(FlowgoParseError);
+    },
+  );
+
+  it.each(['"12 "', '" 12"', '" 12 "'])(
+    "rejects whitespace-padded quoted numeric token %s",
+    (tok) => {
+      expect(() => parseFlowgo(`node b1 hi ${tok} 0\n`)).toThrow(FlowgoParseError);
+    },
+  );
+
+  it("still accepts plain decimal, negative, and exponent numbers", () => {
+    for (const tok of ["0", "-0", "5", "-5", "3.14", "-3.14", "1e10", "1E10", "1e-10", "1.5e+10", "1000000", "0.0001"]) {
+      expect(() => parseFlowgo(`node b1 hi ${tok} 0\n`)).not.toThrow();
+    }
+  });
+
+  it("rejects a `+`-prefixed integer field (palette)", () => {
+    expect(() => parseFlowgo("node b1 hi 0 0 4 +5\n")).toThrow(FlowgoParseError);
+  });
+
   it("round-trips through serializeGraph for a graph exercising every entity", () => {
     const original: ConcreteGraph = {
       version: "0.3.0",

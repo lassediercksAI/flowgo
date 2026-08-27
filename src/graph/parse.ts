@@ -53,9 +53,26 @@ const splitEndpoint = (s: string): [string, string] => {
   return i >= 0 ? [s.slice(0, i), s.slice(i + 1)] : [s, ""];
 };
 
+// Matches STRICT_FLOAT_RE in pkg/graph/numparse.go — the one numeric
+// grammar both parsers accept. Plain `Number(s)` is more permissive
+// than this in ways that don't match pkg/graph's strconv.ParseFloat:
+// it trims surrounding whitespace ("` 12 `" -> 12) and accepts bare
+// hex ("0x10" -> 16), so a hand-crafted file used to parse here and
+// fail (or parse differently) in Go. Neither form is ever emitted by
+// either serializer, so rejecting both closes the gap instead of
+// chasing it wider.
+const STRICT_NUMBER_RE = /^-?\d+(\.\d+)?([eE][-+]?\d+)?$/;
+
 const num = (s: string, lineNo: number, what: string): number => {
+  if (!STRICT_NUMBER_RE.test(s)) {
+    throw new FlowgoParseError(`line ${lineNo}: bad ${what}: ${JSON.stringify(s)}`);
+  }
   const v = Number(s);
-  if (!Number.isFinite(v) || s.trim() === "") {
+  // Guards a digit string long enough to overflow to Infinity (e.g. a
+  // "1" followed by hundreds of zeros) — the regex alone can't rule
+  // that out, but Infinity is exactly as unusable here as the word
+  // "Infinity" itself would be.
+  if (!Number.isFinite(v)) {
     throw new FlowgoParseError(`line ${lineNo}: bad ${what}: ${JSON.stringify(s)}`);
   }
   return v;

@@ -416,3 +416,44 @@ func mapsEquivalent(a, b NamedMap) bool {
 	}
 	return true
 }
+
+// TestLabelCapCountsCodepointsNotBytes pins the label cap to a single
+// definition. validateMap used to count with `len(label)` — Go's
+// string length in BYTES — while NormalizeLabel (label.go) already
+// capped by `[]rune` (Unicode codepoints), and the TS editor caps by
+// UTF-16 code units (src/graph/label.ts). Three different counts for
+// one constant meant a label NormalizeLabel had already capped to
+// exactly MaxLabelLen runes could still fail Validate, because
+// multi-byte runes (any non-ASCII character) make the byte count
+// larger than the rune count for the same string.
+func TestLabelCapCountsCodepointsNotBytes(t *testing.T) {
+	// 500 codepoints, each 3 bytes in UTF-8 (1500 bytes total): well
+	// past MaxLabelLen if counted in bytes, exactly at the cap if
+	// counted in codepoints (runes) — which is what NormalizeLabel
+	// guarantees callers already produced.
+	label := strings.Repeat("日", MaxLabelLen)
+	if n := len([]rune(label)); n != MaxLabelLen {
+		t.Fatalf("test setup: label has %d runes, want %d", n, MaxLabelLen)
+	}
+	if n := len(label); n <= MaxLabelLen {
+		t.Fatalf("test setup: label is only %d bytes, need > %d to exercise the bug", n, MaxLabelLen)
+	}
+
+	g := Graph{Maps: []NamedMap{{
+		Path:  "/",
+		Boxes: []Box{{ID: "b1", Label: label}, {ID: "b2", Label: "x"}},
+		Texts: []Text{{ID: "t1", Label: label}},
+		Edges: []Edge{{From: "b1", To: "b2", Label: label}},
+	}}}
+	if errs := Validate(g); len(errs) > 0 {
+		t.Errorf("a label at exactly MaxLabelLen codepoints was rejected: %v", errs)
+	}
+
+	// One codepoint over the cap must still be rejected.
+	over := label + "本"
+	gOver := Graph{Maps: []NamedMap{{Path: "/", Boxes: []Box{{ID: "b1", Label: over}}}}}
+	errs := Validate(gOver)
+	if !containsSubstring(errs, "cap is") {
+		t.Errorf("a label one codepoint over the cap was not rejected: %v", errs)
+	}
+}
