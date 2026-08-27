@@ -85,3 +85,44 @@ func TestVersionRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+// TestVersionWithSpaceRoundTrips pins the bug where Serialize wrote
+// `version <ver>` unquoted: a Version containing a space (or any other
+// tokenizer-significant byte) got truncated to its first word on the
+// next Parse, because the line-based tokenizer reads everything after
+// `version` as whitespace-delimited tokens and Parse only keeps
+// toks[1]. `version "a b"` used to write as `version a b`, which
+// re-parsed as Version == "a" — silently losing " b" on every
+// subsequent load, forever, with no error.
+func TestVersionWithSpaceRoundTrips(t *testing.T) {
+	for _, v := range []string{
+		"a b",
+		"0.0.23 (custom build)",
+		"has\ttab",
+		`has "quotes"`,
+		`has\backslash`,
+	} {
+		t.Run(v, func(t *testing.T) {
+			g := Graph{
+				Version: v,
+				Maps:    []NamedMap{{Path: "/", Boxes: []Box{{ID: "b1", Label: "hi"}}}},
+			}
+			out := Serialize(g)
+			back, err := Parse(out)
+			if err != nil {
+				t.Fatalf("re-parse: %v\nbytes: %q", err, out)
+			}
+			if back.Version != v {
+				t.Fatalf("version %q round-tripped as %q (serialized bytes: %q)", v, back.Version, out)
+			}
+			// ValidateWritable must not have missed this: either the
+			// bytes above round-trip cleanly (they do, since Serialize
+			// quotes it), or ValidateWritable would need to reject it.
+			// We chose quoting, so writable-ness holds unconditionally
+			// for Version.
+			if errs := ValidateWritable(g); len(errs) > 0 {
+				t.Fatalf("ValidateWritable rejected a version that serializes and re-parses fine: %v", errs)
+			}
+		})
+	}
+}

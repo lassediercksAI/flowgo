@@ -193,6 +193,19 @@ func Parse(s string) (Graph, error) {
 	cur := findOrCreate("/")
 
 	sc := bufio.NewScanner(strings.NewReader(s))
+	// bufio.Scanner defaults to a 64KiB max token (line) size with no
+	// Buffer() call. That's reachable in practice — a single `stroke`
+	// directive with enough freehand points, or a `line` with enough
+	// mids, easily clears 64KiB — and the failure mode was bad on two
+	// counts: sc.Err() returns bufio.ErrTooLong with no line number,
+	// and every directive read before the oversized line stayed in g,
+	// so the caller got a silently truncated graph back alongside the
+	// error instead of nothing. raise the ceiling far past anything a
+	// real map produces (src/graph/parse.ts, which this must match
+	// byte-for-byte, has no line-length limit at all) and, below, turn
+	// any remaining scan error into an atomic failure with a line
+	// number instead of a partial graph.
+	sc.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 	lineNo := 0
 	for sc.Scan() {
 		lineNo++
@@ -574,7 +587,14 @@ func Parse(s string) (Graph, error) {
 			return g, fmt.Errorf("line %d: unknown directive %q", lineNo, toks[0])
 		}
 	}
-	return g, sc.Err()
+	if err := sc.Err(); err != nil {
+		// Atomic failure: never hand back a graph that silently dropped
+		// everything from the oversized/unreadable line onward. lineNo
+		// is the count of lines successfully scanned before the error,
+		// so the failing line is the next one.
+		return Graph{}, fmt.Errorf("line %d: %w", lineNo+1, err)
+	}
+	return g, nil
 }
 
 // Serialize emits the .flowgo text format. Empty maps are dropped —
@@ -586,7 +606,13 @@ func Parse(s string) (Graph, error) {
 func Serialize(g Graph) string {
 	var b strings.Builder
 	if g.Version != "" {
-		fmt.Fprintf(&b, "version %s\n", g.Version)
+		// Quoted like any other free-text value: an unquoted version
+		// containing a space (or any other tokenizer-significant
+		// character) would split into extra tokens on the way back in,
+		// silently truncating Graph.Version to its first word. quote()
+		// is a no-op for the common case (a bare semver string), so
+		// every existing file's first line is untouched.
+		fmt.Fprintf(&b, "version %s\n", quote(g.Version))
 	}
 	// Document default shape: emitted only when set, directly after
 	// version (the slot the legacy `hexagons on` used to occupy).
@@ -652,7 +678,7 @@ func Serialize(g Graph) string {
 		for _, box := range m.Boxes {
 			emitPalette := box.Palette >= 2 && box.Palette <= 9
 			emitFont := box.Font >= 2 && box.Font <= 9
-			fmt.Fprintf(&b, "node %s %s %g %g", quoteID(box.ID), quote(box.Label), box.X, box.Y)
+			fmt.Fprintf(&b, "node %s %s %s %s", quoteID(box.ID), quote(box.Label), jsNumberString(box.X), jsNumberString(box.Y))
 			// The "4" placeholder fills the vestigial sides slot when
 			// palette/font follow, so old files like `box b1 hi 0 0 4 5`
 			// round-trip positionally.
@@ -677,7 +703,7 @@ func Serialize(g Graph) string {
 		// with src/graph/serialize.ts — keep the two in sync.
 		for _, box := range m.Boxes {
 			if box.W > 0 && box.H > 0 {
-				fmt.Fprintf(&b, "nodesize %s %g %g\n", quoteID(box.ID), box.W, box.H)
+				fmt.Fprintf(&b, "nodesize %s %s %s\n", quoteID(box.ID), jsNumberString(box.W), jsNumberString(box.H))
 			}
 		}
 		for _, box := range m.Boxes {
@@ -726,7 +752,7 @@ func Serialize(g Graph) string {
 			if id == "" {
 				id = fallbackID("t")
 			}
-			fmt.Fprintf(&b, "text %s %s %g %g", quoteID(id), quote(t.Label), t.X, t.Y)
+			fmt.Fprintf(&b, "text %s %s %s %s", quoteID(id), quote(t.Label), jsNumberString(t.X), jsNumberString(t.Y))
 			if emitTPalette || emitTFont {
 				palette := t.Palette
 				if !emitTPalette {
@@ -747,7 +773,7 @@ func Serialize(g Graph) string {
 			if id == "" {
 				id = fallbackID("l")
 			}
-			fmt.Fprintf(&b, "line %s %g %g %g %g", quoteID(id), l.X1, l.Y1, l.X2, l.Y2)
+			fmt.Fprintf(&b, "line %s %s %s %s %s", quoteID(id), jsNumberString(l.X1), jsNumberString(l.Y1), jsNumberString(l.X2), jsNumberString(l.Y2))
 			hasPal := l.Palette >= 2 && l.Palette <= 9
 			if hasPal || len(l.Mids) > 0 {
 				palTok := 1
@@ -760,7 +786,7 @@ func Serialize(g Graph) string {
 				if len(m) < 2 {
 					continue
 				}
-				fmt.Fprintf(&b, " %g %g", m[0], m[1])
+				fmt.Fprintf(&b, " %s %s", jsNumberString(m[0]), jsNumberString(m[1]))
 			}
 			b.WriteString("\n")
 		}
@@ -790,7 +816,7 @@ func Serialize(g Graph) string {
 				if len(p) < 2 {
 					continue
 				}
-				fmt.Fprintf(&b, " %g,%g", p[0], p[1])
+				fmt.Fprintf(&b, " %s,%s", jsNumberString(p[0]), jsNumberString(p[1]))
 			}
 			b.WriteString("\n")
 		}
@@ -802,7 +828,7 @@ func Serialize(g Graph) string {
 			if id == "" {
 				id = fallbackID("img")
 			}
-			fmt.Fprintf(&b, "image %s %s %g %g %g %g", quoteID(id), quote(img.Src), img.X, img.Y, img.Width, img.Height)
+			fmt.Fprintf(&b, "image %s %s %s %s %s %s", quoteID(id), quote(img.Src), jsNumberString(img.X), jsNumberString(img.Y), jsNumberString(img.Width), jsNumberString(img.Height))
 			b.WriteString("\n")
 		}
 	}

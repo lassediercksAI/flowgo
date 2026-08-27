@@ -146,3 +146,21 @@ describe("nasty labels", () => {
     expect(g.maps![0]!.boxes![0]!.label).toBe(label);
   });
 });
+
+describe("version with a space", () => {
+  // An unquoted `version <ver>` line tokenizes on whitespace like any
+  // other directive, so a version containing a space used to
+  // truncate to its first word on the next parse — silently, with no
+  // error. Mirrors TestVersionWithSpaceRoundTrips in
+  // pkg/graph/version_directive_test.go.
+  it.each(["a b", "0.0.23 (custom build)", "has\ttab", 'has "quotes"'])(
+    "round-trips %j",
+    (version) => {
+      const g = roundTrip({
+        version,
+        maps: [{ path: "/", boxes: [{ id: "b1", label: "hi", x: 0, y: 0 }] }],
+      });
+      expect(g.version).toBe(version);
+    },
+  );
+});

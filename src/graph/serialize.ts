@@ -155,7 +155,11 @@ export const serializeGraph = (g: ConcreteGraph): string => {
   );
   const multi = maps.length > 1;
   let out = "";
-  if (g.version) out += `version ${g.version}\n`;
+  // Quoted like any other free-text value — an unquoted version
+  // containing a space would tokenize into extra words on the way
+  // back in, silently truncating it to the first one. Mirrors the
+  // same fix in pkg/graph.Serialize (quote() there, flowgoQuote here).
+  if (g.version) out += `version ${flowgoQuote(g.version)}\n`;
   // Document default shape: emitted only when set, directly after
   // version. Part of the byte-parity contract with pkg/graph.
   if (
