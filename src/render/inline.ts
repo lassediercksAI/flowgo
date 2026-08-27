@@ -46,9 +46,26 @@ const STYLE_CSS = `
 .fgi-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .fgi-svg { position: absolute; left: 0; top: 0; overflow: visible; width: 1px; height: 1px; z-index: 1; }
 .fgi-layer { position: absolute; left: 0; top: 0; z-index: 2; }
-.fgi-box { position: absolute; isolation: isolate; min-width: 80px; padding: 0.55em 0.85em; background: #fff; color: #333; border: 2px solid #333; border-radius: 6px; font-size: 14px; line-height: 1.25; text-align: center; white-space: pre-wrap; word-break: break-word; }
+.fgi-box {
+  position: absolute; isolation: isolate; min-width: 80px; padding: 0.55em 0.85em;
+  background: #fff; color: #333; border: 2px solid #333; border-radius: 6px;
+  font-size: 14px; line-height: 1.25; text-align: center;
+  /* white-space: pre (mirrors editor/index.html's .box) keeps the
+     rendered label width driven by the content's own line breaks, not
+     by whatever shrink-to-fit space the absolute positioning happens
+     to leave. .fgi-layer has no width and nothing in normal flow (box
+     children are themselves position: absolute), so its shrink-to-fit
+     computation sees zero available width; with white-space: pre-wrap
+     + word-break: break-word that collapsed every auto-sized box down
+     to a min-content of ~1 character, i.e. the min-width: 80px floor,
+     wrapping labels mid-word. pre keeps min-content == max-content ==
+     the label's own unwrapped width. Explicit sized boxes below
+     override this back to pre-wrap since they need to wrap within a
+     fixed frame instead. */
+  white-space: pre;
+}
 .fgi-box.fgi-has-submap { cursor: pointer; box-shadow: 4px 4px 0 0 #222; }
-.fgi-box.fgi-sized { display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.fgi-box.fgi-sized { display: flex; align-items: center; justify-content: center; overflow: hidden; white-space: pre-wrap; word-break: break-word; }
 .fgi-box.fgi-hex { border: none; background: transparent; box-shadow: none; }
 .fgi-box.fgi-hex::before, .fgi-box.fgi-hex::after { content: ""; position: absolute; inset: 0; pointer-events: none; }
 .fgi-box.fgi-hex::before { clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%); background: #333; z-index: -2; }

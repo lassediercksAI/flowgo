@@ -207,3 +207,127 @@ describe("renderFlowgo: instance lifecycle", () => {
     expect(document.querySelectorAll("#flowgo-inline-style").length).toBe(1);
   });
 });
+
+// An auto-sized box's containing block, .fgi-layer, is absolutely
+// positioned with no width and nothing in normal flow (box children
+// are themselves position: absolute, so they don't contribute to its
+// size) — its shrink-to-fit computation sees zero available width. A
+// plain `textContent` assertion can't see this: the words are all
+// still there, only broken across lines, so it reads identical either
+// way. What actually regressed was which line each word landed on,
+// i.e. the rendered line count for a label with no explicit break.
+//
+// jsdom has no layout engine (offsetWidth/offsetHeight are always 0 —
+// see label-clamp.test.ts's stub), so there is no offsetHeight/lineH
+// division to read a real drawn-line-count off of the way the
+// website's e2e wrappedLabels() helper does in an actual browser
+// (tests/e2e/features/support/marketing.ts). What jsdom *does*
+// resolve correctly is the CSS cascade — getComputedStyle on a
+// rendered .fgi-box reports the real white-space/word-break the
+// browser will use, matched through the real class list by the real
+// injected stylesheet, not a hand-copied guess of it.
+//
+// So this drives a small, standard greedy line-breaker (word-wrap at
+// spaces; word-break: break-word additionally splits a word that
+// alone still doesn't fit) off those real cascaded values, against a
+// plain character budget standing in for "how many characters of
+// width the box has to work with" — which is the exact quantity that
+// collapsed to ~1 in the bug (shrink-to-fit resolving against a
+// zero-width containing block). white-space: pre never wraps except
+// at an authored "\n", regardless of that budget; pre-wrap +
+// break-word wraps at (and inside) words once the budget gets narrow.
+// That is precisely the mechanism the fix changes for unsized boxes.
+const countWrappedLines = (
+  text: string,
+  budget: number,
+  whiteSpace: string,
+  wordBreak: string,
+): number => {
+  const paragraphs = text.split("\n");
+  if (whiteSpace === "pre") return paragraphs.length;
+
+  let lines = 0;
+  for (const para of paragraphs) {
+    const words = para.length > 0 ? para.split(" ") : [""];
+    let col = 0;
+    let lineHasContent = false;
+    for (let word of words) {
+      while (wordBreak === "break-word" && word.length > budget && budget > 0) {
+        if (lineHasContent) {
+          lines += 1;
+          col = 0;
+          lineHasContent = false;
+        }
+        lines += 1; // the budget-sized chunk sliced off below
+        word = word.slice(budget);
+      }
+      const need = word.length + (lineHasContent ? 1 : 0);
+      if (lineHasContent && col + need > budget) {
+        lines += 1;
+        col = word.length;
+      } else {
+        col += need;
+        lineHasContent = true;
+      }
+    }
+    lines += 1; // the paragraph's trailing (or only) line
+  }
+  return lines;
+};
+
+const computedOf = (el: Element): { whiteSpace: string; wordBreak: string } => {
+  const cs = getComputedStyle(el);
+  return { whiteSpace: cs.whiteSpace, wordBreak: cs.wordBreak };
+};
+
+describe("renderFlowgo: auto-sized box label wrapping (regression)", () => {
+  it("sanity check: the simulator itself wraps pre-wrap + break-word onto multiple lines at a narrow budget", () => {
+    // Guards against the regression test below passing vacuously
+    // because countWrappedLines always returns 1 no matter what it's
+    // fed — this is the pre-fix behaviour (bug), asserted directly.
+    expect(countWrappedLines("Editor (browser)", 3, "pre-wrap", "break-word")).toBeGreaterThan(1);
+  });
+
+  it("an auto-sized box's label renders on one line at any container width, using the box's real cascaded CSS", () => {
+    renderFlowgo(container, 'node a "Editor (browser)" 0 0\n');
+    const box = container.querySelector(".fgi-box")!;
+    expect(box.classList.contains("fgi-sized")).toBe(false);
+    expect(box.textContent).toBe("Editor (browser)");
+    const { whiteSpace, wordBreak } = computedOf(box);
+    // Exercise a spread of budgets down to and including the width
+    // that collapsed every hero box to the min-width: 80px floor in
+    // the reported bug (a handful of characters at 14px/16px type).
+    for (const budget of [1, 2, 3, 5, 8, 40]) {
+      expect(
+        countWrappedLines(box.textContent ?? "", budget, whiteSpace, wordBreak),
+        `budget=${budget}`,
+      ).toBe(1);
+    }
+  });
+
+  it("an explicit line break in the label still renders as its own line, at any width", () => {
+    renderFlowgo(container, 'node a "first\\nsecond" 0 0\n');
+    const box = container.querySelector(".fgi-box")!;
+    expect(box.textContent).toBe("first\nsecond");
+    const { whiteSpace, wordBreak } = computedOf(box);
+    // Two authored lines stay two lines regardless of the (irrelevant,
+    // for white-space: pre) budget — an editable Shift+Enter break is
+    // content, not a wrapping artefact the fix should suppress.
+    for (const budget of [1, 40]) {
+      expect(countWrappedLines(box.textContent ?? "", budget, whiteSpace, wordBreak)).toBe(2);
+    }
+  });
+
+  it("a fixed-frame box (special shape) still wraps its label within its frame", () => {
+    renderFlowgo(container, 'node a "a long label that needs to wrap" 0 0\nnodeshape a 1\n');
+    const box = container.querySelector(".fgi-box")!;
+    expect(box.classList.contains("fgi-sized")).toBe(true);
+    const { whiteSpace, wordBreak } = computedOf(box);
+    expect(whiteSpace).toBe("pre-wrap");
+    expect(wordBreak).toBe("break-word");
+    // With a real fixed frame the label is meant to wrap to fit it —
+    // unlike the unsized case above, more than one line here is
+    // correct, not a regression.
+    expect(countWrappedLines(box.textContent ?? "", 6, whiteSpace, wordBreak)).toBeGreaterThan(1);
+  });
+});
