@@ -28,6 +28,7 @@ import {
   strokePathD,
 } from "../index.ts";
 import { hasSubmapContent } from "../graph/submap.ts";
+import { isSafeImageSrc } from "../graph/image-src.ts";
 import { resolveFont, resolvePalette } from "../graph/palette.ts";
 import { endpointAnchor, type ElSize } from "./anchors.ts";
 // The one linePathD: movers.ts owns it (it needs the same geometry to
@@ -667,7 +668,12 @@ const materializeImage = (
   el.style.width = img.width + "px";
   el.style.height = img.height + "px";
   const im = document.createElement("img");
-  im.src = img.src;
+  // Defense-in-depth: a .flowgo file can be opened locally (dragged
+  // into the CLI-served editor) without ever passing through the
+  // server's upload validation, so a hand-crafted `image` directive
+  // could carry a javascript:/data: src. Refuse to assign those to
+  // img.src rather than trust the file.
+  im.src = isSafeImageSrc(img.src) ? img.src : "";
   im.draggable = false;
   im.alt = "";
   el.appendChild(im);

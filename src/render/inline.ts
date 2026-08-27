@@ -19,6 +19,7 @@
 
 import {
   hasSubmapContent,
+  isSafeImageSrc,
   parseFlowgo,
   rectAnchor,
   resolveFont,
@@ -286,7 +287,13 @@ export const renderFlowgo = (
       el.style.width = img.width + "px";
       el.style.height = img.height + "px";
       const im = document.createElement("img");
-      im.src = resolveImageSrc(img.src, mediaBaseUrl);
+      // Defense-in-depth: this embed renders arbitrary .flowgo text
+      // handed to it by the host page (Claude Artifacts, docs sites,
+      // editor plugins) with no server-side upload validation in the
+      // path at all. Refuse javascript:/data: schemes rather than
+      // trust the file.
+      const resolved = resolveImageSrc(img.src, mediaBaseUrl);
+      im.src = isSafeImageSrc(resolved) ? resolved : "";
       im.alt = "";
       el.appendChild(im);
       layer.appendChild(el);

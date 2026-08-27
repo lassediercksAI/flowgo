@@ -13,3 +13,4 @@ export * from "./graph/submap";
 export * from "./graph/serialize";
 export * from "./graph/parse";
 export * from "./graph/hex";
+export * from "./graph/image-src";

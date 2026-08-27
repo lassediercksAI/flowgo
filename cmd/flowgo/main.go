@@ -52,12 +52,21 @@ const mediaDirName = "flowgo-media"
 // mediaExtByType maps accepted image content-types to the file
 // extension used for content-addressed storage. Anything not listed is
 // rejected — we don't want to write arbitrary uploaded bytes to disk.
+//
+// SVG is deliberately NOT accepted. Stored as image/svg+xml and
+// re-served byte-for-byte, an uploaded SVG can carry a <script> or an
+// onload handler that executes in this server's origin the moment a
+// browser is pointed at the raw asset URL (a direct link/share, an
+// <object>/<iframe> embed, or any other non-<img> consumer — <img>
+// itself disables SVG scripting by spec, but nothing here controls
+// how the URL this endpoint hands back gets used later). There's no
+// hand-maintained sanitizer in front of it, so the only safe answer is
+// not to store SVG at all.
 var mediaExtByType = map[string]string{
-	"image/png":     ".png",
-	"image/jpeg":    ".jpg",
-	"image/gif":     ".gif",
-	"image/webp":    ".webp",
-	"image/svg+xml": ".svg",
+	"image/png":  ".png",
+	"image/jpeg": ".jpg",
+	"image/gif":  ".gif",
+	"image/webp": ".webp",
 }
 
 // mediaTypeByExt is the reverse map, used to set Content-Type when
@@ -67,7 +76,6 @@ var mediaTypeByExt = map[string]string{
 	".jpg":  "image/jpeg",
 	".gif":  "image/gif",
 	".webp": "image/webp",
-	".svg":  "image/svg+xml",
 }
 
 func mediaDir() string {
@@ -607,24 +615,32 @@ const maxSaveBytes = 32 << 20 // 32 MiB
 // at/over the cap, further uploads are refused.
 const maxMediaDirBytes = 512 << 20 // 512 MiB
 
-// handleMediaUpload accepts a raw image body (Content-Type set to the
-// image MIME) and writes it into the flowgo-media/ folder under a
-// content-addressed name: sha256(bytes)[:16] + ext. Identical uploads
+// contentAddressHexLen is how many hex characters of the sha256 digest
+// name a stored asset by (32 hex chars = 128 bits). Short enough to
+// keep filenames readable, long enough that collisions between two
+// DIFFERENT uploads (which would silently serve one visitor's image
+// under a URL an attacker chose the bytes for) aren't a practical
+// concern — the previous 16-char/64-bit truncation left a birthday
+// bound low enough to be worth tightening even though nothing here
+// currently depends on the name being unguessable.
+const contentAddressHexLen = 32
+
+// handleMediaUpload accepts a raw image body and writes it into the
+// flowgo-media/ folder under a content-addressed name:
+// sha256(bytes)[:contentAddressHexLen] + ext. Identical uploads
 // collapse to one file (dedup). Responds {"src":"flowgo-media/<name>"}
 // — the relative path the editor stores in the .flowgo file.
+//
+// The stored type is decided from the ACTUAL BYTES (http.
+// DetectContentType), never the client-supplied Content-Type header:
+// a client can label any bytes however it likes, and honouring that
+// label would let mislabeled content (most importantly an SVG-with-
+// <script> declared as image/png) land on disk and later be served
+// back under an extension/Content-Type that doesn't match what it
+// actually is.
 func handleMediaUpload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", 405)
-		return
-	}
-	ct := r.Header.Get("Content-Type")
-	// Strip any "; charset=..." parameter before the map lookup.
-	if i := strings.IndexByte(ct, ';'); i >= 0 {
-		ct = strings.TrimSpace(ct[:i])
-	}
-	ext, ok := mediaExtByType[ct]
-	if !ok {
-		http.Error(w, "unsupported image type: "+ct, http.StatusUnsupportedMediaType)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxMediaBytes)
@@ -637,8 +653,21 @@ func handleMediaUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "empty body", 400)
 		return
 	}
+	sniffed := http.DetectContentType(data)
+	// DetectContentType appends "; charset=..." for text-ish types
+	// (which is exactly how SVG bytes come back — text/xml or
+	// text/plain — since it has no magic-byte signature of its own);
+	// strip that before the map lookup.
+	if i := strings.IndexByte(sniffed, ';'); i >= 0 {
+		sniffed = strings.TrimSpace(sniffed[:i])
+	}
+	ext, ok := mediaExtByType[sniffed]
+	if !ok {
+		http.Error(w, "unsupported image type: "+sniffed, http.StatusUnsupportedMediaType)
+		return
+	}
 	sum := sha256.Sum256(data)
-	name := hex.EncodeToString(sum[:])[:16] + ext
+	name := hex.EncodeToString(sum[:])[:contentAddressHexLen] + ext
 
 	mediaMu.Lock()
 	defer mediaMu.Unlock()
