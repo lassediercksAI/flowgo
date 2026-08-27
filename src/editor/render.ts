@@ -28,6 +28,7 @@ import {
   strokePathD,
 } from "../index.ts";
 import { hasSubmapContent } from "../graph/submap.ts";
+import { isSafeImageSrc } from "../graph/image-src.ts";
 import { resolveFont, resolvePalette } from "../graph/palette.ts";
 import { endpointAnchor, type ElSize } from "./anchors.ts";
 // The one linePathD: movers.ts owns it (it needs the same geometry to
@@ -667,7 +668,10 @@ const materializeImage = (
   el.style.width = img.width + "px";
   el.style.height = img.height + "px";
   const im = document.createElement("img");
-  im.src = img.src;
+  // Defense in depth (see graph/image-src.ts): a crafted .flowgo file
+  // opened locally never touches a server-side validator, so this is
+  // the last check between an attacker-controlled src and img.src.
+  if (isSafeImageSrc(img.src)) im.src = img.src;
   im.draggable = false;
   im.alt = "";
   el.appendChild(im);

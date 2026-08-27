@@ -28,6 +28,7 @@ import {
   type ConcreteGraph,
   type ConcreteMap,
 } from "../index.ts";
+import { isSafeImageSrc } from "../graph/image-src.ts";
 import { fixedShapeSize } from "../graph/shape.ts";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -286,7 +287,15 @@ export const renderFlowgo = (
       el.style.width = img.width + "px";
       el.style.height = img.height + "px";
       const im = document.createElement("img");
-      im.src = resolveImageSrc(img.src, mediaBaseUrl);
+      // Defense in depth (see graph/image-src.ts): validate the RAW
+      // src before resolveImageSrc ever combines it with mediaBaseUrl
+      // — a malicious relative src ("../../secret") would otherwise
+      // reach the join, and when no base is configured at all the raw
+      // value is returned untouched, so this is the only check either
+      // way.
+      if (isSafeImageSrc(img.src)) {
+        im.src = resolveImageSrc(img.src, mediaBaseUrl);
+      }
       im.alt = "";
       el.appendChild(im);
       layer.appendChild(el);

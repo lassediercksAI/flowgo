@@ -227,6 +227,41 @@ func TestValidate_CatchesEachViolation(t *testing.T) {
 			g:    Graph{Maps: []NamedMap{{Path: "/", Images: []Image{{ID: "i1", Src: "a.png", Width: 0, Height: 10}}}}},
 			want: "non-positive size",
 		},
+		{
+			name: "image src is a javascript: URL",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Images: []Image{{ID: "i1", Src: "javascript:alert(document.cookie)", Width: 10, Height: 10}}}}},
+			want: "disallowed scheme",
+		},
+		{
+			name: "image src is a vbscript: URL",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Images: []Image{{ID: "i1", Src: "vbscript:msgbox(1)", Width: 10, Height: 10}}}}},
+			want: "disallowed scheme",
+		},
+		{
+			name: "image src is a file: URL",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Images: []Image{{ID: "i1", Src: "file:///etc/passwd", Width: 10, Height: 10}}}}},
+			want: "disallowed scheme",
+		},
+		{
+			name: "image src is a data: URI carrying inline SVG",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Images: []Image{{ID: "i1", Src: "data:image/svg+xml;base64,PHN2ZyBvbmxvYWQ9ImFsZXJ0KDEpIi8+", Width: 10, Height: 10}}}}},
+			want: "svg+xml",
+		},
+		{
+			name: "image src is a data: URI with a non-image MIME type",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Images: []Image{{ID: "i1", Src: "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==", Width: 10, Height: 10}}}}},
+			want: "data: URI must be base64-encoded",
+		},
+		{
+			name: "image src path-traversal escapes the .flowgo file's directory",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Images: []Image{{ID: "i1", Src: "../../../../etc/passwd", Width: 10, Height: 10}}}}},
+			want: "path traversal",
+		},
+		{
+			name: "image src is an absolute filesystem path",
+			g:    Graph{Maps: []NamedMap{{Path: "/", Images: []Image{{ID: "i1", Src: "/etc/passwd", Width: 10, Height: 10}}}}},
+			want: "not absolute",
+		},
 	}
 
 	for _, tc := range cases {
@@ -246,6 +281,33 @@ func TestValidate_CatchesEachViolation(t *testing.T) {
 				t.Fatalf("Validate() errors = %v, want one containing %q", errs, tc.want)
 			}
 		})
+	}
+}
+
+// TestValidate_LegitimateImageSrcsAccepted is the positive counterpart
+// to the scheme-rejection cases above: every src shape the product
+// actually uses — a relative content-addressed upload path, a
+// protocol-relative URL, an http(s) URL, and a base64 raster data:
+// URI of each accepted MIME type — must still validate clean. A
+// validator that rejects real usage alongside the attacks it's meant
+// to catch just gets disabled by the next person who hits it.
+func TestValidate_LegitimateImageSrcsAccepted(t *testing.T) {
+	srcs := []string{
+		"flowgo-media/abc123def4567890.png",
+		"//example.com/icon.png",
+		"http://example.com/icon.png",
+		"https://example.com/icon.png",
+		"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+		"data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD",
+		"data:image/jpg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD",
+		"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP",
+		"data:image/webp;base64,UklGRiIAAABXRUJQVlA4IA",
+	}
+	for _, src := range srcs {
+		g := Graph{Maps: []NamedMap{{Path: "/", Images: []Image{{ID: "i1", Src: src, Width: 10, Height: 10}}}}}
+		if errs := Validate(g); len(errs) != 0 {
+			t.Errorf("src %q rejected: %v", src, errs)
+		}
 	}
 }
 

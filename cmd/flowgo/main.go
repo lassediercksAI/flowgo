@@ -52,22 +52,27 @@ const mediaDirName = "flowgo-media"
 // mediaExtByType maps accepted image content-types to the file
 // extension used for content-addressed storage. Anything not listed is
 // rejected — we don't want to write arbitrary uploaded bytes to disk.
+//
+// image/svg+xml is deliberately absent. An SVG is an active document
+// (it can carry <script>, event-handler attributes, external
+// references), not a picture, and this server has no sanitizer that
+// could make storing and re-serving one safe. Every other accepted
+// type here is a pure raster format with no code-execution surface.
 var mediaExtByType = map[string]string{
-	"image/png":     ".png",
-	"image/jpeg":    ".jpg",
-	"image/gif":     ".gif",
-	"image/webp":    ".webp",
-	"image/svg+xml": ".svg",
+	"image/png":  ".png",
+	"image/jpeg": ".jpg",
+	"image/gif":  ".gif",
+	"image/webp": ".webp",
 }
 
 // mediaTypeByExt is the reverse map, used to set Content-Type when
-// serving a stored asset back.
+// serving a stored asset back. Kept in lockstep with mediaExtByType —
+// see its comment for why svg+xml is absent from both.
 var mediaTypeByExt = map[string]string{
 	".png":  "image/png",
 	".jpg":  "image/jpeg",
 	".gif":  "image/gif",
 	".webp": "image/webp",
-	".svg":  "image/svg+xml",
 }
 
 func mediaDir() string {
@@ -609,9 +614,19 @@ const maxMediaDirBytes = 512 << 20 // 512 MiB
 
 // handleMediaUpload accepts a raw image body (Content-Type set to the
 // image MIME) and writes it into the flowgo-media/ folder under a
-// content-addressed name: sha256(bytes)[:16] + ext. Identical uploads
-// collapse to one file (dedup). Responds {"src":"flowgo-media/<name>"}
-// — the relative path the editor stores in the .flowgo file.
+// content-addressed name: sha256(bytes) (full digest, hex) + ext.
+// Identical uploads collapse to one file (dedup). Responds
+// {"src":"flowgo-media/<name>"} — the relative path the editor stores
+// in the .flowgo file.
+//
+// The declared Content-Type only selects which check to run — sniffing
+// the actual bytes against mediaTypeByExt (below) is what decides
+// whether the upload is accepted. A request that claims image/png but
+// sends something else (HTML, an SVG, a lying label on arbitrary
+// bytes) fails the sniff check and is rejected, so the extension this
+// handler picks — and therefore the Content-Type handleMediaGet later
+// serves the file back under — always matches the real bytes, never
+// the uploader's say-so.
 func handleMediaUpload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", 405)
@@ -637,8 +652,12 @@ func handleMediaUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "empty body", 400)
 		return
 	}
+	if !sniffedTypeMatches(ext, data) {
+		http.Error(w, "file content does not match declared image type "+ct, http.StatusUnsupportedMediaType)
+		return
+	}
 	sum := sha256.Sum256(data)
-	name := hex.EncodeToString(sum[:])[:16] + ext
+	name := hex.EncodeToString(sum[:]) + ext
 
 	mediaMu.Lock()
 	defer mediaMu.Unlock()
@@ -670,15 +689,42 @@ func handleMediaUpload(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"src": mediaDirName + "/" + name})
 }
 
+// sniffedTypeMatches reports whether data's actual content, per
+// net/http's magic-byte sniffer (the WHATWG MIME Sniffing algorithm),
+// matches the MIME type mediaTypeByExt says ext should be. This is the
+// server's own opinion of what the bytes are — independent of
+// whatever Content-Type the uploader claimed — so it can't be fooled
+// by a mislabeled or malicious body wearing an innocent extension.
+func sniffedTypeMatches(ext string, data []byte) bool {
+	want, ok := mediaTypeByExt[ext]
+	if !ok {
+		return false
+	}
+	got := http.DetectContentType(data)
+	if i := strings.IndexByte(got, ';'); i >= 0 {
+		got = strings.TrimSpace(got[:i])
+	}
+	return got == want
+}
+
 // handleMediaGet serves a stored asset. The filename is sanitized to a
 // bare base name so a crafted path (../, absolute, nested) can't escape
-// the media folder.
+// the media folder, and only extensions in mediaTypeByExt are served
+// at all — an unrecognized extension (including a leftover .svg from
+// before SVG support was removed, if one somehow exists on disk) 404s
+// rather than falling through to net/http's own extension- or
+// content-based guess, which could still resolve to image/svg+xml.
 func handleMediaGet(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/"+mediaDirName+"/")
 	// Reject anything that isn't a simple filename living directly in
 	// the media folder — no separators, no traversal, no empties.
 	if rest == "" || rest != filepath.Base(rest) || strings.Contains(rest, "..") {
 		http.Error(w, "bad media path", 400)
+		return
+	}
+	ct, ok := mediaTypeByExt[strings.ToLower(filepath.Ext(rest))]
+	if !ok {
+		http.NotFound(w, r)
 		return
 	}
 	full := filepath.Join(mediaDir(), rest)
@@ -693,9 +739,7 @@ func handleMediaGet(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if ct, ok := mediaTypeByExt[strings.ToLower(filepath.Ext(rest))]; ok {
-		w.Header().Set("Content-Type", ct)
-	}
+	w.Header().Set("Content-Type", ct)
 	// Content-addressed names are immutable, so caching is safe and cheap.
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	http.ServeContent(w, r, rest, info.ModTime(), f)

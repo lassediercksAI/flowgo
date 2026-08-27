@@ -137,6 +137,8 @@ func validateWritableMap(m NamedMap) []error {
 		id("image", i, img.ID)
 		if strings.ContainsRune(img.Src, '\r') {
 			errs = append(errs, fmt.Errorf("map %q: image %q src contains a carriage return", m.Path, img.ID))
+		} else if p := imageSrcProblem(img.Src); p != "" {
+			errs = append(errs, fmt.Errorf("map %q: image %q src %s", m.Path, img.ID, p))
 		}
 	}
 	// Edge endpoints are ids too, but they are written through
@@ -202,6 +204,124 @@ func stringProblem(s string) string {
 		}
 	}
 	return ""
+}
+
+// imageSrcProblem reports why an image's src cannot be trusted, or ""
+// when it is safe. The renderer (both the interactive editor and the
+// read-only inline embed, in the flowgo repo's src/editor/render.ts
+// and src/render/inline.ts) hands this string straight to an <img>
+// element's .src with no further checks, so this is the one place
+// that stands between a crafted .flowgo document — imported, saved
+// through a collab session, or opened via a share link someone else
+// authored — and whatever scheme ends up in that attribute.
+//
+// A src is one of three shapes, per the doc comment on Image.Src:
+//
+//   - a path relative to the .flowgo file (flowgo-media/<hash>.ext,
+//     the on-disk layout content-addressed uploads use) — rejected if
+//     it tries to climb out of that relationship (contains "..") or is
+//     itself absolute (leading "/", "\\", or a drive letter);
+//   - an http(s) (or protocol-relative "//...") URL — a real, already-
+//     supported feature (see resolveImageSrc in inline.ts), left
+//     alone: the browser fetches it exactly like any other <img src>
+//     on the web, so this introduces no new server-side fetch and no
+//     SSRF surface;
+//   - a data: URI, also already supported, narrowed to the same raster
+//     types upload accepts (png/jpeg/gif/webp, base64-encoded) — never
+//     svg+xml (an image/svg+xml payload is an active document, not a
+//     picture) and never a non-image MIME type.
+//
+// Anything else — most pointedly javascript:, vbscript:, and file: —
+// is rejected outright. Browsers do not currently execute a
+// javascript: URL assigned to img.src, but relying on that as the
+// only backstop is exactly the kind of assumption that breaks quietly
+// the day a rendering path changes (an "open original" link, an
+// inline-SVG upgrade for crisper zoom, an <object> fallback); a src
+// field on an image has no legitimate reason to carry a scheme that
+// runs code instead of painting a picture, so it is rejected here
+// regardless of whether today's specific DOM sink happens to be safe.
+func imageSrcProblem(src string) string {
+	if src == "" {
+		return "" // reported separately (validateMap: "has empty src")
+	}
+	if strings.HasPrefix(src, "//") {
+		return "" // protocol-relative URL, same trust level as https:
+	}
+	if scheme, ok := srcScheme(src); ok {
+		switch strings.ToLower(scheme) {
+		case "http", "https":
+			return ""
+		case "data":
+			if !safeImageDataURI(src) {
+				return "data: URI must be base64-encoded image/png, image/jpeg, image/gif, or image/webp (svg+xml and other types are rejected)"
+			}
+			return ""
+		default:
+			return fmt.Sprintf("uses disallowed scheme %q (only http, https, data:image/{png,jpeg,gif,webp}, and relative flowgo-media/ paths are accepted)", scheme)
+		}
+	}
+	// No recognized scheme: must be a path relative to the .flowgo file.
+	if strings.Contains(src, "..") {
+		return `contains ".." (path traversal is not allowed in a relative src)`
+	}
+	if strings.HasPrefix(src, "/") || strings.HasPrefix(src, `\`) {
+		return "must be a path relative to the .flowgo file, not absolute"
+	}
+	if len(src) >= 2 && src[1] == ':' && isASCIILetter(rune(src[0])) {
+		return "must be a path relative to the .flowgo file, not an absolute (drive-letter) path"
+	}
+	return ""
+}
+
+func isASCIILetter(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
+}
+
+// srcScheme extracts the URI scheme prefix ("javascript" out of
+// "javascript:alert(1)"), or ok=false when src has none. Mirrors the
+// URI grammar closely enough for this purpose: a scheme is a letter
+// followed by letters/digits/+/-/., then ":". This deliberately does
+// NOT special-case backslashes or other scheme-like-but-not lookalikes
+// — those fall through to the relative-path branch above, which
+// already rejects absolute-looking paths.
+func srcScheme(s string) (string, bool) {
+	i := strings.IndexByte(s, ':')
+	if i <= 0 {
+		return "", false
+	}
+	scheme := s[:i]
+	for j, r := range scheme {
+		switch {
+		case j == 0 && isASCIILetter(r):
+		case j > 0 && (isASCIILetter(r) || (r >= '0' && r <= '9') || r == '+' || r == '-' || r == '.'):
+		default:
+			return "", false
+		}
+	}
+	return scheme, true
+}
+
+// safeImageDataURIPrefixes are the only data: URI prefixes accepted
+// for an image src — base64-encoded raster types, matching what
+// handleMediaUpload accepts server-side (mediaExtByType in
+// cmd/flowgo/main.go). Deliberately excludes image/svg+xml: an SVG
+// data URI is an active document, not a picture.
+var safeImageDataURIPrefixes = []string{
+	"data:image/png;base64,",
+	"data:image/jpeg;base64,",
+	"data:image/jpg;base64,",
+	"data:image/gif;base64,",
+	"data:image/webp;base64,",
+}
+
+func safeImageDataURI(src string) bool {
+	lower := strings.ToLower(src)
+	for _, p := range safeImageDataURIPrefixes {
+		if strings.HasPrefix(lower, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func validateMap(m NamedMap) []error {
